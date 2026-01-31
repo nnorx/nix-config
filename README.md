@@ -25,7 +25,7 @@ nix --version
 
 1. Clone this repository:
    ```bash
-   git clone <your-repo-url> ~/nix-config
+   git clone git@github.com:nnorx/nix-config.git ~/nix-config
    cd ~/nix-config
    ```
 
