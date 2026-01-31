@@ -48,6 +48,12 @@
     
     # Extra configuration added to .bashrc
     initExtra = ''
+      # Ensure Nix profile is in PATH
+      if [ -e "$HOME/.nix-profile/etc/profile.d/nix.sh" ]; then
+        . "$HOME/.nix-profile/etc/profile.d/nix.sh"
+      fi
+      export PATH="$HOME/.nix-profile/bin:$PATH"
+      
       # Enable Starship prompt
       eval "$(starship init bash)"
       
