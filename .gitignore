@@ -1,0 +1,6 @@
+# Nix build outputs
+result
+result-*
+
+# tmux logs
+tmux-*.log
