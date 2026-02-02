@@ -32,9 +32,14 @@
         '';
       }
       
-      # Syntax highlighting
+      # Syntax highlighting (only needed grammars for faster builds)
       {
-        plugin = nvim-treesitter.withAllGrammars;
+        plugin = nvim-treesitter.withPlugins (p: [
+          p.typescript p.javascript p.tsx p.json
+          p.rust p.nix p.lua p.bash p.markdown
+          p.yaml p.toml p.html p.css p.dockerfile
+          p.gitignore p.make p.python
+        ]);
         type = "lua";
         config = ''
           require('nvim-treesitter.configs').setup({
