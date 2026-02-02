@@ -36,6 +36,9 @@
       nrs = "nix run home-manager -- switch --flake";
       nfu = "nix flake update";
       
+      # AI tools
+      cc = "claude";
+      
       # Misc
       c = "clear";
       h = "history";
@@ -69,10 +72,10 @@
         export PATH="$HOME/.local/bin:$PATH"
       fi
       
-      # Node.js path for global packages
-      if [ -d "$HOME/.npm-global/bin" ]; then
-        export PATH="$HOME/.npm-global/bin:$PATH"
-      fi
+      # Node.js global packages - use ~/.npm-global instead of read-only Nix store
+      export NPM_CONFIG_PREFIX="$HOME/.npm-global"
+      mkdir -p "$HOME/.npm-global/bin"
+      export PATH="$HOME/.npm-global/bin:$PATH"
       
       # Cargo/Rust path
       if [ -d "$HOME/.cargo/bin" ]; then

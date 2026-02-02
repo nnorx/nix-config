@@ -10,9 +10,12 @@
       url = "github:nix-community/home-manager/release-24.11";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    
+    # Claude Code - AI coding assistant (hourly updates)
+    claude-code.url = "github:sadjow/claude-code-nix";
   };
 
-  outputs = { self, nixpkgs, home-manager, ... }:
+  outputs = { self, nixpkgs, home-manager, claude-code, ... }:
   let
     # Helper function to create a Home Manager configuration
     mkHome = { system, username, homeDirectory }:
@@ -20,6 +23,7 @@
         pkgs = import nixpkgs {
           inherit system;
           config.allowUnfree = true;
+          overlays = [ claude-code.overlays.default ];
         };
         
         modules = [

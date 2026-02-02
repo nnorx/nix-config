@@ -43,6 +43,9 @@
     gnumake       # Make build tool
     gcc           # C compiler (needed for some builds)
     direnv        # Per-directory environment variables
+    
+    # ===== AI Tools =====
+    claude-code       # Claude Code CLI (run `claude` to authenticate)
   ];
 
   # FZF - fuzzy finder integration
