@@ -32,6 +32,7 @@
       gs = "git status";
       gd = "git diff";
       gl = "git log --oneline -20";
+      lg = "lazygit";
       
       # Nix shortcuts
       nrs = "nix run home-manager -- switch --flake";

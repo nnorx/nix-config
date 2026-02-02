@@ -30,6 +30,9 @@
     clippy        # Rust linter
     rust-analyzer # Rust LSP
     
+    # ===== Git Tools =====
+    lazygit         # Git TUI
+    
     # ===== DevOps Tools =====
     docker-compose  # Docker orchestration
     kubectl         # Kubernetes CLI
