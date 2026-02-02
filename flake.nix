@@ -53,6 +53,13 @@
         username = "core5";
         homeDirectory = "/home/core5";
       };
+
+      # Mac OS configuration
+      "macos" = mkHome {
+        system = "aarch64-darwin";
+        username = "nicknorcross";
+        homeDirectory = "/Users/nicknorcross";
+      };
     };
   };
 }
