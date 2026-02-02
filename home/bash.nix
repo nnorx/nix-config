@@ -56,9 +56,6 @@
       # Ensure Nix profiles are in PATH
       export PATH="$HOME/.nix-profile/bin:/nix/var/nix/profiles/default/bin:$PATH"
       
-      # Enable Starship prompt
-      eval "$(starship init bash)"
-      
       # Better history search with up/down arrows
       bind '"\e[A": history-search-backward'
       bind '"\e[B": history-search-forward'
