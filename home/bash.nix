@@ -11,11 +11,12 @@
       ".." = "cd ..";
       "..." = "cd ../..";
       
-      # Better defaults
-      ls = "ls --color=auto";
-      ll = "ls -alF";
-      la = "ls -A";
-      l = "ls -CF";
+      # Better defaults (using eza)
+      ls = "eza --color=auto --icons";
+      ll = "eza -la --icons --git";
+      la = "eza -a --icons";
+      l = "eza --icons";
+      lt = "eza --tree --level=2 --icons";
       
       # Safety nets
       rm = "rm -i";
