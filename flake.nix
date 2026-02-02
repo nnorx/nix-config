@@ -12,7 +12,10 @@
     };
     
     # Claude Code - AI coding assistant (hourly updates)
-    claude-code.url = "github:sadjow/claude-code-nix";
+    claude-code = {
+      url = "github:sadjow/claude-code-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs = { self, nixpkgs, home-manager, claude-code, ... }:
