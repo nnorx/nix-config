@@ -1,7 +1,7 @@
 # Main Home Manager configuration
 # This file imports all modules and sets core options
 
-{ pkgs, username, homeDirectory, ... }:
+{ pkgs, lib, username, homeDirectory, ... }:
 {
   imports = [
     ./bash.nix
@@ -28,4 +28,9 @@
     VISUAL = "nvim";
     PAGER = "less";
   };
+
+  # Create directories once during activation (not on every shell start)
+  home.activation.createNpmGlobalDir = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    mkdir -p "$HOME/.npm-global/bin"
+  '';
 }

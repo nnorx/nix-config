@@ -73,8 +73,8 @@
       fi
       
       # Node.js global packages - use ~/.npm-global instead of read-only Nix store
+      # Directory created via home.activation in default.nix
       export NPM_CONFIG_PREFIX="$HOME/.npm-global"
-      mkdir -p "$HOME/.npm-global/bin"
       export PATH="$HOME/.npm-global/bin:$PATH"
       
       # Cargo/Rust path
