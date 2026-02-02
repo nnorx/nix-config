@@ -74,4 +74,10 @@
     enableBashIntegration = true;
     nix-direnv.enable = true;  # Better Nix integration
   };
+
+  # Zoxide - smarter cd command
+  programs.zoxide = {
+    enable = true;
+    enableBashIntegration = true;
+  };
 }
