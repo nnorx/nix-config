@@ -48,7 +48,7 @@
     };
     
     # Bash-specific options
-    historyControl = [ "ignoredups" "erasedups" ];
+    historyControl = [ "ignoredups" "erasedups" "ignorespace" ];
     historyFileSize = 10000;
     historySize = 10000;
     
