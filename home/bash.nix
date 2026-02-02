@@ -37,6 +37,7 @@
       # Nix shortcuts
       nrs = "nix run home-manager -- switch --flake";
       nfu = "nix flake update";
+      ngc = "nix-collect-garbage --delete-older-than 30d";
       
       # AI tools
       cc = "claude";
