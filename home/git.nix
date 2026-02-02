@@ -116,6 +116,7 @@
       ".idea/"
       
       # Environment files (be careful with these)
+      ".env"
       ".env.local"
       ".env.*.local"
       
