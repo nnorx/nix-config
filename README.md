@@ -184,6 +184,7 @@ git add .
 | `nix search nixpkgs <package>` | Search for packages |
 | `nix shell nixpkgs#<package>` | Temporarily use a package |
 | `nix develop` | Enter development shell (if defined) |
+| `ngc` | Garbage collect Nix store (30+ days old) |
 
 ## Learning Resources
 
