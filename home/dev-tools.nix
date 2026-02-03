@@ -55,6 +55,7 @@
   programs.fzf = {
     enable = true;
     enableBashIntegration = true;
+    enableZshIntegration = true;
     
     # Use fd for faster file finding
     defaultCommand = "fd --type f --hidden --follow --exclude .git";
@@ -75,6 +76,7 @@
   programs.direnv = {
     enable = true;
     enableBashIntegration = true;
+    enableZshIntegration = true;
     nix-direnv.enable = true;  # Better Nix integration
   };
 
@@ -82,5 +84,6 @@
   programs.zoxide = {
     enable = true;
     enableBashIntegration = true;
+    enableZshIntegration = true;
   };
 }
