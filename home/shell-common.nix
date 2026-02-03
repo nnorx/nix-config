@@ -10,11 +10,11 @@ let
     "..." = "cd ../..";
     
     # Better defaults (using eza)
-    ls = "eza --color=auto --icons";
-    ll = "eza -la --icons --git";
-    la = "eza -a --icons";
-    l = "eza --icons";
-    lt = "eza --tree --level=2 --icons";
+    ls = "eza --color=auto";
+    ll = "eza -la --git";
+    la = "eza -a";
+    l = "eza";
+    lt = "eza --tree --level=2";
     
     # Safety nets
     rm = "rm -i";
@@ -95,7 +95,7 @@ in
       };
       
       git_branch = {
-        symbol = " ";
+        symbol = "git:";
         style = "bold purple";
       };
       
@@ -113,17 +113,17 @@ in
       };
       
       nodejs = {
-        symbol = " ";
+        symbol = "node ";
         style = "bold green";
       };
       
       rust = {
-        symbol = " ";
+        symbol = "rs ";
         style = "bold red";
       };
       
       python = {
-        symbol = " ";
+        symbol = "py ";
         style = "bold yellow";
       };
       
@@ -138,8 +138,8 @@ in
       };
       
       character = {
-        success_symbol = "[➜](bold green)";
-        error_symbol = "[➜](bold red)";
+        success_symbol = "[>](bold green)";
+        error_symbol = "[>](bold red)";
       };
     };
   };
