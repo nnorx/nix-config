@@ -8,6 +8,9 @@
     # Use 256 colors
     terminal = "screen-256color";
     
+    # Use Nix-managed zsh (fixes shell integrations in tmux on macOS)
+    shell = "${pkgs.zsh}/bin/zsh";
+    
     # Start window numbering at 1
     baseIndex = 1;
     
@@ -43,6 +46,9 @@
     ];
     
     extraConfig = ''
+      # Force interactive (non-login) shell so .zshrc is sourced in tmux
+      set -g default-command "${pkgs.zsh}/bin/zsh"
+      
       # Enable true color support
       set -ga terminal-overrides ",*256col*:Tc"
       
