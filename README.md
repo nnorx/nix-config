@@ -25,18 +25,16 @@ nix --version
 
 1. Clone this repository:
    ```bash
-   git clone https://github.com/nnorx/nix-config.git ~/nix-config
-   cd ~/nix-config
+   git clone https://github.com/nnorx/nix-config.git ~/projects/nix-config
+   cd ~/projects/nix-config
    ```
 
 2. Apply the configuration:
    ```bash
-   # On x86_64 Linux (including WSL)
-   nix run home-manager -- switch --flake .#nick
-   
-   # On Raspberry Pi (aarch64)
-   nix run home-manager -- switch --flake .#core5
+   nix run home-manager -- switch --flake .
    ```
+   
+   This detects the right configuration based on your username.
 
 3. Restart your shell:
    ```bash
@@ -48,16 +46,14 @@ nix --version
 After making changes to your configuration:
 
 ```bash
-cd ~/nix-config
-nix run home-manager -- switch --flake .#nick
+hms
 ```
 
 To update all packages to latest versions:
 
 ```bash
-cd ~/nix-config
-nix flake update
-nix run home-manager -- switch --flake .#nick
+cd ~/projects/nix-config
+nfu && hms
 ```
 
 ## Repository Structure
@@ -169,7 +165,7 @@ exec $SHELL -l
 
 Make sure you're in the nix-config directory and it's a git repo:
 ```bash
-cd ~/nix-config
+cd ~/projects/nix-config
 git init
 git add .
 ```
@@ -178,13 +174,13 @@ git add .
 
 | Command | Description |
 |---------|-------------|
-| `nix run home-manager -- switch --flake .#nick` | Apply configuration |
-| `nix flake update` | Update all inputs to latest |
+| `hms` | Apply configuration (alias for home-manager switch) |
+| `nfu` | Update flake inputs (`nix flake update`) |
+| `ngc` | Garbage collect Nix store (30+ days old) |
 | `nix flake show` | Show flake outputs |
 | `nix search nixpkgs <package>` | Search for packages |
 | `nix shell nixpkgs#<package>` | Temporarily use a package |
 | `nix develop` | Enter development shell (if defined) |
-| `ngc` | Garbage collect Nix store (30+ days old) |
 
 ## Learning Resources
 

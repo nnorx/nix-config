@@ -33,7 +33,7 @@ let
     lg = "lazygit";
     
     # Nix shortcuts
-    nrs = "nix run home-manager -- switch --flake";
+    hms = "nix run home-manager -- switch --flake ~/projects/nix-config";
     nfu = "nix flake update";
     ngc = "nix-collect-garbage --delete-older-than 30d";
     
