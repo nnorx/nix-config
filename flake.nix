@@ -5,6 +5,9 @@
     # Use stable nixpkgs
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
     
+    # Unstable nixpkgs for bleeding-edge packages
+    nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    
     # Home Manager for managing user environment
     home-manager = {
       url = "github:nix-community/home-manager/release-24.11";
@@ -18,10 +21,16 @@
     };
   };
 
-  outputs = { self, nixpkgs, home-manager, claude-code, ... }:
+  outputs = { self, nixpkgs, nixpkgs-unstable, home-manager, claude-code, ... }:
   let
     # Helper function to create a Home Manager configuration
     mkHome = { system, username, homeDirectory }:
+      let
+        unstable = import nixpkgs-unstable {
+          inherit system;
+          config.allowUnfree = true;
+        };
+      in
       home-manager.lib.homeManagerConfiguration {
         pkgs = import nixpkgs {
           inherit system;
@@ -34,7 +43,7 @@
         ];
         
         extraSpecialArgs = {
-          inherit username homeDirectory;
+          inherit username homeDirectory unstable;
         };
       };
   in {

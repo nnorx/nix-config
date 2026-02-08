@@ -1,6 +1,6 @@
 # Development tools and programming languages
 
-{ pkgs, ... }:
+{ pkgs, unstable, ... }:
 {
   home.packages = with pkgs; [
     # ===== CLI Essentials =====
@@ -20,7 +20,7 @@
     
     # ===== JavaScript/TypeScript =====
     nodejs_22     # Node.js LTS (includes npm)
-    pnpm
+    unstable.pnpm # pnpm 10 from nixpkgs-unstable
     nodePackages.typescript
     
     # ===== Rust =====
