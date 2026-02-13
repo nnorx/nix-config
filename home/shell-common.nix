@@ -27,8 +27,7 @@ let
     find = "fd";
     
     # Git shortcuts
-    gs = "git status";
-    gd = "git diff";
+    g = "git";
     gl = "git log --oneline -20";
     lg = "lazygit";
     
@@ -37,6 +36,9 @@ let
     nfu = "nix flake update";
     ngc = "nix-collect-garbage --delete-older-than 30d";
     
+    # Package manager
+    pn = "pnpm";
+
     # AI tools
     cc = "claude";
     
