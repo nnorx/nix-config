@@ -28,6 +28,7 @@ let
     
     # Git shortcuts
     g = "git";
+    gs = "git switch";
     gl = "git log --oneline -20";
     lg = "lazygit";
     
