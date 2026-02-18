@@ -132,6 +132,12 @@
       "result"
       "result-*"
       
+      # Playwright
+      "test-results/"
+      "playwright-report/"
+      "blob-report/"
+      ".playwright/"
+
       # tmux logs
       "tmux-*.log"
     ];

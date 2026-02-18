@@ -105,6 +105,42 @@ nix-config/
 - File explorer with nvim-tree (`<leader>e`)
 - Git signs in gutter
 
+## Dev Shells
+
+The flake provides reusable dev shells for project-specific tooling via `nix develop` or direnv.
+
+### Playwright E2E Testing
+
+Provides Chromium with Nix-patched binaries — no system-level browser installs needed. Works across Debian, WSL, and other Linux environments.
+
+**Per-project setup:**
+
+1. Add an `.envrc` to your project:
+   ```bash
+   echo 'use flake ~/projects/nix-config#playwright' > .envrc
+   direnv allow
+   ```
+
+2. Pin the matching `@playwright/test` version shown in the shell output:
+   ```bash
+   pnpm add -D @playwright/test@<version>
+   ```
+
+3. Run tests:
+   ```bash
+   pwt          # npx playwright test
+   pwth         # --headed
+   pwtd         # --debug
+   pwui         # --ui mode
+   pwshow       # show report
+   pwgen        # codegen
+   ```
+
+**Or enter the shell directly:**
+```bash
+nix develop ~/projects/nix-config#playwright
+```
+
 ## Customization
 
 ### Change Git Identity

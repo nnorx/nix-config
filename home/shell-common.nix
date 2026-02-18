@@ -42,7 +42,15 @@ let
 
     # AI tools
     cc = "claude";
-    
+
+    # Playwright
+    pwt = "npx playwright test";
+    pwth = "npx playwright test --headed";
+    pwtd = "npx playwright test --debug";
+    pwui = "npx playwright test --ui";
+    pwshow = "npx playwright show-report";
+    pwgen = "npx playwright codegen";
+
     # Misc
     c = "clear";
     h = "history";

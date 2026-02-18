@@ -29,6 +29,9 @@
     EDITOR = "nvim";
     VISUAL = "nvim";
     PAGER = "less";
+
+    # Skip Playwright browser downloads - use Nix-provided browsers in devShells
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
   };
 
   # Create directories once during activation (not on every shell start)
