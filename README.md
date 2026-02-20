@@ -4,7 +4,7 @@ A reproducible development environment managed with Nix Flakes and Home Manager.
 
 ## Prerequisites
 
-- Linux (tested on Debian WSL and Raspberry Pi OS)
+- Linux (tested on Debian WSL and Raspberry Pi OS) or macOS (Apple Silicon)
 - [Nix package manager](https://nixos.org/) with flakes enabled
 
 ## Install Nix
@@ -60,24 +60,29 @@ nfu && hms
 
 ```
 nix-config/
-├── flake.nix          # Entry point - defines inputs and outputs
-├── flake.lock         # Locked dependency versions
+├── flake.nix            # Entry point - defines inputs, outputs, and devShells
+├── flake.lock           # Locked dependency versions
 ├── home/
-│   ├── default.nix    # Main Home Manager config
-│   ├── bash.nix       # Bash shell + Starship prompt
-│   ├── git.nix        # Git configuration + aliases
-│   ├── dev-tools.nix  # Development packages (Node, Rust, CLI tools)
-│   ├── tmux.nix       # tmux terminal multiplexer
-│   └── neovim.nix     # Neovim editor configuration
+│   ├── default.nix      # Main Home Manager config (imports all modules)
+│   ├── shell-common.nix # Shared aliases and PATH setup for bash/zsh
+│   ├── starship.nix     # Starship prompt configuration
+│   ├── bash.nix         # Bash-specific shell configuration
+│   ├── zsh.nix          # Zsh-specific shell configuration
+│   ├── git.nix          # Git configuration + aliases + GitHub CLI
+│   ├── dev-tools.nix    # Development packages (Node, Rust, CLI tools)
+│   ├── tmux.nix         # tmux terminal multiplexer
+│   ├── neovim.nix       # Neovim editor configuration
+│   └── darwin.nix       # macOS-specific configuration
 └── README.md
 ```
 
 ## What's Included
 
-### Shell (bash.nix)
-- Bash with useful aliases
+### Shell (shell-common.nix, bash.nix, zsh.nix, starship.nix)
+- Bash and Zsh with shared aliases and PATH setup
 - Starship prompt (shows git status, language versions, etc.)
 - Better history search with arrow keys
+- Zsh autosuggestions and syntax highlighting
 
 ### Git (git.nix)
 - Pre-configured aliases (e.g., `git lg` for pretty log)
@@ -100,10 +105,11 @@ nix-config/
 ### Neovim (neovim.nix)
 - Catppuccin theme
 - Treesitter syntax highlighting
-- Telescope fuzzy finder (`<leader>ff` to find files)
+- Telescope fuzzy finder with native FZF sorter (`<leader>ff` to find files)
 - LSP support for TypeScript, Rust, Nix
+- Autocompletion with nvim-cmp and snippet support (luasnip)
 - File explorer with nvim-tree (`<leader>e`)
-- Git signs in gutter
+- Git signs in gutter with keybindings (`<leader>g`)
 
 ## Dev Shells
 
@@ -165,9 +171,9 @@ Find packages at: https://search.nixos.org/packages
 
 ### Add Shell Aliases
 
-Edit `home/bash.nix` and add to `shellAliases`:
+Edit `home/shell-common.nix` and add to `commonAliases`:
 ```nix
-shellAliases = {
+commonAliases = {
   # ... existing aliases ...
   myalias = "my-command --with-flags";
 };
