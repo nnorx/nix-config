@@ -13,12 +13,6 @@
       url = "github:nix-community/home-manager/release-24.11";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-
-    # Claude Code - AI coding assistant (hourly updates)
-    claude-code = {
-      url = "github:sadjow/claude-code-nix";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
   };
 
   outputs =
@@ -27,7 +21,6 @@
       nixpkgs,
       nixpkgs-unstable,
       home-manager,
-      claude-code,
       ...
     }:
     let
@@ -70,7 +63,7 @@
           pkgs = import nixpkgs {
             inherit system;
             config.allowUnfree = true;
-            overlays = [ claude-code.overlays.default ];
+            overlays = [ ];
           };
 
           modules = [
