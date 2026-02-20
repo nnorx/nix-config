@@ -29,19 +29,30 @@
         "aarch64-linux"
         "aarch64-darwin"
       ];
+
+      # Import nixpkgs once per system and reuse everywhere
+      pkgsFor = nixpkgs.lib.genAttrs systems (
+        system:
+        import nixpkgs {
+          inherit system;
+          config.allowUnfree = true;
+        }
+      );
+      unstableFor = nixpkgs.lib.genAttrs systems (
+        system:
+        import nixpkgs-unstable {
+          inherit system;
+          config.allowUnfree = true;
+        }
+      );
+
       forAllSystems =
         f:
         nixpkgs.lib.genAttrs systems (
           system:
           f {
-            pkgs = import nixpkgs {
-              inherit system;
-              config.allowUnfree = true;
-            };
-            unstable = import nixpkgs-unstable {
-              inherit system;
-              config.allowUnfree = true;
-            };
+            pkgs = pkgsFor.${system};
+            unstable = unstableFor.${system};
           }
         );
 
@@ -53,25 +64,16 @@
           homeDirectory,
           extraModules ? [ ],
         }:
-        let
-          unstable = import nixpkgs-unstable {
-            inherit system;
-            config.allowUnfree = true;
-          };
-        in
         home-manager.lib.homeManagerConfiguration {
-          pkgs = import nixpkgs {
-            inherit system;
-            config.allowUnfree = true;
-            overlays = [ ];
-          };
+          pkgs = pkgsFor.${system};
 
           modules = [
             ./home
           ] ++ extraModules;
 
           extraSpecialArgs = {
-            inherit username homeDirectory unstable;
+            inherit username homeDirectory;
+            unstable = unstableFor.${system};
           };
         };
     in
