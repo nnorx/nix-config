@@ -190,6 +190,18 @@
               topdelete = { text = '‾' },
               changedelete = { text = '~' },
             },
+            on_attach = function(bufnr)
+              local gs = package.loaded.gitsigns
+              local opts = function(desc) return { buffer = bufnr, desc = desc } end
+
+              vim.keymap.set('n', '<leader>gn', gs.next_hunk, opts('Next hunk'))
+              vim.keymap.set('n', '<leader>gp', gs.prev_hunk, opts('Previous hunk'))
+              vim.keymap.set('n', '<leader>gs', gs.stage_hunk, opts('Stage hunk'))
+              vim.keymap.set('n', '<leader>gr', gs.reset_hunk, opts('Reset hunk'))
+              vim.keymap.set('n', '<leader>gu', gs.undo_stage_hunk, opts('Undo stage hunk'))
+              vim.keymap.set('n', '<leader>gd', gs.preview_hunk, opts('Preview hunk diff'))
+              vim.keymap.set('n', '<leader>gb', function() gs.blame_line({ full = true }) end, opts('Blame line'))
+            end,
           })
         '';
       }
