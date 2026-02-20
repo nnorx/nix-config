@@ -8,35 +8,35 @@ let
     # Navigation
     ".." = "cd ..";
     "..." = "cd ../..";
-    
+
     # Better defaults (using eza)
     ls = "eza --color=auto";
     ll = "eza -la --git";
     la = "eza -a";
     l = "eza";
     lt = "eza --tree --level=2";
-    
+
     # Safety nets
     rm = "rm -i";
     cp = "cp -i";
     mv = "mv -i";
-    
+
     # Modern replacements
     cat = "bat --paging=never";
     grep = "rg";
     find = "fd";
-    
+
     # Git shortcuts
     g = "git";
     gs = "git switch";
     gl = "git log --oneline -20";
     lg = "lazygit";
-    
+
     # Nix shortcuts
     hms = "nix run home-manager -- switch --flake ~/projects/nix-config";
     nfu = "nix flake update";
     ngc = "nix-collect-garbage --delete-older-than 30d";
-    
+
     # Package manager
     pn = "pnpm";
 
@@ -60,16 +60,16 @@ let
   commonPathSetup = ''
     # Ensure Nix profiles are in PATH
     export PATH="$HOME/.nix-profile/bin:/nix/var/nix/profiles/default/bin:$PATH"
-    
+
     # Add local bin to PATH if it exists
     if [ -d "$HOME/.local/bin" ]; then
       export PATH="$HOME/.local/bin:$PATH"
     fi
-    
+
     # Node.js global packages - use ~/.npm-global instead of read-only Nix store
     export NPM_CONFIG_PREFIX="$HOME/.npm-global"
     export PATH="$HOME/.npm-global/bin:$PATH"
-    
+
     # Cargo/Rust path
     if [ -d "$HOME/.cargo/bin" ]; then
       export PATH="$HOME/.cargo/bin:$PATH"
@@ -84,7 +84,7 @@ in
       default = commonAliases;
       description = "Common shell aliases shared between bash and zsh";
     };
-    
+
     pathSetup = lib.mkOption {
       type = lib.types.str;
       default = commonPathSetup;

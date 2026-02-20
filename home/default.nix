@@ -1,11 +1,17 @@
 # Main Home Manager configuration
 # This file imports all modules and sets core options
 
-{ pkgs, lib, username, homeDirectory, ... }:
+{
+  pkgs,
+  lib,
+  username,
+  homeDirectory,
+  ...
+}:
 {
   imports = [
-    ./shell-common.nix  # Shared aliases and PATH setup
-    ./starship.nix      # Prompt configuration
+    ./shell-common.nix # Shared aliases and PATH setup
+    ./starship.nix # Prompt configuration
     ./bash.nix
     ./zsh.nix
     ./git.nix

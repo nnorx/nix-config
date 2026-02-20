@@ -4,15 +4,15 @@
 {
   programs.neovim = {
     enable = true;
-    
+
     # Set as default editor
     defaultEditor = true;
-    
+
     # Aliases
     viAlias = true;
     vimAlias = true;
     vimdiffAlias = true;
-    
+
     # Plugins
     plugins = with pkgs.vimPlugins; [
       # Theme
@@ -31,14 +31,27 @@
           vim.cmd.colorscheme "catppuccin"
         '';
       }
-      
+
       # Syntax highlighting (only needed grammars for faster builds)
       {
         plugin = nvim-treesitter.withPlugins (p: [
-          p.typescript p.javascript p.tsx p.json
-          p.rust p.nix p.lua p.bash p.markdown
-          p.yaml p.toml p.html p.css p.dockerfile
-          p.gitignore p.make p.python
+          p.typescript
+          p.javascript
+          p.tsx
+          p.json
+          p.rust
+          p.nix
+          p.lua
+          p.bash
+          p.markdown
+          p.yaml
+          p.toml
+          p.html
+          p.css
+          p.dockerfile
+          p.gitignore
+          p.make
+          p.python
         ]);
         type = "lua";
         config = ''
@@ -48,7 +61,7 @@
           })
         '';
       }
-      
+
       # File explorer
       {
         plugin = nvim-tree-lua;
@@ -60,8 +73,8 @@
           vim.keymap.set('n', '<leader>e', ':NvimTreeToggle<CR>', { desc = 'Toggle file explorer' })
         '';
       }
-      nvim-web-devicons  # Icons for nvim-tree
-      
+      nvim-web-devicons # Icons for nvim-tree
+
       # Fuzzy finder
       {
         plugin = telescope-nvim;
@@ -85,9 +98,9 @@
           vim.keymap.set('n', '<leader>fh', builtin.help_tags, { desc = 'Help tags' })
         '';
       }
-      telescope-fzf-native-nvim  # Native FZF sorter for telescope
-      plenary-nvim  # Required by telescope
-      
+      telescope-fzf-native-nvim # Native FZF sorter for telescope
+      plenary-nvim # Required by telescope
+
       # Status line
       {
         plugin = lualine-nvim;
@@ -102,23 +115,23 @@
           })
         '';
       }
-      
+
       # LSP Support
       {
         plugin = nvim-lspconfig;
         type = "lua";
         config = ''
           local lspconfig = require('lspconfig')
-          
+
           -- TypeScript/JavaScript
           lspconfig.ts_ls.setup({})
-          
+
           -- Rust
           lspconfig.rust_analyzer.setup({})
-          
+
           -- Nix
           lspconfig.nil_ls.setup({})
-          
+
           -- Global keybindings for LSP
           vim.keymap.set('n', 'gd', vim.lsp.buf.definition, { desc = 'Go to definition' })
           vim.keymap.set('n', 'gr', vim.lsp.buf.references, { desc = 'Find references' })
@@ -128,7 +141,7 @@
           vim.keymap.set('n', '<leader>f', function() vim.lsp.buf.format({ async = true }) end, { desc = 'Format buffer' })
         '';
       }
-      
+
       # Snippet engine
       {
         plugin = luasnip;
@@ -176,7 +189,7 @@
       cmp-nvim-lsp
       cmp-buffer
       cmp-path
-      
+
       # Git signs in gutter
       {
         plugin = gitsigns-nvim;
@@ -205,21 +218,21 @@
           })
         '';
       }
-      
+
       # Auto pairs
       {
         plugin = nvim-autopairs;
         type = "lua";
         config = "require('nvim-autopairs').setup({})";
       }
-      
+
       # Comment toggle
       {
         plugin = comment-nvim;
         type = "lua";
         config = "require('Comment').setup()";
       }
-      
+
       # Which-key for keybinding hints
       {
         plugin = which-key-nvim;
@@ -233,13 +246,13 @@
         '';
       }
     ];
-    
+
     # Extra Lua configuration
     extraLuaConfig = ''
       -- Set leader key to space
       vim.g.mapleader = ' '
       vim.g.maplocalleader = ' '
-      
+
       -- Basic options
       vim.opt.number = true           -- Show line numbers
       vim.opt.relativenumber = true   -- Relative line numbers
@@ -256,28 +269,28 @@
       vim.opt.splitbelow = true       -- Splits open below
       vim.opt.cursorline = true       -- Highlight current line
       vim.opt.scrolloff = 10          -- Keep cursor centered
-      
+
       -- Tabs and indentation
       vim.opt.tabstop = 2
       vim.opt.shiftwidth = 2
       vim.opt.expandtab = true
       vim.opt.smartindent = true
-      
+
       -- Search highlighting
       vim.opt.hlsearch = true
       vim.keymap.set('n', '<Esc>', '<cmd>nohlsearch<CR>', { desc = 'Clear search highlight' })
-      
+
       -- Window navigation
       vim.keymap.set('n', '<C-h>', '<C-w>h', { desc = 'Move to left window' })
       vim.keymap.set('n', '<C-j>', '<C-w>j', { desc = 'Move to lower window' })
       vim.keymap.set('n', '<C-k>', '<C-w>k', { desc = 'Move to upper window' })
       vim.keymap.set('n', '<C-l>', '<C-w>l', { desc = 'Move to right window' })
-      
+
       -- Buffer navigation
       vim.keymap.set('n', '<leader>bn', ':bnext<CR>', { desc = 'Next buffer' })
       vim.keymap.set('n', '<leader>bp', ':bprevious<CR>', { desc = 'Previous buffer' })
       vim.keymap.set('n', '<leader>bd', ':bdelete<CR>', { desc = 'Delete buffer' })
-      
+
       -- Quick save
       vim.keymap.set('n', '<leader>w', ':w<CR>', { desc = 'Save file' })
       vim.keymap.set('n', '<leader>q', ':q<CR>', { desc = 'Quit' })
