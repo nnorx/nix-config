@@ -30,7 +30,7 @@
     });
 
     # Helper function to create a Home Manager configuration
-    mkHome = { system, username, homeDirectory }:
+    mkHome = { system, username, homeDirectory, extraModules ? [] }:
       let
         unstable = import nixpkgs-unstable {
           inherit system;
@@ -46,7 +46,7 @@
 
         modules = [
           ./home
-        ];
+        ] ++ extraModules;
 
         extraSpecialArgs = {
           inherit username homeDirectory unstable;
@@ -92,6 +92,7 @@
         system = "aarch64-darwin";
         username = "nicknorcross";
         homeDirectory = "/Users/nicknorcross";
+        extraModules = [ ./home/darwin.nix ];
       };
     };
   };
