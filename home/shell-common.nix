@@ -56,23 +56,37 @@ let
     h = "history";
   };
 
+  # Helper to prepend to PATH only if not already present
+  #   Usage: path_prepend "/some/dir"
+  pathGuard = ''
+    path_prepend() {
+      case ":$PATH:" in
+        *:"$1":*) ;;
+        *) export PATH="$1:$PATH" ;;
+      esac
+    }
+  '';
+
   # Common PATH setup (POSIX-compatible, works in both bash and zsh)
   commonPathSetup = ''
+    ${pathGuard}
+
     # Ensure Nix profiles are in PATH
-    export PATH="$HOME/.nix-profile/bin:/nix/var/nix/profiles/default/bin:$PATH"
+    path_prepend "/nix/var/nix/profiles/default/bin"
+    path_prepend "$HOME/.nix-profile/bin"
 
     # Add local bin to PATH if it exists
     if [ -d "$HOME/.local/bin" ]; then
-      export PATH="$HOME/.local/bin:$PATH"
+      path_prepend "$HOME/.local/bin"
     fi
 
     # Node.js global packages - use ~/.npm-global instead of read-only Nix store
     export NPM_CONFIG_PREFIX="$HOME/.npm-global"
-    export PATH="$HOME/.npm-global/bin:$PATH"
+    path_prepend "$HOME/.npm-global/bin"
 
     # Cargo/Rust path
     if [ -d "$HOME/.cargo/bin" ]; then
-      export PATH="$HOME/.cargo/bin:$PATH"
+      path_prepend "$HOME/.cargo/bin"
     fi
   '';
 in
