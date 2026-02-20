@@ -117,13 +117,31 @@
         '';
       }
       
+      # Snippet engine
+      {
+        plugin = luasnip;
+        type = "lua";
+        config = ''
+          local luasnip = require('luasnip')
+          -- Jump forward/backward through snippet placeholders
+          vim.keymap.set({'i', 's'}, '<C-k>', function() luasnip.jump(1) end, { desc = 'Next snippet placeholder' })
+          vim.keymap.set({'i', 's'}, '<C-j>', function() luasnip.jump(-1) end, { desc = 'Previous snippet placeholder' })
+        '';
+      }
+
       # Autocompletion
       {
         plugin = nvim-cmp;
         type = "lua";
         config = ''
           local cmp = require('cmp')
+          local luasnip = require('luasnip')
           cmp.setup({
+            snippet = {
+              expand = function(args)
+                luasnip.lsp_expand(args.body)
+              end,
+            },
             mapping = cmp.mapping.preset.insert({
               ['<C-b>'] = cmp.mapping.scroll_docs(-4),
               ['<C-f>'] = cmp.mapping.scroll_docs(4),
@@ -134,6 +152,7 @@
               ['<S-Tab>'] = cmp.mapping.select_prev_item(),
             }),
             sources = cmp.config.sources({
+              { name = 'luasnip' },
               { name = 'nvim_lsp' },
               { name = 'buffer' },
               { name = 'path' },
@@ -141,6 +160,7 @@
           })
         '';
       }
+      cmp_luasnip
       cmp-nvim-lsp
       cmp-buffer
       cmp-path

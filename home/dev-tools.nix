@@ -22,6 +22,7 @@
     nodejs_22     # Node.js LTS (includes npm)
     unstable.pnpm # pnpm 10 from nixpkgs-unstable
     nodePackages.typescript
+    nodePackages.typescript-language-server
     
     # ===== Rust =====
     rustc         # Rust compiler
