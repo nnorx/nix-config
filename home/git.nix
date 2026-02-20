@@ -33,10 +33,13 @@
       
       # Misc
       core.editor = "nvim";
-      core.autocrlf = "input";  # Important for WSL
+      core.autocrlf = if pkgs.stdenv.isLinux then "input" else false;
       
-      # Credential helper - cache for 1 hour
-      credential.helper = "cache --timeout=3600";
+      # Credential helper - platform-appropriate
+      credential.helper =
+        if pkgs.stdenv.isDarwin
+        then "osxkeychain"
+        else "cache --timeout=3600";
       
       # Better log output
       log.abbrevCommit = true;
