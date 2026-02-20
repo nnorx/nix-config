@@ -4,7 +4,8 @@
 { pkgs, lib, username, homeDirectory, ... }:
 {
   imports = [
-    ./shell-common.nix  # Shared aliases, PATH setup, and starship config
+    ./shell-common.nix  # Shared aliases and PATH setup
+    ./starship.nix      # Prompt configuration
     ./bash.nix
     ./zsh.nix
     ./git.nix
