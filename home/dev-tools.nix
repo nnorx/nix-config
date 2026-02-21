@@ -17,6 +17,7 @@
     wget # File downloader
     curl # HTTP client
     unzip # Archive extraction
+    tldr # Community-maintained command cheat sheets
 
     # ===== JavaScript/TypeScript =====
     nodejs_22 # Node.js LTS (includes npm)
