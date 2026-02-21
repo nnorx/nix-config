@@ -50,7 +50,7 @@
     gcc # C compiler (needed for some builds)
     direnv # Per-directory environment variables
 
-];
+  ];
 
   # FZF - fuzzy finder integration
   programs.fzf = {

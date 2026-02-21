@@ -35,6 +35,7 @@ let
     # Nix shortcuts
     hms = "nix run home-manager -- switch --flake ~/projects/nix-config";
     nfu = "nix flake update";
+    nff = "nix fmt -- **/*.nix";
     ngc = "nix-collect-garbage --delete-older-than 30d";
 
     # Package manager
@@ -50,6 +51,14 @@ let
     pwui = "npx playwright test --ui";
     pwshow = "npx playwright show-report";
     pwgen = "npx playwright codegen";
+
+    # Interactive git
+    gsb = "git branch | fzf | xargs git switch";
+    gsr = "git branch --sort=-committerdate | fzf | xargs git switch";
+
+    # Interactive file utilities
+    fopen = "fd -t f | fzf --preview 'bat --color=always {}' | xargs nvim";
+    bigfiles = "fd -t f -x du -h {} | sort -rh | head -20";
 
     # Misc
     c = "clear";
