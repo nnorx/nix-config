@@ -1,70 +1,9 @@
 # Shared shell configuration used by both bash.nix and zsh.nix
 # Aliases and PATH setup shared across shells
+# Dev-specific aliases live in dev-tools.nix and merge via the module system
 
 { pkgs, lib, ... }:
 let
-  # Shared aliases for all shells
-  commonAliases = {
-    # Navigation
-    ".." = "cd ..";
-    "..." = "cd ../..";
-
-    # Better defaults (using eza)
-    ls = "eza --color=auto";
-    ll = "eza -la --git";
-    la = "eza -a";
-    l = "eza";
-    lt = "eza --tree --level=2";
-
-    # Safety nets
-    rm = "rm -i";
-    cp = "cp -i";
-    mv = "mv -i";
-
-    # Modern replacements
-    cat = "bat --paging=never";
-    grep = "rg";
-    find = "fd";
-
-    # Git shortcuts
-    g = "git";
-    gs = "git switch";
-    gl = "git log --oneline -20";
-    lg = "lazygit";
-
-    # Nix shortcuts
-    hms = "nix run home-manager -- switch --flake ~/projects/nix-config";
-    nfu = "nix flake update";
-    nff = "nix fmt -- **/*.nix";
-    ngc = "nix-collect-garbage --delete-older-than 30d";
-
-    # Package manager
-    pn = "pnpm";
-
-    # AI tools
-    cc = "claude";
-
-    # Playwright
-    pwt = "npx playwright test";
-    pwth = "npx playwright test --headed";
-    pwtd = "npx playwright test --debug";
-    pwui = "npx playwright test --ui";
-    pwshow = "npx playwright show-report";
-    pwgen = "npx playwright codegen";
-
-    # Interactive git
-    gsb = "git branch | fzf | xargs git switch";
-    gsr = "git branch --sort=-committerdate | fzf | xargs git switch";
-
-    # Interactive file utilities
-    fopen = "fd -t f | fzf --preview 'bat --color=always {}' | xargs nvim";
-    bigfiles = "fd -t f -x du -h {} | sort -rh | head -20";
-
-    # Misc
-    c = "clear";
-    h = "history";
-  };
-
   # Helper to prepend to PATH only if not already present
   #   Usage: path_prepend "/some/dir"
   pathGuard = ''
@@ -104,7 +43,7 @@ in
   options.shell-common = {
     aliases = lib.mkOption {
       type = lib.types.attrsOf lib.types.str;
-      default = commonAliases;
+      default = { };
       description = "Common shell aliases shared between bash and zsh";
     };
 
@@ -115,4 +54,50 @@ in
     };
   };
 
+  # Set common aliases via config so dev-tools.nix can merge additional aliases
+  config.shell-common.aliases = {
+    # Navigation
+    ".." = "cd ..";
+    "..." = "cd ../..";
+
+    # Better defaults (using eza)
+    ls = "eza --color=auto";
+    ll = "eza -la --git";
+    la = "eza -a";
+    l = "eza";
+    lt = "eza --tree --level=2";
+
+    # Safety nets
+    rm = "rm -i";
+    cp = "cp -i";
+    mv = "mv -i";
+
+    # Modern replacements
+    cat = "bat --paging=never";
+    grep = "rg";
+    find = "fd";
+
+    # Git shortcuts
+    g = "git";
+    gs = "git switch";
+    gl = "git log --oneline -20";
+
+    # Nix shortcuts
+    hms = "nix run home-manager -- switch --flake ~/projects/nix-config";
+    nfu = "nix flake update";
+    nff = "nix fmt -- **/*.nix";
+    ngc = "nix-collect-garbage --delete-older-than 30d";
+
+    # Interactive git
+    gsb = "git branch | fzf | xargs git switch";
+    gsr = "git branch --sort=-committerdate | fzf | xargs git switch";
+
+    # Interactive file utilities
+    fopen = "fd -t f | fzf --preview 'bat --color=always {}' | xargs nvim";
+    bigfiles = "fd -t f -x du -h {} | sort -rh | head -20";
+
+    # Misc
+    c = "clear";
+    h = "history";
+  };
 }

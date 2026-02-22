@@ -1,24 +1,15 @@
 # Development tools and programming languages
+# Only included on dev hosts (WSL, macOS) — not on Raspberry Pis
+# CLI essentials live in common-tools.nix
 
-{ pkgs, unstable, ... }:
+{
+  pkgs,
+  lib,
+  unstable,
+  ...
+}:
 {
   home.packages = with pkgs; [
-    # ===== CLI Essentials =====
-    ripgrep # Fast grep replacement (rg)
-    fd # Fast find replacement
-    jq # JSON processor
-    yq # YAML processor
-    bat # Cat with syntax highlighting
-    eza # Modern ls replacement
-    fzf # Fuzzy finder
-    tree # Directory tree view
-    htop # Process viewer
-    ncdu # Disk usage analyzer
-    wget # File downloader
-    curl # HTTP client
-    unzip # Archive extraction
-    tldr # Community-maintained command cheat sheets
-
     # ===== JavaScript/TypeScript =====
     nodejs_22 # Node.js LTS (includes npm)
     unstable.pnpm # pnpm 10 from nixpkgs-unstable
@@ -49,32 +40,38 @@
     gnumake # Make build tool
     gcc # C compiler (needed for some builds)
     direnv # Per-directory environment variables
-
   ];
 
-  # FZF - fuzzy finder integration
-  programs.fzf = {
-    enable = true;
-    enableBashIntegration = true;
-    enableZshIntegration = true;
+  # Dev-specific shell aliases (merged with common aliases via module system)
+  shell-common.aliases = {
+    # Git TUI
+    lg = "lazygit";
 
-    # Use fd for faster file finding
-    defaultCommand = "fd --type f --hidden --follow --exclude .git";
+    # Package manager
+    pn = "pnpm";
 
-    # Ctrl+T to find files
-    fileWidgetCommand = "fd --type f --hidden --follow --exclude .git";
-    fileWidgetOptions = [ "--preview 'bat --color=always --style=numbers --line-range=:500 {}'" ];
+    # AI tools
+    cc = "claude";
 
-    # Alt+C to cd into directories
-    changeDirWidgetCommand = "fd --type d --hidden --follow --exclude .git";
-    changeDirWidgetOptions = [ "--preview 'tree -C {} | head -200'" ];
-
-    # Ctrl+R for history (default)
-    historyWidgetOptions = [
-      "--sort"
-      "--exact"
-    ];
+    # Playwright
+    pwt = "npx playwright test";
+    pwth = "npx playwright test --headed";
+    pwtd = "npx playwright test --debug";
+    pwui = "npx playwright test --ui";
+    pwshow = "npx playwright show-report";
+    pwgen = "npx playwright codegen";
   };
+
+  # Dev-specific session variables
+  home.sessionVariables = {
+    # Skip Playwright browser downloads - use Nix-provided browsers in devShells
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
+  };
+
+  # Dev-specific directory setup
+  home.activation.createNpmGlobalDir = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    mkdir -p "$HOME/.npm-global/bin"
+  '';
 
   # Direnv - automatic environment switching
   programs.direnv = {
@@ -82,12 +79,5 @@
     enableBashIntegration = true;
     enableZshIntegration = true;
     nix-direnv.enable = true; # Better Nix integration
-  };
-
-  # Zoxide - smarter cd command
-  programs.zoxide = {
-    enable = true;
-    enableBashIntegration = true;
-    enableZshIntegration = true;
   };
 }

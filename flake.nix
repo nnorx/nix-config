@@ -62,13 +62,14 @@
           system,
           username,
           homeDirectory,
+          homeModule ? ./home,
           extraModules ? [ ],
         }:
         home-manager.lib.homeManagerConfiguration {
           pkgs = pkgsFor.${system};
 
           modules = [
-            ./home
+            homeModule
           ] ++ extraModules;
 
           extraSpecialArgs = {
@@ -111,11 +112,28 @@
           homeDirectory = "/home/nick";
         };
 
-        # Raspberry Pi 5 configuration
+        # Raspberry Pi 5 configuration (common profile — no dev tools)
         "core5" = mkHome {
           system = "aarch64-linux";
           username = "core5";
           homeDirectory = "/home/core5";
+          homeModule = ./home/common.nix;
+        };
+
+        # Raspberry Pi 4 configuration (common profile — no dev tools)
+        "core4" = mkHome {
+          system = "aarch64-linux";
+          username = "core4";
+          homeDirectory = "/home/core4";
+          homeModule = ./home/common.nix;
+        };
+
+        # Raspberry Pi 3B configuration (common profile — no dev tools)
+        "core3" = mkHome {
+          system = "aarch64-linux";
+          username = "core3";
+          homeDirectory = "/home/core3";
+          homeModule = ./home/common.nix;
         };
 
         # macOS configuration

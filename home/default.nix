@@ -1,48 +1,11 @@
-# Main Home Manager configuration
-# This file imports all modules and sets core options
+# Dev profile — full development environment
+# Imports the common profile plus dev tools, languages, and LSPs
+# Used by dev hosts (WSL, macOS)
 
-{
-  pkgs,
-  lib,
-  username,
-  homeDirectory,
-  ...
-}:
+{ ... }:
 {
   imports = [
-    ./shell-common.nix # Shared aliases and PATH setup
-    ./starship.nix # Prompt configuration
-    ./bash.nix
-    ./zsh.nix
-    ./git.nix
-    ./dev-tools.nix
-    ./tmux.nix
-    ./neovim.nix
+    ./common.nix # Common profile (shell, git, editor, basic CLI tools)
+    ./dev-tools.nix # Dev tools (Node, Rust, Docker, kubectl, LSPs, etc.)
   ];
-
-  # Let Home Manager manage itself
-  programs.home-manager.enable = true;
-
-  # User information
-  home.username = username;
-  home.homeDirectory = homeDirectory;
-
-  # This should match the Home Manager release you're using
-  # Don't change this after initial setup without reading the docs
-  home.stateVersion = "24.11";
-
-  # Session environment variables
-  home.sessionVariables = {
-    EDITOR = "nvim";
-    VISUAL = "nvim";
-    PAGER = "less";
-
-    # Skip Playwright browser downloads - use Nix-provided browsers in devShells
-    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
-  };
-
-  # Create directories once during activation (not on every shell start)
-  home.activation.createNpmGlobalDir = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-    mkdir -p "$HOME/.npm-global/bin"
-  '';
 }

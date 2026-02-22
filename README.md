@@ -60,49 +60,60 @@ nfu && hms
 
 ```
 nix-config/
-├── flake.nix            # Entry point - defines inputs, outputs, and devShells
-├── flake.lock           # Locked dependency versions
+├── flake.nix              # Entry point - defines inputs, outputs, and devShells
+├── flake.lock             # Locked dependency versions
 ├── home/
-│   ├── default.nix      # Main Home Manager config (imports all modules)
-│   ├── shell-common.nix # Shared aliases and PATH setup for bash/zsh
-│   ├── starship.nix     # Starship prompt configuration
-│   ├── bash.nix         # Bash-specific shell configuration
-│   ├── zsh.nix          # Zsh-specific shell configuration
-│   ├── git.nix          # Git configuration + aliases + GitHub CLI
-│   ├── dev-tools.nix    # Development packages (Node, Rust, CLI tools)
-│   ├── tmux.nix         # tmux terminal multiplexer
-│   ├── neovim.nix       # Neovim editor configuration
-│   └── darwin.nix       # macOS-specific configuration
+│   ├── default.nix        # Dev profile entry point (imports common + dev-tools)
+│   ├── common.nix         # Common profile entry point (shell, editor, CLI tools)
+│   ├── common-tools.nix   # CLI essentials (ripgrep, fd, bat, fzf, etc.)
+│   ├── dev-tools.nix      # Dev-only packages (Node, Rust, Docker, LSPs)
+│   ├── shell-common.nix   # Shared aliases and PATH setup for bash/zsh
+│   ├── starship.nix       # Starship prompt configuration
+│   ├── bash.nix           # Bash-specific shell configuration
+│   ├── zsh.nix            # Zsh-specific shell configuration
+│   ├── git.nix            # Git configuration + aliases + GitHub CLI
+│   ├── tmux.nix           # tmux terminal multiplexer
+│   ├── neovim.nix         # Neovim editor configuration
+│   └── darwin.nix         # macOS-specific configuration
 └── README.md
 ```
 
+### Profiles
+
+| Profile | Hosts | What's included |
+|---------|-------|-----------------|
+| **Dev** (`default.nix`) | WSL (`nick`), macOS (`nicknorcross`) | Common + Node, Rust, Docker, kubectl, LSPs, direnv |
+| **Common** (`common.nix`) | Pi 5 (`core5`), Pi 4 (`core4`), Pi 3B (`core3`) | Shell, git, CLI tools, tmux, neovim |
+| **Darwin** (`darwin.nix`) | macOS only | GNU coreutils |
+
 ## What's Included
 
-### Shell (shell-common.nix, bash.nix, zsh.nix, starship.nix)
+### Common Profile (all hosts)
+
+#### Shell (shell-common.nix, bash.nix, zsh.nix, starship.nix)
 - Bash and Zsh with shared aliases and PATH setup
 - Starship prompt (shows git status, language versions, etc.)
 - Better history search with arrow keys
 - Zsh autosuggestions and syntax highlighting
 
-### Git (git.nix)
+#### Git (git.nix)
 - Pre-configured aliases (e.g., `git lg` for pretty log)
 - Sensible defaults (rebase on pull, push current branch)
 - GitHub CLI (`gh`)
 
-### Development Tools (dev-tools.nix)
-- **Node.js 22** with npm, pnpm, TypeScript
-- **Rust** with cargo, rustfmt, clippy, rust-analyzer
-- **CLI tools**: ripgrep, fd, jq, bat, fzf, htop
-- **DevOps**: docker-compose, kubectl, k9s
-- **direnv** for per-project environments
+#### CLI Tools (common-tools.nix)
+- **Search**: ripgrep, fd, fzf
+- **Viewing**: bat, eza, tree, jq, yq
+- **System**: htop, ncdu, curl, wget, unzip, tldr
+- **Navigation**: zoxide (smarter cd)
 
-### tmux (tmux.nix)
+#### tmux (tmux.nix)
 - Prefix changed to `Ctrl+a`
 - Vim-style pane navigation
 - Mouse support
 - Session persistence (survives restarts)
 
-### Neovim (neovim.nix)
+#### Neovim (neovim.nix)
 - Catppuccin theme
 - Treesitter syntax highlighting
 - Telescope fuzzy finder with native FZF sorter (`<leader>ff` to find files)
@@ -110,6 +121,16 @@ nix-config/
 - Autocompletion with nvim-cmp and snippet support (luasnip)
 - File explorer with nvim-tree (`<leader>e`)
 - Git signs in gutter with keybindings (`<leader>g`)
+
+### Dev Profile (WSL, macOS only)
+
+#### Development Tools (dev-tools.nix)
+- **Node.js 22** with npm, pnpm, TypeScript
+- **Rust** with cargo, rustfmt, clippy, rust-analyzer
+- **DevOps**: docker-compose, kubectl, k9s
+- **LSPs**: nil (Nix), typescript-language-server, rust-analyzer
+- **Build**: gnumake, gcc
+- **direnv** for per-project environments
 
 ## Dev Shells
 
@@ -159,7 +180,7 @@ userEmail = "your@email.com";
 
 ### Add New Packages
 
-Edit `home/dev-tools.nix` and add packages to `home.packages`:
+Add to `home/common-tools.nix` for all hosts, or `home/dev-tools.nix` for dev hosts only:
 ```nix
 home.packages = with pkgs; [
   # ... existing packages ...
@@ -171,9 +192,9 @@ Find packages at: https://search.nixos.org/packages
 
 ### Add Shell Aliases
 
-Edit `home/shell-common.nix` and add to `commonAliases`:
+Edit `home/shell-common.nix` for common aliases, or `home/dev-tools.nix` for dev-only aliases:
 ```nix
-commonAliases = {
+shell-common.aliases = {
   # ... existing aliases ...
   myalias = "my-command --with-flags";
 };
