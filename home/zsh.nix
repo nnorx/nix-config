@@ -23,7 +23,7 @@
     syntaxHighlighting.enable = true;
 
     # Zsh-specific configuration
-    initExtra = ''
+    initContent = ''
       ${config.shell-common.pathSetup}
 
       # Better history search with up/down arrows (zsh syntax)

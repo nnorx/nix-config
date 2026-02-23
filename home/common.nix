@@ -28,7 +28,7 @@
   home.homeDirectory = homeDirectory;
 
   # This should match the Home Manager release you're using
-  home.stateVersion = "24.11";
+  home.stateVersion = "25.11";
 
   # Session environment variables
   home.sessionVariables = {

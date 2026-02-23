@@ -3,16 +3,33 @@
 
   inputs = {
     # Use stable nixpkgs
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
 
     # Unstable nixpkgs for bleeding-edge packages
     nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 
     # Home Manager for managing user environment
     home-manager = {
-      url = "github:nix-community/home-manager/release-24.11";
+      url = "github:nix-community/home-manager/release-25.11";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    # Hardware-specific NixOS modules (Pi 3B, 4, etc.)
+    nixos-hardware.url = "github:NixOS/nixos-hardware";
+
+    # Raspberry Pi 5 support (boot firmware, kernel, config.txt management)
+    # Uses its own pinned nixpkgs fork — do NOT add nixpkgs.follows
+    nixos-raspberrypi.url = "github:nvmd/nixos-raspberrypi/main";
+  };
+
+  # Binary cache for nixos-raspberrypi (pre-built Pi 5 kernel, firmware, etc.)
+  nixConfig = {
+    extra-substituters = [
+      "https://nixos-raspberrypi.cachix.org"
+    ];
+    extra-trusted-public-keys = [
+      "nixos-raspberrypi.cachix.org-1:4iMO9LXa8BqhU+Rpg6LQKiGa2lsNh/j2oiYLNOQ5sPI="
+    ];
   };
 
   outputs =
@@ -21,6 +38,8 @@
       nixpkgs,
       nixpkgs-unstable,
       home-manager,
+      nixos-hardware,
+      nixos-raspberrypi,
       ...
     }:
     let
@@ -56,6 +75,39 @@
           }
         );
 
+      # Helper function to create a NixOS configuration for Raspberry Pis
+      mkPi =
+        {
+          hostname,
+          system ? "aarch64-linux",
+          hardwareModules ? [ ],
+          extraModules ? [ ],
+        }:
+        nixpkgs.lib.nixosSystem {
+          inherit system;
+          specialArgs = {
+            inherit hostname;
+            unstable = unstableFor.${system};
+          };
+          modules = [
+            ./hosts/common
+            ./hosts/${hostname}
+            home-manager.nixosModules.home-manager
+            {
+              home-manager.useGlobalPkgs = true;
+              home-manager.useUserPackages = true;
+              home-manager.users.${hostname} = import ./home/common.nix;
+              home-manager.extraSpecialArgs = {
+                username = hostname;
+                homeDirectory = "/home/${hostname}";
+                unstable = unstableFor.${system};
+              };
+            }
+          ]
+          ++ hardwareModules
+          ++ extraModules;
+        };
+
       # Helper function to create a Home Manager configuration
       mkHome =
         {
@@ -70,7 +122,8 @@
 
           modules = [
             homeModule
-          ] ++ extraModules;
+          ]
+          ++ extraModules;
 
           extraSpecialArgs = {
             inherit username homeDirectory;
@@ -102,6 +155,77 @@
           };
         }
       );
+
+      # Installer image for Pi 5 — includes SSH key for headless access
+      # Build with: nix build .#packages.aarch64-linux.core5-installer --accept-flake-config
+      packages.aarch64-linux.core5-installer =
+        (nixos-raspberrypi.lib.nixosInstaller {
+          specialArgs = {
+            inherit nixos-raspberrypi;
+          };
+          modules = [
+            (
+              { nixos-raspberrypi, ... }:
+              {
+                imports = with nixos-raspberrypi.nixosModules; [
+                  raspberry-pi-5.base
+                  raspberry-pi-5.page-size-16k
+                ];
+              }
+            )
+            {
+              users.users.nixos.openssh.authorizedKeys.keys = [
+                "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEF1Tvp3mQjByFOSRh4uXWZhRkquB3n5oNoLspunq+OV nick@nix-config"
+              ];
+            }
+          ];
+        }).config.system.build.sdImage;
+
+      # NixOS configurations for Raspberry Pis
+      nixosConfigurations = {
+        # Pi 5 uses nixos-raspberrypi for boot firmware + kernel support
+        core5 = nixos-raspberrypi.lib.nixosSystem {
+          specialArgs = {
+            hostname = "core5";
+            inherit nixos-raspberrypi;
+            unstable = unstableFor."aarch64-linux";
+          };
+          modules = [
+            (
+              { nixos-raspberrypi, ... }:
+              {
+                imports = with nixos-raspberrypi.nixosModules; [
+                  raspberry-pi-5.base
+                  raspberry-pi-5.page-size-16k
+                ];
+              }
+            )
+            ./hosts/common
+            ./hosts/core5
+            home-manager.nixosModules.home-manager
+            {
+              home-manager.useGlobalPkgs = true;
+              home-manager.useUserPackages = true;
+              home-manager.users.core5 = import ./home/common.nix;
+              home-manager.extraSpecialArgs = {
+                username = "core5";
+                homeDirectory = "/home/core5";
+                unstable = unstableFor."aarch64-linux";
+              };
+            }
+          ];
+        };
+
+        # Pi 3/4 use U-Boot via nixos-hardware
+        core4 = mkPi {
+          hostname = "core4";
+          hardwareModules = [ nixos-hardware.nixosModules.raspberry-pi-4 ];
+        };
+        core3 = mkPi {
+          hostname = "core3";
+          hardwareModules = [ nixos-hardware.nixosModules.raspberry-pi-3 ];
+        };
+      };
 
       # Home Manager configurations for different machines
       homeConfigurations = {
