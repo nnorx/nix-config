@@ -43,6 +43,9 @@
       ...
     }:
     let
+      # SSH public key for Pi access — single source of truth
+      sshPubKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEF1Tvp3mQjByFOSRh4uXWZhRkquB3n5oNoLspunq+OV nick@nix-config";
+
       systems = [
         "x86_64-linux"
         "aarch64-linux"
@@ -86,7 +89,7 @@
         nixpkgs.lib.nixosSystem {
           inherit system;
           specialArgs = {
-            inherit hostname;
+            inherit hostname sshPubKey;
             unstable = unstableFor.${system};
           };
           modules = [
@@ -174,9 +177,7 @@
               }
             )
             {
-              users.users.nixos.openssh.authorizedKeys.keys = [
-                "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEF1Tvp3mQjByFOSRh4uXWZhRkquB3n5oNoLspunq+OV nick@nix-config"
-              ];
+              users.users.nixos.openssh.authorizedKeys.keys = [ sshPubKey ];
             }
           ];
         }).config.system.build.sdImage;
@@ -187,7 +188,7 @@
         core5 = nixos-raspberrypi.lib.nixosSystem {
           specialArgs = {
             hostname = "core5";
-            inherit nixos-raspberrypi;
+            inherit nixos-raspberrypi sshPubKey;
             unstable = unstableFor."aarch64-linux";
           };
           modules = [

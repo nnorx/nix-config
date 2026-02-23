@@ -1,5 +1,5 @@
 # SSH server hardening — key-only auth with modern crypto
-{ hostname, ... }:
+{ hostname, sshPubKey, ... }:
 {
   services.openssh = {
     enable = true;
@@ -19,7 +19,5 @@
   };
 
   # Deploy SSH public key for key-only access
-  users.users.${hostname}.openssh.authorizedKeys.keys = [
-    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEF1Tvp3mQjByFOSRh4uXWZhRkquB3n5oNoLspunq+OV nick@nix-config"
-  ];
+  users.users.${hostname}.openssh.authorizedKeys.keys = [ sshPubKey ];
 }
