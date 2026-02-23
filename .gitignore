@@ -4,3 +4,6 @@ result-*
 
 # tmux logs
 tmux-*.log
+
+# Claude Code local settings
+.claude/settings.local.json
