@@ -36,6 +36,7 @@
   # User account — hostname doubles as username (core3, core4, core5)
   users.users.${hostname} = {
     isNormalUser = true;
+    initialPassword = "changeme"; # Change on first login with: passwd
     extraGroups = [
       "wheel"
       "docker"
