@@ -6,7 +6,7 @@
     enable = true;
 
     settings = {
-      format = "$directory$git_branch$git_status$nodejs$rust$python$nix_shell$cmd_duration$line_break$character";
+      format = "$hostname$directory$git_branch$git_status$nodejs$rust$python$nix_shell$cmd_duration$line_break$character";
       add_newline = false;
 
       directory = {
@@ -50,6 +50,11 @@
       nix_shell = {
         symbol = "❄️ ";
         style = "bold blue";
+      };
+
+      hostname = {
+        ssh_only = true;
+        format = "[$hostname](bold yellow):";
       };
 
       cmd_duration = {
