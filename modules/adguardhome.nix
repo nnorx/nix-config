@@ -22,10 +22,7 @@
         ];
 
         # Disable AGH cache and DNSSEC — let unbound handle both
-        cache_size = 0;
-        cache_ttl_min = 0;
-        cache_ttl_max = 0;
-        cache_optimistic = false;
+        cache_enabled = false;
         enable_dnssec = false;
 
         ratelimit = 300; # Per-client queries/sec — generous for normal use, limits abuse
