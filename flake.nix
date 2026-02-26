@@ -190,6 +190,8 @@
           modules = [
             "${nixpkgs}/nixos/modules/installer/sd-card/sd-image-aarch64.nix"
             {
+              services.openssh.enable = true;
+              security.sudo.wheelNeedsPassword = false;
               users.users.nixos = {
                 isNormalUser = true;
                 extraGroups = [ "wheel" ];
