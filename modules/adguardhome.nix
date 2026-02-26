@@ -10,6 +10,13 @@
     openFirewall = false; # Managed per-interface in host config
 
     settings = {
+      users = [
+        {
+          name = "core4";
+          password = "$2y$05$9Zwbgek0O2t/648P09CuW.5M4DqJzDsSIMD9SiUhTxe1deiPe37UK";
+        }
+      ];
+
       dns = {
         bind_hosts = [ "0.0.0.0" ];
         port = 53;
