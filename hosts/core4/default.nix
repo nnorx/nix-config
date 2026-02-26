@@ -1,6 +1,11 @@
-# Raspberry Pi 4 — pihole DNS
+# Raspberry Pi 4 — AdGuard Home DNS + Unbound recursive resolver
 { hostname, ... }:
 {
+  imports = [
+    ../../modules/adguardhome.nix
+    ../../modules/unbound.nix
+  ];
+
   networking.hostName = hostname;
 
   # Static IP
@@ -11,18 +16,16 @@
     }
   ];
   networking.defaultGateway = "192.168.86.1";
-  networking.nameservers = [
-    "1.1.1.1"
-    "8.8.8.8"
-  ];
 
-  # Pihole ports — DNS, HTTP admin, DHCP
-  networking.firewall.allowedTCPPorts = [
-    53
-    80
-  ];
-  networking.firewall.allowedUDPPorts = [
-    53
-    67
-  ];
+  # Resolve through own AGH instance
+  networking.nameservers = [ "127.0.0.1" ];
+
+  # DNS + AGH web UI ports — LAN interface only
+  networking.firewall.interfaces.end0 = {
+    allowedTCPPorts = [
+      53 # DNS
+      3000 # AGH web UI
+    ];
+    allowedUDPPorts = [ 53 ];
+  };
 }

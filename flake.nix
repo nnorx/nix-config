@@ -182,6 +182,20 @@
           ];
         }).config.system.build.sdImage;
 
+      # Installer image for Pi 4 — includes SSH key for headless access
+      # Build with: nix build .#packages.aarch64-linux.core4-installer --accept-flake-config
+      packages.aarch64-linux.core4-installer =
+        (nixpkgs.lib.nixosSystem {
+          system = "aarch64-linux";
+          modules = [
+            "${nixpkgs}/nixos/modules/installer/sd-card/sd-image-aarch64.nix"
+            nixos-hardware.nixosModules.raspberry-pi-4
+            {
+              users.users.nixos.openssh.authorizedKeys.keys = [ sshPubKey ];
+            }
+          ];
+        }).config.system.build.sdImage;
+
       # NixOS configurations for Raspberry Pis
       nixosConfigurations = {
         # Pi 5 uses nixos-raspberrypi for boot firmware + kernel support
