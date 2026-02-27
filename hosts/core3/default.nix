@@ -1,6 +1,20 @@
-# Raspberry Pi 3B — pihole DNS
+# Raspberry Pi 3B — AdGuard Home DNS (forwards to core4's Unbound)
 { hostname, ... }:
 {
+  imports = [
+    (import ../../modules/adguardhome.nix {
+      adminUser = "core3";
+      adminPasswordHash = "$2y$05$9Zwbgek0O2t/648P09CuW.5M4DqJzDsSIMD9SiUhTxe1deiPe37UK";
+      upstreamDns = [
+        "192.168.86.32:5335" # core4's Unbound
+        "1.1.1.1" # Fallback if core4 is down
+        "8.8.8.8"
+      ];
+      cacheEnabled = true; # No local Unbound, AGH handles caching
+      dnssecEnabled = true; # No local Unbound, AGH handles DNSSEC
+    })
+  ];
+
   networking.hostName = hostname;
 
   # Static IP
@@ -11,18 +25,16 @@
     }
   ];
   networking.defaultGateway = "192.168.86.1";
-  networking.nameservers = [
-    "1.1.1.1"
-    "8.8.8.8"
-  ];
 
-  # Pihole ports — DNS, HTTP admin, DHCP
-  networking.firewall.allowedTCPPorts = [
-    53
-    80
-  ];
-  networking.firewall.allowedUDPPorts = [
-    53
-    67
-  ];
+  # Resolve through own AGH instance
+  networking.nameservers = [ "127.0.0.1" ];
+
+  # DNS + AGH web UI ports — LAN interface only
+  networking.firewall.interfaces.eth0 = {
+    allowedTCPPorts = [
+      53 # DNS
+      3000 # AGH web UI
+    ];
+    allowedUDPPorts = [ 53 ];
+  };
 }

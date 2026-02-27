@@ -11,7 +11,6 @@
     ../../modules/ssh.nix
     ../../modules/firewall.nix
     ../../modules/fail2ban.nix
-    ../../modules/docker.nix
   ];
 
   system.stateVersion = "25.11";
@@ -39,7 +38,6 @@
     initialPassword = "changeme"; # Change on first login with: passwd
     extraGroups = [
       "wheel"
-      "docker"
     ];
     shell = pkgs.zsh;
   };

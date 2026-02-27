@@ -1,5 +1,5 @@
 # Unbound — recursive DNS resolver with DNSSEC
-# Listens on localhost:5335 for queries from AdGuard Home
+# Listens on localhost:5335 and LAN for queries from AdGuard Home
 { pkgs, ... }:
 {
   services.unbound = {
@@ -8,9 +8,15 @@
 
     settings = {
       server = {
-        interface = [ "127.0.0.1" ];
+        interface = [
+          "127.0.0.1"
+          "192.168.86.32" # LAN — core3 forwards DNS here
+        ];
         port = 5335;
-        access-control = [ "127.0.0.1/32 allow" ];
+        access-control = [
+          "127.0.0.1/32 allow"
+          "192.168.86.36/32 allow" # core3
+        ];
 
         # Use current root server addresses
         root-hints = "${pkgs.dns-root-data}/root.hints";

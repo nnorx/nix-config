@@ -2,7 +2,14 @@
 # Boot handled by nixos-raspberrypi (kernel bootloader + Pi firmware, not U-Boot)
 { hostname, lib, ... }:
 {
+  imports = [
+    ../../modules/docker.nix
+  ];
+
   networking.hostName = hostname;
+
+  # Docker access for this host's user
+  users.users.${hostname}.extraGroups = [ "docker" ];
 
   # Pi 5 boot — override the extlinux default from hosts/common
   boot.loader.generic-extlinux-compatible.enable = lib.mkForce false;

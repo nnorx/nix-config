@@ -1,5 +1,13 @@
 # AdGuard Home — DNS filtering, ad blocking, and web UI
-# Forwards queries to local unbound recursive resolver
+# Parameterized for use by multiple hosts with different DNS backends
+{
+  adminUser,
+  adminPasswordHash,
+  upstreamDns,
+  bootstrapDns ? [ "1.1.1.1" "8.8.8.8" ],
+  cacheEnabled ? false,
+  dnssecEnabled ? false,
+}:
 { ... }:
 {
   services.adguardhome = {
@@ -12,8 +20,8 @@
     settings = {
       users = [
         {
-          name = "core4";
-          password = "$2y$05$9Zwbgek0O2t/648P09CuW.5M4DqJzDsSIMD9SiUhTxe1deiPe37UK";
+          name = adminUser;
+          password = adminPasswordHash;
         }
       ];
 
@@ -21,16 +29,11 @@
         bind_hosts = [ "0.0.0.0" ];
         port = 53;
 
-        # Forward to local unbound recursive resolver
-        upstream_dns = [ "127.0.0.1:5335" ];
-        bootstrap_dns = [
-          "1.1.1.1"
-          "8.8.8.8"
-        ];
+        upstream_dns = upstreamDns;
+        bootstrap_dns = bootstrapDns;
 
-        # Disable AGH cache and DNSSEC — let unbound handle both
-        cache_enabled = false;
-        enable_dnssec = false;
+        cache_enabled = cacheEnabled;
+        enable_dnssec = dnssecEnabled;
 
         ratelimit = 300; # Per-client queries/sec — generous for normal use, limits abuse
       };
