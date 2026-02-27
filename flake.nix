@@ -201,6 +201,25 @@
           ];
         }).config.system.build.sdImage;
 
+      # Installer image for Pi 3B — includes SSH key for headless access
+      # Build with: nix build .#packages.aarch64-linux.core3-installer --accept-flake-config
+      packages.aarch64-linux.core3-installer =
+        (nixpkgs.lib.nixosSystem {
+          system = "aarch64-linux";
+          modules = [
+            "${nixpkgs}/nixos/modules/installer/sd-card/sd-image-aarch64.nix"
+            {
+              services.openssh.enable = true;
+              security.sudo.wheelNeedsPassword = false;
+              users.users.nixos = {
+                isNormalUser = true;
+                extraGroups = [ "wheel" ];
+                openssh.authorizedKeys.keys = [ sshPubKey ];
+              };
+            }
+          ];
+        }).config.system.build.sdImage;
+
       # NixOS configurations for Raspberry Pis
       nixosConfigurations = {
         # Pi 5 uses nixos-raspberrypi for boot firmware + kernel support
