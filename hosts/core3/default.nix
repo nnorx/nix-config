@@ -26,6 +26,11 @@
   ];
   networking.defaultGateway = "192.168.86.1";
 
+  # Swap — 1GB RAM is tight for nix-rebuild and AGH
+  swapDevices = [
+    { device = "/var/lib/swapfile"; size = 1024; }
+  ];
+
   # Resolve through own AGH instance
   networking.nameservers = [ "127.0.0.1" ];
 
