@@ -20,6 +20,9 @@
   # Resolve through own AGH instance
   networking.nameservers = [ "127.0.0.1" ];
 
+  # Argon ONE M.2 case fan + power button
+  services.hardware.argonone.enable = true;
+
   # DNS + AGH web UI ports — LAN interface only
   networking.firewall.interfaces.end0 = {
     allowedTCPPorts = [
