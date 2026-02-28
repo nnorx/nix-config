@@ -189,15 +189,20 @@
           system = "aarch64-linux";
           modules = [
             "${nixpkgs}/nixos/modules/installer/sd-card/sd-image-aarch64.nix"
-            {
-              services.openssh.enable = true;
-              security.sudo.wheelNeedsPassword = false;
-              users.users.nixos = {
-                isNormalUser = true;
-                extraGroups = [ "wheel" ];
-                openssh.authorizedKeys.keys = [ sshPubKey ];
-              };
-            }
+            (
+              { lib, ... }:
+              {
+                services.openssh.enable = true;
+                security.sudo.wheelNeedsPassword = false;
+                users.users.nixos = {
+                  isNormalUser = true;
+                  extraGroups = [ "wheel" ];
+                  openssh.authorizedKeys.keys = [ sshPubKey ];
+                };
+                # Disable ZFS — not used on Pis, and its services hang during nixos-rebuild switch
+                boot.supportedFilesystems.zfs = lib.mkForce false;
+              }
+            )
           ];
         }).config.system.build.sdImage;
 
@@ -208,15 +213,20 @@
           system = "aarch64-linux";
           modules = [
             "${nixpkgs}/nixos/modules/installer/sd-card/sd-image-aarch64.nix"
-            {
-              services.openssh.enable = true;
-              security.sudo.wheelNeedsPassword = false;
-              users.users.nixos = {
-                isNormalUser = true;
-                extraGroups = [ "wheel" ];
-                openssh.authorizedKeys.keys = [ sshPubKey ];
-              };
-            }
+            (
+              { lib, ... }:
+              {
+                services.openssh.enable = true;
+                security.sudo.wheelNeedsPassword = false;
+                users.users.nixos = {
+                  isNormalUser = true;
+                  extraGroups = [ "wheel" ];
+                  openssh.authorizedKeys.keys = [ sshPubKey ];
+                };
+                # Disable ZFS — not used on Pis, and its services hang during nixos-rebuild switch
+                boot.supportedFilesystems.zfs = lib.mkForce false;
+              }
+            )
           ];
         }).config.system.build.sdImage;
 
