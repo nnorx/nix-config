@@ -25,7 +25,7 @@ Reproducible system and development configuration managed with Nix Flakes — co
                               │                      │
 ┌──────────────────────┐      │  Web UI :3000        │
 │  core5 (Pi 5)        │      │  Docker              │
-│  192.168.86.35       │      └──────────────────────┘
+│  192.168.86.49       │      └──────────────────────┘
 │  (general purpose)   │
 └──────────────────────┘
 ```
@@ -38,7 +38,7 @@ Reproducible system and development configuration managed with Nix Flakes — co
 |------|----------|----|------|
 | **core3** | Raspberry Pi 3B (1GB RAM) | 192.168.86.36 | AdGuard Home DNS (forwards to core4's Unbound) |
 | **core4** | Raspberry Pi 4 (Argon ONE M.2 case) | 192.168.86.32 | AdGuard Home DNS + Unbound recursive resolver + Docker |
-| **core5** | Raspberry Pi 5 | 192.168.86.35 | General purpose |
+| **core5** | Raspberry Pi 5 | 192.168.86.49 | General purpose |
 
 ## Prerequisites
 
