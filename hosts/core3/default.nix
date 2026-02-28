@@ -7,7 +7,9 @@
       adminPasswordHash = "$2y$05$9Zwbgek0O2t/648P09CuW.5M4DqJzDsSIMD9SiUhTxe1deiPe37UK";
       upstreamDns = [
         "192.168.86.32:5335" # core4's Unbound
-        "1.1.1.1" # Fallback if core4 is down
+      ];
+      fallbackDns = [
+        "1.1.1.1" # Used only if core4's Unbound is unreachable
         "8.8.8.8"
       ];
       cacheEnabled = true; # No local Unbound, AGH handles caching

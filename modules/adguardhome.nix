@@ -4,6 +4,7 @@
   adminUser,
   adminPasswordHash,
   upstreamDns,
+  fallbackDns ? [ ],
   bootstrapDns ? [ "1.1.1.1" "8.8.8.8" ],
   cacheEnabled ? false,
   dnssecEnabled ? false,
@@ -30,6 +31,7 @@
         port = 53;
 
         upstream_dns = upstreamDns;
+        fallback_dns = fallbackDns;
         bootstrap_dns = bootstrapDns;
 
         cache_enabled = cacheEnabled;

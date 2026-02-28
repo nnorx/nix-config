@@ -6,6 +6,10 @@
       adminUser = "core4";
       adminPasswordHash = "$2y$05$9Zwbgek0O2t/648P09CuW.5M4DqJzDsSIMD9SiUhTxe1deiPe37UK";
       upstreamDns = [ "127.0.0.1:5335" ];
+      fallbackDns = [
+        "1.1.1.1" # Used only if local Unbound is unreachable
+        "8.8.8.8"
+      ];
       cacheEnabled = false; # Unbound handles caching
       dnssecEnabled = false; # Unbound handles DNSSEC
     })
