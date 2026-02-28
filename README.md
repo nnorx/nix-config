@@ -1,6 +1,44 @@
 # Nix Configuration
 
-A reproducible development environment managed with Nix Flakes and Home Manager.
+Reproducible system and development configuration managed with Nix Flakes — covering NixOS on a Raspberry Pi fleet, Home Manager for dev environments, and shared modules for DNS, firewalls, and security.
+
+## Network Architecture
+
+```
+                     LAN clients
+                    /           \
+                   v             v
+┌──────────────────────┐      ┌──────────────────────┐
+│  core3 (Pi 3B)       │      │  core4 (Pi 4)        │
+│  192.168.86.36       │      │  192.168.86.32       │
+│                      │      │                      │
+│  AdGuard Home (:53)  │──┐   │  AdGuard Home (:53)  │
+│  - Ad/tracker block  │  │   │  - Ad/tracker block  │
+│  - DNS caching       │  │   │                      │
+│  - DNSSEC validation │  └──>│  Unbound (:5335)     │
+│                      │      │  - Recursive resolver│
+│  Fallback:           │      │  - DNS caching       │
+│  1.1.1.1 / 8.8.8.8   │      │  - DNSSEC validation │
+│                      │      │                      │
+│  Web UI :3000        │      │  Fallback:           │
+└──────────────────────┘      │  1.1.1.1 / 8.8.8.8   │
+                              │                      │
+┌──────────────────────┐      │  Web UI :3000        │
+│  core5 (Pi 5)        │      │  Docker              │
+│  192.168.86.35       │      └──────────────────────┘
+│  (general purpose)   │
+└──────────────────────┘
+```
+
+**DNS flow:** LAN clients → core3 AGH (filtering + cache) → core4 Unbound (recursive resolution to root servers with DNSSEC). Core4's own clients go through core4 AGH → core4 Unbound.
+
+### Hosts
+
+| Host | Hardware | IP | Role |
+|------|----------|----|------|
+| **core3** | Raspberry Pi 3B (1GB RAM) | 192.168.86.36 | AdGuard Home DNS (forwards to core4's Unbound) |
+| **core4** | Raspberry Pi 4 (Argon ONE M.2 case) | 192.168.86.32 | AdGuard Home DNS + Unbound recursive resolver + Docker |
+| **core5** | Raspberry Pi 5 | 192.168.86.35 | General purpose |
 
 ## Prerequisites
 
@@ -56,12 +94,78 @@ cd ~/projects/nix-config
 nfu && hms
 ```
 
+## NixOS Deployment (Raspberry Pis)
+
+### Rebuilding a host
+
+From the Pi itself (or over SSH):
+
+```bash
+sudo nixos-rebuild switch --flake github:nnorx/nix-config#core4 --accept-flake-config --refresh
+```
+
+Replace `core4` with the target hostname (`core3`, `core4`, `core5`).
+
+If the Pi resolves DNS through itself and can't reach GitHub, temporarily override DNS first:
+
+```bash
+sudo bash -c 'echo "nameserver 1.1.1.1" > /etc/resolv.conf'
+```
+
+### First-time setup (flashing a new Pi)
+
+1. Build the installer image (from a machine with Nix — e.g., WSL):
+   ```bash
+   nix build .#packages.aarch64-linux.core3-installer --accept-flake-config
+   ```
+
+2. Flash to SD card:
+   ```bash
+   sudo dd if=result/sd-image/*.img of=/dev/sdX bs=4M status=progress
+   ```
+
+3. Boot the Pi, then SSH in:
+   ```bash
+   ssh nixos@<ip-address>
+   ```
+
+4. Set up temporary swap (important for low-RAM Pis like the 3B):
+   ```bash
+   sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+   ```
+
+5. Build first, then switch (two-step avoids hanging during service stop):
+   ```bash
+   sudo bash -c 'echo "nameserver 1.1.1.1" > /etc/resolv.conf'
+   sudo nixos-rebuild build --flake github:nnorx/nix-config#core3 --accept-flake-config --refresh
+   sudo nixos-rebuild switch --flake github:nnorx/nix-config#core3 --accept-flake-config --refresh
+   ```
+
+6. After reboot, SSH in as the host user and change the default password:
+   ```bash
+   ssh core3@192.168.86.36
+   passwd
+   ```
+
 ## Repository Structure
 
 ```
 nix-config/
-├── flake.nix              # Entry point - defines inputs, outputs, and devShells
+├── flake.nix              # Entry point - defines inputs, outputs, installer images, and NixOS configs
 ├── flake.lock             # Locked dependency versions
+├── hosts/
+│   ├── common/            # Shared NixOS config for all Pis (boot, locale, user accounts)
+│   ├── core3/             # Pi 3B — AdGuard Home DNS (forwards to core4)
+│   ├── core4/             # Pi 4 — AdGuard Home + Unbound + Docker
+│   └── core5/             # Pi 5 — general purpose
+├── modules/
+│   ├── adguardhome.nix    # Parameterized AGH module (upstream/fallback DNS, caching, DNSSEC)
+│   ├── unbound.nix        # Recursive DNS resolver with DNSSEC
+│   ├── docker.nix         # Docker daemon
+│   ├── ssh.nix            # SSH server hardening (key-only, modern crypto)
+│   ├── firewall.nix       # Default-deny firewall (SSH always allowed)
+│   ├── fail2ban.nix       # Brute-force protection
+│   └── baseline.nix       # Nix settings (flakes, substituters)
 ├── home/
 │   ├── default.nix        # Dev profile entry point (imports common + dev-tools)
 │   ├── common.nix         # Common profile entry point (shell, editor, CLI tools)
@@ -235,6 +339,8 @@ git add .
 
 ## Useful Commands
 
+### Home Manager (dev environments)
+
 | Command | Description |
 |---------|-------------|
 | `hms` | Apply configuration (alias for home-manager switch) |
@@ -244,6 +350,14 @@ git add .
 | `nix search nixpkgs <package>` | Search for packages |
 | `nix shell nixpkgs#<package>` | Temporarily use a package |
 | `nix develop` | Enter development shell (if defined) |
+
+### NixOS (Raspberry Pis)
+
+| Command | Description |
+|---------|-------------|
+| `sudo nixos-rebuild switch --flake github:nnorx/nix-config#<host>` | Deploy config to a Pi |
+| `nix build .#packages.aarch64-linux.<host>-installer` | Build installer SD image |
+| `nix flake check --no-build` | Validate flake without building |
 
 ## Learning Resources
 
