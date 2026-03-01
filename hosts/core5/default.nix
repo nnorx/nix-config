@@ -4,6 +4,14 @@
 {
   imports = [
     ../../modules/docker.nix
+    (import ../../modules/pimon.nix {
+      mode = "collector";
+      bind = "0.0.0.0";
+    })
+    (import ../../modules/pimon.nix {
+      mode = "agent";
+      collectorUrl = "http://127.0.0.1:8080";
+    })
   ];
 
   networking.hostName = hostname;

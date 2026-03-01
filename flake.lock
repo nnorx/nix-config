@@ -163,13 +163,34 @@
         "type": "github"
       }
     },
+    "pimon": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1772397639,
+        "narHash": "sha256-Mq1+uQf9bjpbNv37RmLzkB1Ih9Cy1u8qkQylaiWBDG8=",
+        "owner": "nnorx",
+        "repo": "pimon",
+        "rev": "805efbaa51aa44d33440452b545fa184311b3531",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nnorx",
+        "repo": "pimon",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
         "home-manager": "home-manager",
         "nixos-hardware": "nixos-hardware",
         "nixos-raspberrypi": "nixos-raspberrypi",
         "nixpkgs": "nixpkgs_2",
-        "nixpkgs-unstable": "nixpkgs-unstable"
+        "nixpkgs-unstable": "nixpkgs-unstable",
+        "pimon": "pimon"
       }
     }
   },

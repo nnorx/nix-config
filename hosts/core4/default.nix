@@ -15,6 +15,10 @@
     })
     ../../modules/unbound.nix
     ../../modules/docker.nix
+    (import ../../modules/pimon.nix {
+      mode = "agent";
+      collectorUrl = "http://192.168.86.49:8080";
+    })
   ];
 
   networking.hostName = hostname;

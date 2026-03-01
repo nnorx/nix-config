@@ -15,6 +15,10 @@
       cacheEnabled = true; # No local Unbound, AGH handles caching
       dnssecEnabled = true; # No local Unbound, AGH handles DNSSEC
     })
+    (import ../../modules/pimon.nix {
+      mode = "agent";
+      collectorUrl = "http://192.168.86.49:8080";
+    })
   ];
 
   networking.hostName = hostname;

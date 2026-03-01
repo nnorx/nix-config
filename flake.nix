@@ -20,6 +20,12 @@
     # Raspberry Pi 5 support (boot firmware, kernel, config.txt management)
     # Uses its own pinned nixpkgs fork — do NOT add nixpkgs.follows
     nixos-raspberrypi.url = "github:nvmd/nixos-raspberrypi/main";
+
+    # pimon — fleet monitoring agent
+    pimon = {
+      url = "github:nnorx/pimon";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   # Binary cache for nixos-raspberrypi (pre-built Pi 5 kernel, firmware, etc.)
@@ -40,6 +46,7 @@
       home-manager,
       nixos-hardware,
       nixos-raspberrypi,
+      pimon,
       ...
     }:
     let
@@ -91,6 +98,7 @@
           specialArgs = {
             inherit hostname sshPubKey;
             unstable = unstableFor.${system};
+            pimonPkg = pimon.packages.${system}.default;
           };
           modules = [
             ./hosts/common
@@ -238,6 +246,7 @@
             hostname = "core5";
             inherit nixos-raspberrypi sshPubKey;
             unstable = unstableFor."aarch64-linux";
+            pimonPkg = pimon.packages."aarch64-linux".default;
           };
           modules = [
             (
