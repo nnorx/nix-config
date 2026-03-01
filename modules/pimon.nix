@@ -11,6 +11,8 @@
 }:
 { pimonPkg, ... }:
 {
+  environment.systemPackages = [ pimonPkg ];
+
   systemd.services."pimon-${mode}" = {
     description = "pimon ${mode}";
     after = [ "network-online.target" ];
