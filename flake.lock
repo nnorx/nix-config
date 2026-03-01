@@ -170,11 +170,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1772397639,
-        "narHash": "sha256-Mq1+uQf9bjpbNv37RmLzkB1Ih9Cy1u8qkQylaiWBDG8=",
+        "lastModified": 1772407355,
+        "narHash": "sha256-IOyf1z09z7stDA5VryusX2oHOWewq6hIYxw25pBHjeA=",
         "owner": "nnorx",
         "repo": "pimon",
-        "rev": "805efbaa51aa44d33440452b545fa184311b3531",
+        "rev": "e0784644cc653dca7a6ab7c4a01ab069e508e3dd",
         "type": "github"
       },
       "original": {
