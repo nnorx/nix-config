@@ -5,7 +5,10 @@
   adminPasswordHash,
   upstreamDns,
   fallbackDns ? [ ],
-  bootstrapDns ? [ "1.1.1.1" "8.8.8.8" ],
+  bootstrapDns ? [
+    "1.1.1.1"
+    "8.8.8.8"
+  ],
   cacheEnabled ? false,
   dnssecEnabled ? false,
 }:

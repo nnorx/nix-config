@@ -30,7 +30,10 @@
 
   # Swap — 1GB RAM is tight for nix-rebuild and AGH
   swapDevices = [
-    { device = "/var/lib/swapfile"; size = 1024; }
+    {
+      device = "/var/lib/swapfile";
+      size = 1024;
+    }
   ];
 
   # Resolve through own AGH instance
