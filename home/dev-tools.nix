@@ -66,6 +66,8 @@
   home.sessionVariables = {
     # Skip Playwright browser downloads - use Nix-provided browsers in devShells
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
+    # Point rust-analyzer to Nix-provided stdlib source
+    RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
   };
 
   # Dev-specific directory setup
