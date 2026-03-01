@@ -40,5 +40,9 @@
     "8.8.8.8"
   ];
 
-  # Homelab services will be added here
+  # pimon collector — allow port 8080 only from other Pis
+  networking.firewall.extraCommands = ''
+    iptables -A nixos-fw -p tcp --dport 8080 -s 192.168.86.36 -j nixos-fw-accept
+    iptables -A nixos-fw -p tcp --dport 8080 -s 192.168.86.32 -j nixos-fw-accept
+  '';
 }
