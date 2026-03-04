@@ -150,6 +150,18 @@
       devShells = forAllSystems (
         { pkgs, unstable }:
         {
+          # Fullstack development with Railway deployment
+          fullstack = pkgs.mkShell {
+            packages = [
+              pkgs.nodejs_22
+              unstable.pnpm
+              pkgs.railway
+            ];
+            shellHook = ''
+              echo "Fullstack dev shell ready (node $(node --version), $(railway --version 2>/dev/null || echo 'railway available'))"
+            '';
+          };
+
           # Playwright e2e testing with Nix-patched Chromium
           playwright = pkgs.mkShell {
             packages = [
