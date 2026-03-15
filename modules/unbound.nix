@@ -26,7 +26,6 @@
         harden-dnssec-stripped = true;
         harden-below-nxdomain = true;
         harden-algo-downgrade = true;
-        harden-referral-path = true;
         use-caps-for-id = true; # Anti-spoofing via randomized query case (0x20)
         val-clean-additional = true; # Strip unvalidated data from DNSSEC responses
         aggressive-nsec = true; # Synthesize NXDOMAIN from cached NSEC (RFC 8198)
@@ -55,6 +54,9 @@
         rrset-cache-size = "128m";
         key-cache-size = "32m";
         prefetch = true;
+        serve-expired = true;
+        serve-expired-ttl = 86400; # Serve stale entries up to 1 day
+        serve-expired-client-timeout = 1800; # ms — return stale after 1.8s if refresh is slow
         edns-buffer-size = 1232;
       };
       # No forward-zone = true recursive resolution from root servers
