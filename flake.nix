@@ -26,6 +26,12 @@
       url = "github:nnorx/pimon";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    # daybrief — CLI for morning briefs and status updates
+    daybrief = {
+      url = "github:nnorx/daybrief";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   # Binary cache for nixos-raspberrypi (pre-built Pi 5 kernel, firmware, etc.)
@@ -47,6 +53,7 @@
       nixos-hardware,
       nixos-raspberrypi,
       pimon,
+      daybrief,
       ...
     }:
     let
@@ -139,6 +146,7 @@
           extraSpecialArgs = {
             inherit username homeDirectory;
             unstable = unstableFor.${system};
+            daybriefPkg = daybrief.packages.${system}.default;
           };
         };
     in

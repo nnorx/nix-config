@@ -16,6 +16,26 @@
         "type": "github"
       }
     },
+    "daybrief": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1775443642,
+        "narHash": "sha256-3YuElLAiYnFZbklscMxBSJG2fjghZMlgg9gFnBG0GCc=",
+        "owner": "nnorx",
+        "repo": "daybrief",
+        "rev": "f59a01fb7de76f45a523c223cf7bf7a44cbd90cc",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nnorx",
+        "repo": "daybrief",
+        "type": "github"
+      }
+    },
     "flake-compat": {
       "locked": {
         "lastModified": 1767039857,
@@ -185,6 +205,7 @@
     },
     "root": {
       "inputs": {
+        "daybrief": "daybrief",
         "home-manager": "home-manager",
         "nixos-hardware": "nixos-hardware",
         "nixos-raspberrypi": "nixos-raspberrypi",

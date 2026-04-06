@@ -6,10 +6,14 @@
   pkgs,
   lib,
   unstable,
+  daybriefPkg,
   ...
 }:
 {
   home.packages = with pkgs; [
+    # ===== CLI Tools =====
+    daybriefPkg # Morning briefs and status updates
+
     # ===== JavaScript/TypeScript =====
     nodejs_22 # Node.js LTS (includes npm)
     unstable.pnpm # pnpm 10 from nixpkgs-unstable
