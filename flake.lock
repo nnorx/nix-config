@@ -23,11 +23,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1775479558,
-        "narHash": "sha256-ZvU2Y+xIcWIkK4ofWsgQr01nxSDOS6aOrG9oyUX2dOA=",
+        "lastModified": 1775481287,
+        "narHash": "sha256-42tUcUXFM0kXduLKWS9GHRj4cLjFi5RcFQdqI44pPAc=",
         "owner": "nnorx",
         "repo": "daybrief",
-        "rev": "13335b97fdcd607aec4c7d50cfe96d9b0abca8dc",
+        "rev": "7b2da1ef5aad9f448d9df2f8b01f1813cca0d4a1",
         "type": "github"
       },
       "original": {
