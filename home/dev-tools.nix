@@ -12,7 +12,7 @@
 {
   home.packages = with pkgs; [
     # ===== CLI Tools =====
-    daybriefPkg # Morning briefs and status updates
+    daybriefPkg # Daily brief CLI
 
     # ===== JavaScript/TypeScript =====
     nodejs_22 # Node.js LTS (includes npm)
@@ -56,6 +56,9 @@
 
     # AI tools
     cc = "claude";
+
+    # Daily brief
+    b = "daybrief";
 
     # Playwright
     pwt = "npx playwright test";
