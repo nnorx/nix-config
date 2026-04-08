@@ -72,6 +72,14 @@
         import nixpkgs {
           inherit system;
           config.allowUnfree = true;
+          overlays = [
+            # direnv 2.37.1 fish tests hang on macOS (Killed: 9)
+            (final: prev: {
+              direnv = prev.direnv.overrideAttrs (old: {
+                doCheck = false;
+              });
+            })
+          ];
         }
       );
       unstableFor = nixpkgs.lib.genAttrs systems (
