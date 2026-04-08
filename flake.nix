@@ -161,7 +161,7 @@
           # Fullstack development with Railway deployment
           fullstack = pkgs.mkShell {
             packages = [
-              pkgs.nodejs_22
+              pkgs.nodejs_24
               unstable.pnpm
               pkgs.railway
             ];
@@ -173,7 +173,7 @@
           # Playwright e2e testing with Nix-patched Chromium
           playwright = pkgs.mkShell {
             packages = [
-              pkgs.nodejs_22
+              pkgs.nodejs_24
               unstable.pnpm
               unstable.playwright-test
             ];
