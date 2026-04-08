@@ -126,6 +126,30 @@
           ++ extraModules;
         };
 
+      # Helper function to create an SD card installer image for Pi 3/4
+      mkPiInstaller =
+        hostname:
+        (nixpkgs.lib.nixosSystem {
+          system = "aarch64-linux";
+          modules = [
+            "${nixpkgs}/nixos/modules/installer/sd-card/sd-image-aarch64.nix"
+            (
+              { lib, ... }:
+              {
+                services.openssh.enable = true;
+                security.sudo.wheelNeedsPassword = false;
+                users.users.nixos = {
+                  isNormalUser = true;
+                  extraGroups = [ "wheel" ];
+                  openssh.authorizedKeys.keys = [ sshPubKey ];
+                };
+                # Disable ZFS — not used on Pis, and its services hang during nixos-rebuild switch
+                boot.supportedFilesystems.zfs = lib.mkForce false;
+              }
+            )
+          ];
+        }).config.system.build.sdImage;
+
       # Helper function to create a Home Manager configuration
       mkHome =
         {
@@ -210,53 +234,10 @@
           ];
         }).config.system.build.sdImage;
 
-      # Installer image for Pi 4 — includes SSH key for headless access
-      # Build with: nix build .#packages.aarch64-linux.core4-installer --accept-flake-config
-      packages.aarch64-linux.core4-installer =
-        (nixpkgs.lib.nixosSystem {
-          system = "aarch64-linux";
-          modules = [
-            "${nixpkgs}/nixos/modules/installer/sd-card/sd-image-aarch64.nix"
-            (
-              { lib, ... }:
-              {
-                services.openssh.enable = true;
-                security.sudo.wheelNeedsPassword = false;
-                users.users.nixos = {
-                  isNormalUser = true;
-                  extraGroups = [ "wheel" ];
-                  openssh.authorizedKeys.keys = [ sshPubKey ];
-                };
-                # Disable ZFS — not used on Pis, and its services hang during nixos-rebuild switch
-                boot.supportedFilesystems.zfs = lib.mkForce false;
-              }
-            )
-          ];
-        }).config.system.build.sdImage;
-
-      # Installer image for Pi 3B — includes SSH key for headless access
-      # Build with: nix build .#packages.aarch64-linux.core3-installer --accept-flake-config
-      packages.aarch64-linux.core3-installer =
-        (nixpkgs.lib.nixosSystem {
-          system = "aarch64-linux";
-          modules = [
-            "${nixpkgs}/nixos/modules/installer/sd-card/sd-image-aarch64.nix"
-            (
-              { lib, ... }:
-              {
-                services.openssh.enable = true;
-                security.sudo.wheelNeedsPassword = false;
-                users.users.nixos = {
-                  isNormalUser = true;
-                  extraGroups = [ "wheel" ];
-                  openssh.authorizedKeys.keys = [ sshPubKey ];
-                };
-                # Disable ZFS — not used on Pis, and its services hang during nixos-rebuild switch
-                boot.supportedFilesystems.zfs = lib.mkForce false;
-              }
-            )
-          ];
-        }).config.system.build.sdImage;
+      # Installer images for Pi 3/4 — includes SSH key for headless access
+      # Build with: nix build .#packages.aarch64-linux.core{3,4}-installer --accept-flake-config
+      packages.aarch64-linux.core4-installer = mkPiInstaller "core4";
+      packages.aarch64-linux.core3-installer = mkPiInstaller "core3";
 
       # NixOS configurations for Raspberry Pis
       nixosConfigurations = {
