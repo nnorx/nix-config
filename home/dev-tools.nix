@@ -55,7 +55,7 @@
     pn = "pnpm";
 
     # AI tools
-    cc = "claude";
+    cld = "claude";
 
     # Daily brief
     b = "daybrief";
