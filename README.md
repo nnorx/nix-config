@@ -170,6 +170,8 @@ nix-config/
 │   ├── default.nix        # Dev profile entry point (imports common + dev-tools)
 │   ├── common.nix         # Common profile entry point (shell, editor, CLI tools)
 │   ├── common-tools.nix   # CLI essentials (ripgrep, fd, bat, fzf, etc.)
+│   ├── security.nix       # vulnix CVE scanner + whitelist wiring
+│   ├── vulnix-whitelist.toml # Suppressed false positives (Haskell name collisions, bootstrap-only)
 │   ├── dev-tools.nix      # Dev-only packages (Node, Rust, Docker, LSPs)
 │   ├── shell-common.nix   # Shared aliases and PATH setup for bash/zsh
 │   ├── starship.nix       # Starship prompt configuration
@@ -211,6 +213,11 @@ nix-config/
 - **System**: htop, ncdu, curl, wget, unzip, tldr
 - **Navigation**: zoxide (smarter cd)
 
+#### Security (security.nix)
+- **vulnix** — scans the Nix store against the NVD CVE feed
+- Shared whitelist (`vulnix-whitelist.toml`) suppresses known false positives: Haskell library name collisions (e.g. Haskell `vault` ≠ HashiCorp Vault), bootstrap-only build inputs, and specific NVD misattributions
+- Aliases: `vulnix-scan` (home-manager closure), `vulnix-scan-system` (NixOS hosts)
+
 #### tmux (tmux.nix)
 - Prefix changed to `Ctrl+a`
 - Vim-style pane navigation
@@ -229,7 +236,7 @@ nix-config/
 ### Dev Profile (WSL, macOS only)
 
 #### Development Tools (dev-tools.nix)
-- **Node.js 22** with npm, pnpm, TypeScript
+- **Node.js 24** with npm, pnpm, TypeScript
 - **Rust** with cargo, rustfmt, clippy, rust-analyzer
 - **DevOps**: docker-compose, kubectl, k9s
 - **LSPs**: nil (Nix), typescript-language-server, rust-analyzer
@@ -346,6 +353,8 @@ git add .
 | `hms` | Apply configuration (alias for home-manager switch) |
 | `nfu` | Update flake inputs (`nix flake update`) |
 | `ngc` | Garbage collect Nix store (30+ days old) |
+| `vulnix-scan` | Scan active home-manager closure for CVEs |
+| `vulnix-scan-system` | Scan the running NixOS system for CVEs (Pi hosts) |
 | `nix flake show` | Show flake outputs |
 | `nix search nixpkgs <package>` | Search for packages |
 | `nix shell nixpkgs#<package>` | Temporarily use a package |

@@ -1,0 +1,225 @@
+# vulnix whitelist for the `nick` home-manager closure on WSL.
+#
+# Format: each [section] is a Nix package name (pname). Listing the name
+# alone suppresses all CVEs for any version of that package. Add
+# `cve = ["CVE-..."]` to scope a rule to specific CVEs only.
+#
+# Run with:  vulnix -w ~/.config/vulnix/whitelist.toml <path>
+#
+# Categories below:
+#   1. Haskell library name collisions  — package name happens to match an
+#      unrelated product that has CVEs in NVD.
+#   2. Bootstrap / build-time-only      — pulled into the store as build
+#      inputs; never executed at runtime, never on PATH.
+#   3. Specific known false matches     — e.g. git CVEs that are actually
+#      for the Jenkins git plugin.
+
+
+# =============================================================================
+# 1. Haskell library name collisions
+# =============================================================================
+# Vulnix matches on (name, version) against NVD. The Haskell packaging
+# ecosystem has many libraries whose names collide with high-profile CVE
+# targets in other ecosystems. Every CVE listed under these entries belongs
+# to a completely different product.
+
+["Diff"]
+comment = "Haskell textual-diff lib. NVD 'Diff' CVEs are for unrelated products."
+
+["async"]
+comment = "Haskell concurrency lib. NVD CVE-2021-43138 is for npm `async` (prototype pollution)."
+
+["bytes"]
+comment = "Haskell serialization lib. Unrelated to NVD 'bytes' CVEs."
+
+["commonmark"]
+comment = "Haskell CommonMark parser. NVD CVEs are for other CommonMark impls / forks."
+
+["curl"]
+comment = "Haskell libcurl bindings (curl-0.4.x). NVD CVEs are for the C curl CLI/library, which lives separately in the store as curl-8.x."
+
+["hedgehog"]
+comment = "Haskell property-based testing lib. NVD 'Hedgehog' CVE is for an unrelated tool."
+
+["idna"]
+comment = "Haskell IDNA encoder. NVD CVE-2024-12224 is for Python's `idna` package."
+
+["network"]
+comment = "Haskell low-level networking lib. NVD 'network' CVEs are for Network UPS Tools and other unrelated products sharing the name."
+
+["safe"]
+comment = "Haskell `safe` lib (total versions of partial functions). NVD CVEs are for unrelated products with 'safe' in the name."
+
+["stringbuilder"]
+comment = "Haskell stringbuilder. NVD CVE-2024-21524 is for a JavaScript stringbuilder package."
+
+["vault"]
+comment = "Haskell `vault` (heterogeneous data store). NVD CVEs are all for HashiCorp Vault."
+
+["warp"]
+comment = "Haskell Warp web server. NVD 'Warp' CVEs are for Warp Terminal (unrelated Rust app)."
+
+["yaml"]
+comment = "Haskell yaml library (uses libyaml at the C level). NVD CVEs listed are for Go's go-yaml. The underlying libyaml has its own derivation that is not whitelisted here."
+
+# Haskell `zlib-0.7.x` is a Haskell binding around the C zlib. The CVEs
+# in NVD are against the C library (real entries in the store: zlib-1.3.x).
+# We whitelist *only* the Haskell version range, not C zlib.
+["zlib-0.7.1.1"]
+comment = "Haskell zlib bindings. The CVEs listed are for the C zlib library (zlib-1.3.x, which is NOT whitelisted here)."
+
+# The `.cabal` companion derivations are metadata-only; same FPs apply.
+["async-2.2.5-r3.cabal"]
+comment = "Cabal metadata for Haskell async — see [async]."
+
+["hedgehog-1.5-r2.cabal"]
+comment = "Cabal metadata for Haskell hedgehog — see [hedgehog]."
+
+["safe-0.3.21-r1.cabal"]
+comment = "Cabal metadata for Haskell safe — see [safe]."
+
+["vault-0.3.1.5-r10.cabal"]
+comment = "Cabal metadata for Haskell vault — see [vault]."
+
+["yaml-0.11.11.2-r2.cabal"]
+comment = "Cabal metadata for Haskell yaml — see [yaml]."
+
+
+# =============================================================================
+# 2. Bootstrap / build-time-only derivations
+# =============================================================================
+# These exist in /nix/store because they were inputs during builds. They
+# are not on PATH, are not invoked at runtime, and (in the bootstrap case)
+# are intentionally pinned to old versions to make the build chain
+# reproducible. Vulnerabilities in them do not represent runtime exposure.
+
+["go-1.22.12-linux-amd64-bootstrap"]
+comment = "Stage-0 Go bootstrap binary used only to build go-1.25.9. Not on PATH, not executed by user code. The runtime Go (go-1.25.9) is scanned separately."
+
+["python-2.7.18.12"]
+comment = "Python 2 pulled in as a build helper by older nixpkgs build scripts. Not on PATH; not runnable as `python`."
+
+["perl-5.40.0"]
+comment = "Older perl pulled in transitively. Current runtime perl is 5.42.0."
+
+["perl-5.40.0-binlore"]
+comment = "Binlore metadata for the build-only perl-5.40.0 — see [perl-5.40.0]."
+
+["perl-5.40.0-env"]
+comment = "Env wrapper for the build-only perl-5.40.0 — see [perl-5.40.0]."
+
+["pip-20.3.4-source"]
+comment = "Source tarball for old pip used during Python bootstrap. Not installed or invokable."
+
+["setuptools-44.0.0-source"]
+comment = "Source tarball for old setuptools used during Python bootstrap. Not installed or invokable."
+
+["wheel-0.37.1-source"]
+comment = "Source tarball for old wheel used during Python bootstrap. Not installed or invokable."
+
+["gcc-4.6.4"]
+comment = "Ancient bootstrap GCC. Used to compile the next-stage GCC; never invoked by user code."
+
+["gcc-10.4.0"]
+comment = "Bootstrap-chain GCC. Not the runtime GCC."
+
+# Modern GCCs only have CVE-2023-4039 (aarch64 stack-protector bypass).
+# Not a runtime exposure on x86_64 WSL; matters only if you compile
+# untrusted aarch64 binaries with -fstack-protector.
+["gcc-14.3.0"]
+cve = ["CVE-2023-4039"]
+comment = "aarch64-only stack-protector bypass. Not relevant when building for x86_64."
+
+["gcc-15.2.0"]
+cve = ["CVE-2023-4039"]
+comment = "aarch64-only stack-protector bypass. Not relevant when building for x86_64."
+
+["binutils-2.44"]
+comment = "Build-time linker/assembler. CVEs are crashes parsing crafted object files — only exploitable if you point ld/objdump at untrusted binaries."
+
+["binutils-2.46"]
+comment = "Build-time linker/assembler — see [binutils-2.44]."
+
+["ninja-1.13.1"]
+comment = "Build system used at compile time. CVE-2021-4336 is escape-sequence handling in build status output."
+
+["ninja-1.13.2"]
+comment = "Build system — see [ninja-1.13.1]."
+
+["yasm"]
+comment = "Assembler used by build (ffmpeg/codecs). CVEs are crashes on crafted asm input — build-time only."
+
+["cargo"]
+comment = "Rust build tool, not exposed at runtime. CVEs are around cargo's URL handling during dependency fetch."
+
+["gzip-1.2.4"]
+comment = "Ancient bootstrap gzip. CVE-2022-1271 is zgrep/zless arg parsing; not invoked at runtime."
+
+["mercurial"]
+comment = "Pulled in as a source-fetch tool, not used interactively. CVE-2022-43410 is a hg-CLI symlink issue."
+
+["mercurial-7.1-vendor"]
+comment = "Vendored Python deps for the build-only mercurial — see [mercurial]."
+
+["mercurial-7.1-vendor-staging"]
+comment = "Build staging for the vendored mercurial — see [mercurial]."
+
+["rubygems"]
+comment = "Ruby package manager. CVE-2022-36073 is gem-yank account takeover on rubygems.org — irrelevant for local builds."
+
+["dash"]
+comment = "POSIX shell used during build steps. CVE-2024-21485 is for an npm package `shellsafe`, not dash."
+
+# Older xz pulled in transitively. Real runtime xz is the newest version
+# (5.8.3, post-update). The CVE listed (CVE-2026-34743) is low-severity.
+["xz-5.4.7"]
+comment = "Build-time xz. Runtime xz is newer."
+
+["xz-5.8.2"]
+comment = "Transitive xz. Newer xz-5.8.3 is the one actually on PATH."
+
+["inetutils"]
+comment = "Bootstrap inetutils. Low-severity CVE-2026-32772."
+
+["protobuf-25.8"]
+comment = "Build-time dep, not exposed at runtime."
+
+["lapack"]
+comment = "Build-time linear-algebra dep. CVE-2021-4048 is an OOB read in a specific routine — only exploitable if called with untrusted matrix data."
+
+["jbig2dec"]
+comment = "Image decoding lib used by ghostscript. Build-time pull-in here."
+
+["libtpms"]
+comment = "TPM 2.0 emulator library. Only matters if running swtpm; not used in this config."
+
+["libmicrohttpd"]
+comment = "Tiny embeddable HTTP library. Only matters if a service uses it; not used in this config."
+
+["fontforge"]
+comment = "Font editor build dep. CVEs require loading malicious fonts in fontforge itself, not at runtime."
+
+["libsndfile"]
+comment = "Audio file parsing lib. Build-time dep here; not exposed to untrusted audio at runtime."
+
+["pnpm-10.28.0"]
+comment = "Older pnpm pinned somewhere in the build chain. Active pnpm on PATH is 11.x (verify with `which pnpm`)."
+
+
+# =============================================================================
+# 3. Specific known false matches
+# =============================================================================
+# Cases where vulnix flags the right name but NVD has the wrong product
+# attribution, so we suppress only the specific CVEs.
+
+["git"]
+cve = [
+  # All of the below are for the **Jenkins Git plugin**, not the git binary.
+  "CVE-2022-36882",
+  "CVE-2022-30947",
+  "CVE-2022-36883",
+  "CVE-2022-38663",
+  "CVE-2021-21684",
+  "CVE-2022-36884",
+]
+comment = "Jenkins Git plugin CVEs — incorrectly attributed in NVD to product `git`."
