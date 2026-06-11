@@ -31,7 +31,7 @@
     lazygit # Git TUI
 
     # ===== DevOps Tools =====
-    docker-client # Docker CLI
+    (docker_29.override { clientOnly = true; }) # Docker CLI
     docker-compose # Docker orchestration
     kubectl # Kubernetes CLI
     k9s # Kubernetes TUI
