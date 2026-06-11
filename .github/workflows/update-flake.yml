@@ -1,0 +1,19 @@
+name: Update flake.lock
+on:
+  schedule:
+    - cron: "0 12 * * 1" # Mondays 12:00 UTC
+  workflow_dispatch:
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/update-flake-lock@main
+        with:
+          token: ${{ secrets.FLAKE_UPDATE_TOKEN }}
+          pr-title: "flake: update inputs"
+          pr-labels: dependencies
