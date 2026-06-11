@@ -26,6 +26,9 @@
 ["Diff"]
 comment = "Haskell textual-diff lib. NVD 'Diff' CVEs are for unrelated products."
 
+["ada"]
+comment = "Haskell HTML5 parser. NVD CVE-2024-9410 is for the ada-url C++ URL parser library, unrelated to the Haskell package."
+
 ["async"]
 comment = "Haskell concurrency lib. NVD CVE-2021-43138 is for npm `async` (prototype pollution)."
 
@@ -41,11 +44,20 @@ comment = "Haskell libcurl bindings (curl-0.4.x). NVD CVEs are for the C curl CL
 ["hedgehog"]
 comment = "Haskell property-based testing lib. NVD 'Hedgehog' CVE is for an unrelated tool."
 
+["http-client"]
+comment = "Haskell HTTP client library. NVD CVE-2016-6287 is for a PHP HttpClient class, unrelated to the Haskell package."
+
 ["idna"]
 comment = "Haskell IDNA encoder. NVD CVE-2024-12224 is for Python's `idna` package."
 
+["instant"]
+comment = "Haskell `instant` (instant-generics support). NVD CVE-2017-13099 is for Apache CXF, unrelated."
+
 ["network"]
 comment = "Haskell low-level networking lib. NVD 'network' CVEs are for Network UPS Tools and other unrelated products sharing the name."
+
+["parallel"]
+comment = "Haskell parallelism lib. NVD CVE-2015-4155/4156 are for GNU Parallel (a different tool, which has its own derivation)."
 
 ["safe"]
 comment = "Haskell `safe` lib (total versions of partial functions). NVD CVEs are for unrelated products with 'safe' in the name."
@@ -55,6 +67,9 @@ comment = "Haskell stringbuilder. NVD CVE-2024-21524 is for a JavaScript stringb
 
 ["vault"]
 comment = "Haskell `vault` (heterogeneous data store). NVD CVEs are all for HashiCorp Vault."
+
+["void"]
+comment = "Haskell `void` (uninhabited type). NVD CVE-2015-7777 is for a Drupal Void module, unrelated."
 
 ["warp"]
 comment = "Haskell Warp web server. NVD 'Warp' CVEs are for Warp Terminal (unrelated Rust app)."
@@ -84,6 +99,9 @@ comment = "Cabal metadata for Haskell vault — see [vault]."
 ["yaml-0.11.11.2-r2.cabal"]
 comment = "Cabal metadata for Haskell yaml — see [yaml]."
 
+["parallel-3.2.2.0-r10.cabal"]
+comment = "Cabal metadata for Haskell parallel — see [parallel]."
+
 
 # =============================================================================
 # 2. Bootstrap / build-time-only derivations
@@ -95,6 +113,27 @@ comment = "Cabal metadata for Haskell yaml — see [yaml]."
 
 ["go-1.22.12-linux-amd64-bootstrap"]
 comment = "Stage-0 Go bootstrap binary used only to build go-1.25.9. Not on PATH, not executed by user code. The runtime Go (go-1.25.9) is scanned separately."
+
+["go-1.24.13-linux-amd64-bootstrap"]
+comment = "Stage-0 Go bootstrap binary used only to build the runtime Go. Not on PATH, not executed by user code."
+
+["bash-2.05b"]
+comment = "Stage-0 bootstrap bash used to build the rest of the stdenv. Not on PATH; the runtime bash is the modern bash-5.x."
+
+["bash-2.05b-builder"]
+comment = "Builder derivation for the bootstrap bash-2.05b — see [bash-2.05b]."
+
+["glibc-2.40-224"]
+comment = "Build-chain glibc pulled in transitively. Runtime glibc is glibc-2.42."
+
+["ed-1.22.2"]
+comment = "Build-helper `ed`. CVE-2015-2987 is a decade-old issue; ed is not interactively used at runtime."
+
+["ed-1.22.5"]
+comment = "Build-helper `ed` — see [ed-1.22.2]."
+
+["flex-2.6.4"]
+comment = "Lexer generator used at build time. CVE-2015-1773 is a heap overflow in generated scanners with crafted input — build-time only."
 
 ["python-2.7.18.12"]
 comment = "Python 2 pulled in as a build helper by older nixpkgs build scripts. Not on PATH; not runnable as `python`."
