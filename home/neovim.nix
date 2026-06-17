@@ -121,16 +121,10 @@
         plugin = nvim-lspconfig;
         type = "lua";
         config = ''
-          local lspconfig = require('lspconfig')
-
-          -- TypeScript/JavaScript
-          lspconfig.ts_ls.setup({})
-
-          -- Rust
-          lspconfig.rust_analyzer.setup({})
-
-          -- Nix
-          lspconfig.nil_ls.setup({})
+          -- Enable LSP servers using the nvim-0.11 framework.
+          -- nvim-lspconfig ships the default configs under lsp/<name>.lua;
+          -- use vim.lsp.config('<name>', {...}) to override any of them.
+          vim.lsp.enable({ 'ts_ls', 'rust_analyzer', 'nil_ls' })
 
           -- Global keybindings for LSP
           vim.keymap.set('n', 'gd', vim.lsp.buf.definition, { desc = 'Go to definition' })
