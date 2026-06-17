@@ -118,6 +118,7 @@
           modules = [
             ./hosts/common
             ./hosts/${hostname}
+            { system.configurationRevision = self.rev or self.dirtyRev or "unknown"; }
             home-manager.nixosModules.home-manager
             {
               home-manager.useGlobalPkgs = true;
@@ -269,6 +270,7 @@
             )
             ./hosts/common
             ./hosts/core5
+            { system.configurationRevision = self.rev or self.dirtyRev or "unknown"; }
             home-manager.nixosModules.home-manager
             {
               home-manager.useGlobalPkgs = true;
