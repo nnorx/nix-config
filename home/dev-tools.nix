@@ -29,6 +29,7 @@
 
     # ===== Git Tools =====
     lazygit # Git TUI
+    git-crypt # Transparent file encryption in git
 
     # ===== DevOps Tools =====
     (docker_29.override { clientOnly = true; }) # Docker CLI
