@@ -53,10 +53,16 @@
         msg-cache-size = "64m";
         rrset-cache-size = "128m";
         key-cache-size = "32m";
+
+        # Cache retention — keep entries useful longer than their raw TTLs
+        cache-min-ttl = 300; # Floor short-TTL (CDN/ad/tracking) records at 5 min to cut churn
+        cache-max-ttl = 259200; # Let long-TTL records survive up to 3 days, not just 1
+
         prefetch = true;
+        prefetch-key = true; # Fetch DNSSEC keys ahead of need — trims cold-lookup latency
         serve-expired = true;
-        serve-expired-ttl = 86400; # Serve stale entries up to 1 day
-        serve-expired-client-timeout = 1800; # ms — return stale after 1.8s if refresh is slow
+        serve-expired-ttl = 86400; # Serve stale entries up to 1 day past expiry
+        serve-expired-client-timeout = 0; # Return stale immediately, refresh in background (no stall)
         edns-buffer-size = 1232;
       };
       # No forward-zone = true recursive resolution from root servers
