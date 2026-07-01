@@ -6,6 +6,9 @@
     enable = true;
     resolveLocalQueries = false; # Pi uses AGH (port 53), not unbound directly
 
+    # Local control socket for cache dump/load across reboots (see systemd units below)
+    localControlSocketPath = "/run/unbound/unbound.ctl";
+
     settings = {
       server = {
         interface = [
