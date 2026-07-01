@@ -66,16 +66,8 @@
               name = "KADhosts";
             }
             {
-              url = "https://raw.githubusercontent.com/FadeMind/hosts.extras/master/add.Spam/hosts";
-              name = "FadeMind Spam";
-            }
-            {
               url = "https://v.firebog.net/hosts/static/w3kbl.txt";
               name = "Firebog w3kbl";
-            }
-            {
-              url = "https://adaway.org/hosts.txt";
-              name = "AdAway";
             }
             {
               url = "https://v.firebog.net/hosts/AdguardDNS.txt";
@@ -98,10 +90,6 @@
               name = "Peter Lowe adservers";
             }
             {
-              url = "https://raw.githubusercontent.com/FadeMind/hosts.extras/master/UncheckyAds/hosts";
-              name = "FadeMind UncheckyAds";
-            }
-            {
               url = "https://raw.githubusercontent.com/bigdargon/hostsVN/master/hosts";
               name = "hostsVN";
             }
@@ -113,10 +101,6 @@
             {
               url = "https://v.firebog.net/hosts/Prigent-Ads.txt";
               name = "Firebog Prigent Ads";
-            }
-            {
-              url = "https://raw.githubusercontent.com/FadeMind/hosts.extras/master/add.2o7Net/hosts";
-              name = "FadeMind 2o7Net";
             }
             {
               url = "https://raw.githubusercontent.com/crazy-max/WindowsSpyBlocker/master/data/hosts/spy.txt";
@@ -132,16 +116,8 @@
               name = "DandelionSprout Anti-Malware";
             }
             {
-              url = "https://osint.digitalside.it/Threat-Intel/lists/latestdomains.txt";
-              name = "DigitalSide Threat Intel";
-            }
-            {
               url = "https://v.firebog.net/hosts/Prigent-Crypto.txt";
               name = "Firebog Prigent Crypto";
-            }
-            {
-              url = "https://raw.githubusercontent.com/FadeMind/hosts.extras/master/add.Risk/hosts";
-              name = "FadeMind Risk";
             }
             {
               url = "https://phishing.army/download/phishing_army_blocklist_extended.txt";
@@ -170,6 +146,10 @@
             {
               url = "https://lists.cyberhost.uk/malware.txt";
               name = "CyberHost Malware";
+            }
+            {
+              url = "https://gitlab.com/quidsup/notrack-blocklists/-/raw/master/notrack-malware.txt";
+              name = "NoTrack Malware";
             }
           ];
         in
