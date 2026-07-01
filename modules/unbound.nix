@@ -1,6 +1,37 @@
 # Unbound — recursive DNS resolver with DNSSEC
 # Listens on localhost:5335 and LAN for queries from AdGuard Home
-{ pkgs, ... }:
+{ pkgs, config, ... }:
+let
+  ctl = "${config.services.unbound.package}/bin/unbound-control";
+  cacheFile = "/var/lib/unbound/cache.dump"; # inside unbound's StateDirectory (sandbox-writable)
+
+  # Dump on stop — runs while the daemon is still alive; atomic via tmp + mv.
+  dumpCache = pkgs.writeShellScript "unbound-dump-cache" ''
+    export PATH="${pkgs.coreutils}/bin:$PATH"
+    tmp=${cacheFile}.tmp
+    if ${ctl} dump_cache > "$tmp" 2>/dev/null; then
+      mv "$tmp" ${cacheFile}
+    else
+      rm -f "$tmp"
+    fi
+  '';
+
+  # Load on start — wait for the control socket, then restore. Never fails the unit.
+  loadCache = pkgs.writeShellScript "unbound-load-cache" ''
+    export PATH="${pkgs.coreutils}/bin:$PATH"
+    [ -s ${cacheFile} ] || exit 0
+    n=0
+    while [ "$n" -lt 10 ]; do
+      if ${ctl} status >/dev/null 2>&1; then
+        ${ctl} load_cache < ${cacheFile} >/dev/null 2>&1 || true
+        exit 0
+      fi
+      n=$((n + 1))
+      sleep 1
+    done
+    exit 0
+  '';
+in
 {
   services.unbound = {
     enable = true;
@@ -70,5 +101,13 @@
       };
       # No forward-zone = true recursive resolution from root servers
     };
+  };
+
+  # Persist the resolver cache across restarts/reboots. Unbound's cache is
+  # in-memory, so the ~biweekly autoUpgrade kernel reboot would otherwise start
+  # cold. Dump on stop (daemon still alive), restore on start.
+  systemd.services.unbound.serviceConfig = {
+    ExecStop = dumpCache;
+    ExecStartPost = loadCache;
   };
 }
