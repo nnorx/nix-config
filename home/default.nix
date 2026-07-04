@@ -7,5 +7,6 @@
   imports = [
     ./common.nix # Common profile (shell, git, editor, basic CLI tools)
     ./dev-tools.nix # Dev tools (Node, Rust, Docker, kubectl, LSPs, etc.)
+    ./ssh.nix # keychain-managed ssh-agent (dev hosts only)
   ];
 }
