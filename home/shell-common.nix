@@ -6,6 +6,8 @@
 let
   # Helper to prepend to PATH only if not already present
   #   Usage: path_prepend "/some/dir"
+  # Why the guard: init files re-run in nested shells (tmux panes, `exec zsh`,
+  # nix develop) and would otherwise prepend the same dirs onto PATH each time
   pathGuard = ''
     path_prepend() {
       case ":$PATH:" in
@@ -74,8 +76,6 @@ in
 
     # Modern replacements
     cat = "bat --paging=never";
-    grep = "rg";
-    find = "fd";
 
     # Git shortcuts
     g = "git";
@@ -85,15 +85,15 @@ in
     # Nix shortcuts
     hms = "nix run home-manager -- switch --flake ~/projects/nix-config";
     nfu = "nix flake update";
-    nff = "nix fmt -- **/*.nix";
+    nff = "nix fmt";
     ngc = "nix-collect-garbage --delete-older-than 30d";
 
     # Interactive git
-    gsb = "git branch | fzf | xargs git switch";
-    gsr = "git branch --sort=-committerdate | fzf | xargs git switch";
+    gsb = "git branch --format='%(refname:short)' | fzf | xargs git switch";
+    gsr = "git branch --sort=-committerdate --format='%(refname:short)' | fzf | xargs git switch";
 
     # Interactive file utilities
-    fopen = "fd -t f | fzf --preview 'bat --color=always {}' | xargs nvim";
+    fopen = ''f="$(fd --type f --hidden --follow --exclude .git | fzf --preview 'bat --color=always {}')" && nvim "$f"'';
     bigfiles = "fd -t f -x du -h {} | sort -rh | head -20";
 
     # Misc
