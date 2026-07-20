@@ -47,6 +47,13 @@ in
           "192.168.86.32" # LAN — core3 forwards DNS here
         ];
         port = 5335;
+
+        # Recurse over IPv4 only. This network gets IPv6 via ULA + RA but has no
+        # global v6 prefix / default route from the Nest, so AAAA-glue upstreams
+        # are unreachable and every query would dead-end in SERVFAIL. Pinning to
+        # IPv4 makes the resolver immune to the v6 uplink flapping.
+        do-ip6 = false;
+
         access-control = [
           "127.0.0.1/32 allow"
           "192.168.86.36/32 allow" # core3
