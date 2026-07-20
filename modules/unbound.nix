@@ -110,11 +110,18 @@ in
     };
   };
 
-  # Persist the resolver cache across restarts/reboots. Unbound's cache is
-  # in-memory, so the ~biweekly autoUpgrade kernel reboot would otherwise start
-  # cold. Dump on stop (daemon still alive), restore on start.
-  systemd.services.unbound.serviceConfig = {
-    ExecStop = dumpCache;
-    ExecStartPost = loadCache;
+  systemd.services.unbound = {
+    # Don't start until the LAN address exists — unbound binds 192.168.86.32
+    # directly, so starting before the interface is up leaves a half-bound socket.
+    after = [ "network-online.target" ];
+    wants = [ "network-online.target" ];
+
+    # Persist the resolver cache across restarts/reboots. Unbound's cache is
+    # in-memory, so the ~biweekly autoUpgrade kernel reboot would otherwise start
+    # cold. Dump on stop (daemon still alive), restore on start.
+    serviceConfig = {
+      ExecStop = dumpCache;
+      ExecStartPost = loadCache;
+    };
   };
 }
