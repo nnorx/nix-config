@@ -2,7 +2,7 @@
 # Parameterized: each host specifies its role (agent or collector)
 {
   mode, # "agent" or "collector"
-  collectorUrl ? "http://192.168.86.49:8080",
+  collectorUrl ? null, # Required for agent mode; unused by the collector
   interval ? 10,
   port ? 8080,
   bind ? "0.0.0.0",
@@ -37,6 +37,7 @@
 
       ExecStart =
         if mode == "agent" then
+          assert collectorUrl != null;
           "${pimonPkg}/bin/pimon agent --collector-url ${collectorUrl} --interval ${toString interval}"
         else
           "${pimonPkg}/bin/pimon collect --port ${toString port} --bind ${bind} --stale-secs ${toString staleSecs} --max-hosts ${toString maxHosts}";

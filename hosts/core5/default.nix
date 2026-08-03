@@ -1,16 +1,25 @@
 # Raspberry Pi 5 — future homelab
 # Boot handled by nixos-raspberrypi (kernel bootloader + Pi firmware, not U-Boot)
-{ hostname, lib, ... }:
+{
+  hostname,
+  lib,
+  net,
+  ...
+}:
+let
+  host = net.hosts.${hostname};
+in
 {
   imports = [
     ../../modules/docker.nix
     (import ../../modules/pimon.nix {
       mode = "collector";
       bind = "0.0.0.0";
+      port = net.ports.pimon;
     })
     (import ../../modules/pimon.nix {
       mode = "agent";
-      collectorUrl = "http://127.0.0.1:8080";
+      collectorUrl = "http://127.0.0.1:${toString net.ports.pimon}";
     })
   ];
 
@@ -36,21 +45,21 @@
   };
 
   # Static IP
-  networking.interfaces.end0.ipv4.addresses = [
+  networking.interfaces.${host.iface}.ipv4.addresses = [
     {
-      address = "192.168.86.49";
-      prefixLength = 24;
+      address = host.ip;
+      inherit (net.lan) prefixLength;
     }
   ];
-  networking.defaultGateway = "192.168.86.1";
+  networking.defaultGateway = net.lan.gateway;
   networking.nameservers = [
     "1.1.1.1"
     "8.8.8.8"
   ];
 
-  # pimon collector — allow port 8080 only from other Pis
+  # pimon collector — allow the collector port only from other Pis
   networking.firewall.extraCommands = ''
-    iptables -A nixos-fw -p tcp --dport 8080 -s 192.168.86.36 -j nixos-fw-accept
-    iptables -A nixos-fw -p tcp --dport 8080 -s 192.168.86.32 -j nixos-fw-accept
+    iptables -A nixos-fw -p tcp --dport ${toString net.ports.pimon} -s ${net.hosts.core3.ip} -j nixos-fw-accept
+    iptables -A nixos-fw -p tcp --dport ${toString net.ports.pimon} -s ${net.hosts.core4.ip} -j nixos-fw-accept
   '';
 }

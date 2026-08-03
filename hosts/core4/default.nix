@@ -1,11 +1,18 @@
 # Raspberry Pi 4 — AdGuard Home DNS + Unbound recursive resolver
-{ hostname, ... }:
+{
+  hostname,
+  net,
+  ...
+}:
+let
+  host = net.hosts.${hostname};
+in
 {
   imports = [
     (import ../../modules/adguardhome.nix {
       adminUser = "core4";
       adminPasswordHash = "$2y$05$9Zwbgek0O2t/648P09CuW.5M4DqJzDsSIMD9SiUhTxe1deiPe37UK";
-      upstreamDns = [ "127.0.0.1:5335" ];
+      upstreamDns = [ "127.0.0.1:${toString net.ports.unbound}" ];
       fallbackDns = [
         "1.1.1.1" # Used only if local Unbound is unreachable
         "8.8.8.8"
@@ -13,24 +20,26 @@
       cacheEnabled = false; # Unbound handles caching
       dnssecEnabled = false; # Unbound handles DNSSEC
     })
-    ../../modules/unbound.nix
+    (import ../../modules/unbound.nix {
+      allowFrom = [ "core3" ]; # Only core3 forwards DNS here
+    })
     ../../modules/docker.nix
     (import ../../modules/pimon.nix {
       mode = "agent";
-      collectorUrl = "http://192.168.86.49:8080";
+      collectorUrl = "http://${net.hosts.core5.ip}:${toString net.ports.pimon}";
     })
   ];
 
   networking.hostName = hostname;
 
   # Static IP
-  networking.interfaces.end0.ipv4.addresses = [
+  networking.interfaces.${host.iface}.ipv4.addresses = [
     {
-      address = "192.168.86.32";
-      prefixLength = 24;
+      address = host.ip;
+      inherit (net.lan) prefixLength;
     }
   ];
-  networking.defaultGateway = "192.168.86.1";
+  networking.defaultGateway = net.lan.gateway;
 
   # Resolve through own AGH instance
   networking.nameservers = [ "127.0.0.1" ];
@@ -42,15 +51,15 @@
   users.users.${hostname}.extraGroups = [ "docker" ];
 
   # DNS + AGH web UI + Unbound (for core3) — LAN interface only
-  networking.firewall.interfaces.end0 = {
+  networking.firewall.interfaces.${host.iface} = {
     allowedTCPPorts = [
       53 # DNS
-      3000 # AGH web UI
-      5335 # Unbound (for core3)
+      net.ports.adguardWeb
+      net.ports.unbound # for core3
     ];
     allowedUDPPorts = [
       53 # DNS
-      5335 # Unbound (for core3)
+      net.ports.unbound # for core3
     ];
   };
 }

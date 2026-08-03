@@ -60,6 +60,9 @@
       # SSH public key for Pi access — single source of truth
       sshPubKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEF1Tvp3mQjByFOSRh4uXWZhRkquB3n5oNoLspunq+OV nick@nix-config";
 
+      # LAN topology — single source of truth for addressing (see lib/net.nix)
+      net = import ./lib/net.nix;
+
       systems = [
         "x86_64-linux"
         "aarch64-linux"
@@ -111,7 +114,7 @@
         nixpkgs.lib.nixosSystem {
           inherit system;
           specialArgs = {
-            inherit hostname sshPubKey;
+            inherit hostname sshPubKey net;
             unstable = unstableFor.${system};
             pimonPkg = pimon.packages.${system}.default;
           };
@@ -254,7 +257,7 @@
         core5 = nixos-raspberrypi.lib.nixosSystem {
           specialArgs = {
             hostname = "core5";
-            inherit nixos-raspberrypi sshPubKey;
+            inherit nixos-raspberrypi sshPubKey net;
             unstable = unstableFor."aarch64-linux";
             pimonPkg = pimon.packages."aarch64-linux".default;
           };

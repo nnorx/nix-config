@@ -1,12 +1,19 @@
 # Raspberry Pi 3B — AdGuard Home DNS (forwards to core4's Unbound)
-{ hostname, ... }:
+{
+  hostname,
+  net,
+  ...
+}:
+let
+  host = net.hosts.${hostname};
+in
 {
   imports = [
     (import ../../modules/adguardhome.nix {
       adminUser = "core3";
       adminPasswordHash = "$2y$05$9Zwbgek0O2t/648P09CuW.5M4DqJzDsSIMD9SiUhTxe1deiPe37UK";
       upstreamDns = [
-        "192.168.86.32:5335" # core4's Unbound
+        "${net.hosts.core4.ip}:${toString net.ports.unbound}" # core4's Unbound
       ];
       fallbackDns = [
         "1.1.1.1" # Used only if core4's Unbound is unreachable
@@ -17,20 +24,20 @@
     })
     (import ../../modules/pimon.nix {
       mode = "agent";
-      collectorUrl = "http://192.168.86.49:8080";
+      collectorUrl = "http://${net.hosts.core5.ip}:${toString net.ports.pimon}";
     })
   ];
 
   networking.hostName = hostname;
 
   # Static IP
-  networking.interfaces.eth0.ipv4.addresses = [
+  networking.interfaces.${host.iface}.ipv4.addresses = [
     {
-      address = "192.168.86.36";
-      prefixLength = 24;
+      address = host.ip;
+      inherit (net.lan) prefixLength;
     }
   ];
-  networking.defaultGateway = "192.168.86.1";
+  networking.defaultGateway = net.lan.gateway;
 
   # Swap — 1GB RAM is tight for nix-rebuild and AGH
   swapDevices = [
@@ -44,10 +51,10 @@
   networking.nameservers = [ "127.0.0.1" ];
 
   # DNS + AGH web UI ports — LAN interface only
-  networking.firewall.interfaces.eth0 = {
+  networking.firewall.interfaces.${host.iface} = {
     allowedTCPPorts = [
       53 # DNS
-      3000 # AGH web UI
+      net.ports.adguardWeb
     ];
     allowedUDPPorts = [ 53 ];
   };
