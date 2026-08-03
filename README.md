@@ -10,7 +10,6 @@ Reproducible system and development configuration managed with Nix Flakes — co
                    v             v
 ┌──────────────────────┐      ┌──────────────────────┐
 │  core3 (Pi 3B)       │      │  core4 (Pi 4)        │
-│  192.168.86.36       │      │  192.168.86.32       │
 │                      │      │                      │
 │  AdGuard Home (:53)  │──┐   │  AdGuard Home (:53)  │
 │  - Ad/tracker block  │  │   │  - Ad/tracker block  │
@@ -25,8 +24,7 @@ Reproducible system and development configuration managed with Nix Flakes — co
                               │                      │
 ┌──────────────────────┐      │  Web UI :3000        │
 │  core5 (Pi 5)        │      │  Docker              │
-│  192.168.86.49       │      └──────────────────────┘
-│  (general purpose)   │
+│  (general purpose)   │      └──────────────────────┘
 └──────────────────────┘
 ```
 
@@ -34,11 +32,13 @@ Reproducible system and development configuration managed with Nix Flakes — co
 
 ### Hosts
 
-| Host | Hardware | IP | Role |
-|------|----------|----|------|
-| **core3** | Raspberry Pi 3B (1GB RAM) | 192.168.86.36 | AdGuard Home DNS (forwards to core4's Unbound) |
-| **core4** | Raspberry Pi 4 (Argon ONE M.2 case) | 192.168.86.32 | AdGuard Home DNS + Unbound recursive resolver + Docker |
-| **core5** | Raspberry Pi 5 | 192.168.86.49 | General purpose |
+| Host | Hardware | Role |
+|------|----------|------|
+| **core3** | Raspberry Pi 3B (1GB RAM) | AdGuard Home DNS (forwards to core4's Unbound) |
+| **core4** | Raspberry Pi 4 (Argon ONE M.2 case) | AdGuard Home DNS + Unbound recursive resolver + Docker |
+| **core5** | Raspberry Pi 5 | General purpose |
+
+Addressing (static IPs, interface names, cross-host ports) lives in `lib/net.nix` and is threaded to every host through `specialArgs`. Nothing else in the tree hardcodes an address, so renumbering the LAN is a one-file change.
 
 ## Prerequisites
 
@@ -143,7 +143,7 @@ sudo bash -c 'echo "nameserver 1.1.1.1" > /etc/resolv.conf'
 
 6. After reboot, SSH in as the host user and change the default password:
    ```bash
-   ssh core3@192.168.86.36
+   ssh core3@<ip>   # address from lib/net.nix
    passwd
    ```
 
@@ -153,6 +153,8 @@ sudo bash -c 'echo "nameserver 1.1.1.1" > /etc/resolv.conf'
 nix-config/
 ├── flake.nix              # Entry point - defines inputs, outputs, installer images, and NixOS configs
 ├── flake.lock             # Locked dependency versions
+├── lib/
+│   └── net.nix            # LAN topology — static IPs, interface names, cross-host ports
 ├── hosts/
 │   ├── common/            # Shared NixOS config for all Pis (boot, locale, user accounts)
 │   ├── core3/             # Pi 3B — AdGuard Home DNS (forwards to core4)

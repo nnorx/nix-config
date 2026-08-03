@@ -1,6 +1,15 @@
 # Unbound — recursive DNS resolver with DNSSEC
-# Listens on localhost:5335 and LAN for queries from AdGuard Home
-{ pkgs, config, ... }:
+# Listens on localhost and the host's LAN address for queries from AdGuard Home
+{
+  allowFrom ? [ ], # Host names (from lib/net.nix) permitted to query over the LAN
+}:
+{
+  pkgs,
+  config,
+  hostname,
+  net,
+  ...
+}:
 let
   ctl = "${config.services.unbound.package}/bin/unbound-control";
   cacheFile = "/var/lib/unbound/cache.dump"; # inside unbound's StateDirectory (sandbox-writable)
@@ -44,9 +53,9 @@ in
       server = {
         interface = [
           "127.0.0.1"
-          "192.168.86.32" # LAN — core3 forwards DNS here
+          net.hosts.${hostname}.ip # LAN — allowFrom hosts forward DNS here
         ];
-        port = 5335;
+        port = net.ports.unbound;
 
         # Recurse over IPv4 only. This network gets IPv6 via ULA + RA but has no
         # global v6 prefix / default route from the Nest, so AAAA-glue upstreams
@@ -56,8 +65,8 @@ in
 
         access-control = [
           "127.0.0.1/32 allow"
-          "192.168.86.36/32 allow" # core3
-        ];
+        ]
+        ++ map (h: "${net.hosts.${h}.ip}/32 allow") allowFrom;
 
         # Use current root server addresses
         root-hints = "${pkgs.dns-root-data}/root.hints";
@@ -111,8 +120,9 @@ in
   };
 
   systemd.services.unbound = {
-    # Don't start until the LAN address exists — unbound binds 192.168.86.32
-    # directly, so starting before the interface is up leaves a half-bound socket.
+    # Don't start until the LAN address exists — unbound binds the host's LAN
+    # address directly, so starting before the interface is up leaves a
+    # half-bound socket.
     after = [ "network-online.target" ];
     wants = [ "network-online.target" ];
 
