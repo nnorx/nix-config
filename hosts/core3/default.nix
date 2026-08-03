@@ -11,7 +11,6 @@ in
   imports = [
     (import ../../modules/adguardhome.nix {
       adminUser = "core3";
-      adminPasswordHash = "$2y$05$9Zwbgek0O2t/648P09CuW.5M4DqJzDsSIMD9SiUhTxe1deiPe37UK";
       upstreamDns = [
         "${net.hosts.core4.ip}:${toString net.ports.unbound}" # core4's Unbound
       ];

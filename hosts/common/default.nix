@@ -32,6 +32,11 @@
   # Networking
   networking.useDHCP = false;
 
+  # sops-nix — each host decrypts with an age key derived from its own SSH host
+  # key, so there is no key material to distribute. Re-imaging a host changes
+  # that key: re-derive it into .sops.yaml and run `sops updatekeys`.
+  sops.age.sshKeyPaths = [ "/etc/ssh/ssh_host_ed25519_key" ];
+
   # User account — hostname doubles as username (core3, core4, core5)
   users.users.${hostname} = {
     isNormalUser = true;

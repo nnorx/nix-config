@@ -11,7 +11,6 @@ in
   imports = [
     (import ../../modules/adguardhome.nix {
       adminUser = "core4";
-      adminPasswordHash = "$2y$05$9Zwbgek0O2t/648P09CuW.5M4DqJzDsSIMD9SiUhTxe1deiPe37UK";
       upstreamDns = [ "127.0.0.1:${toString net.ports.unbound}" ];
       fallbackDns = [
         "1.1.1.1" # Used only if local Unbound is unreachable
