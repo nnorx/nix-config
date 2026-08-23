@@ -8,6 +8,12 @@
 }:
 let
   host = net.hosts.${hostname};
+
+  # Every addressed host other than this one reports to the collector here.
+  # Derived rather than listed so a new Pi is covered by adding it to
+  # lib/net.nix alone. Hosts without an `ip` yet (gate, while it holds a DHCP
+  # lease) are skipped rather than breaking evaluation.
+  agentHosts = lib.filter (h: h != hostname && net.hosts.${h} ? ip) (lib.attrNames net.hosts);
 in
 {
   imports = [
@@ -58,8 +64,7 @@ in
   ];
 
   # pimon collector — allow the collector port only from other Pis
-  networking.firewall.extraCommands = ''
-    iptables -A nixos-fw -p tcp --dport ${toString net.ports.pimon} -s ${net.hosts.core3.ip} -j nixos-fw-accept
-    iptables -A nixos-fw -p tcp --dport ${toString net.ports.pimon} -s ${net.hosts.core4.ip} -j nixos-fw-accept
-  '';
+  networking.firewall.extraCommands = lib.concatMapStrings (h: ''
+    iptables -A nixos-fw -p tcp --dport ${toString net.ports.pimon} -s ${net.hosts.${h}.ip} -j nixos-fw-accept
+  '') agentHosts;
 }
