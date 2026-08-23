@@ -124,6 +124,23 @@ in
     };
   };
 
+  # AdGuard Home fetches its blocklists at startup and resolves those URLs
+  # through this Unbound. Both units are wanted by multi-user.target, so on a
+  # cold boot they start in parallel and AdGuard usually wins: every list fails
+  # with "connection refused" on 127.0.0.1:5335, and it does not retry until the
+  # next scheduled update, 24h later. The filter-fetch path does not fall back
+  # to bootstrap_dns, so the host serves unfiltered DNS in the meantime.
+  #
+  # Ordering is enough because unbound is Type=notify and its ExecStartPost
+  # polls unbound-control until the daemon answers, so "started" really does
+  # mean "listening". `wants` is deliberately weak: if unbound fails outright,
+  # AdGuard still starts and falls back to fallback_dns rather than being held
+  # down with it.
+  systemd.services.adguardhome = lib.mkIf config.services.adguardhome.enable {
+    after = [ "unbound.service" ];
+    wants = [ "unbound.service" ];
+  };
+
   systemd.services.unbound = {
     # Don't start until the LAN address exists — unbound binds the host's LAN
     # address directly, so starting before the interface is up leaves a
