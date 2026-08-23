@@ -43,5 +43,6 @@
     vim
     curl
     htop
+    dnsutils # dig/delv — diagnose the DNS path from the host, root included
   ];
 }
