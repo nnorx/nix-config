@@ -5,38 +5,47 @@ Reproducible system and development configuration managed with Nix Flakes — co
 ## Network Architecture
 
 ```
-                     LAN clients
-                    /           \
-                   v             v
+                          LAN clients
+                    /                     \
+                   v                       v
 ┌──────────────────────┐      ┌──────────────────────┐
-│  core3 (Pi 3B)       │      │  core4 (Pi 4)        │
+│  core4 (Pi 4)        │      │  lifeline (Pi 4)     │
 │                      │      │                      │
-│  AdGuard Home (:53)  │──┐   │  AdGuard Home (:53)  │
-│  - Ad/tracker block  │  │   │  - Ad/tracker block  │
-│  - DNS caching       │  │   │                      │
-│  - DNSSEC validation │  └──>│  Unbound (:5335)     │
-│                      │      │  - Recursive resolver│
-│  Fallback:           │      │  - DNS caching       │
-│  1.1.1.1 / 8.8.8.8   │      │  - DNSSEC validation │
+│  AdGuard Home (:53)  │      │  AdGuard Home (:53)  │
+│  - Ad/tracker block  │      │  - Ad/tracker block  │
+│         |            │      │         |            │
+│         v            │      │         v            │
+│  Unbound (:5335)     │      │  Unbound (:5335)     │
+│  - Recursive resolver│      │  - Recursive resolver│
+│  - DNS caching       │      │  - DNS caching       │
+│  - DNSSEC validation │      │  - DNSSEC validation │
 │                      │      │                      │
-│  Web UI :3000        │      │  Fallback:           │
-└──────────────────────┘      │  1.1.1.1 / 8.8.8.8   │
-                              │                      │
-┌──────────────────────┐      │  Web UI :3000        │
-│  core5 (Pi 5)        │      │  Docker              │
-│  (general purpose)   │      └──────────────────────┘
+│  Fallback:           │      │  Fallback:           │
+│  1.1.1.1 / 8.8.8.8   │      │  1.1.1.1 / 8.8.8.8   │
+│                      │      │                      │
+│  Web UI :3000        │      │  Web UI :3000        │
+│  Docker              │      └──────────────────────┘
 └──────────────────────┘
+                              ┌──────────────────────┐
+┌──────────────────────┐      │  core3 (Pi 3B)       │
+│  core5 (Pi 5)        │      │  AdGuard Home (:53)  │
+│  pimon collector     │      │  -> core4's Unbound  │
+│  Docker              │      │  (being retired)     │
+└──────────────────────┘      └──────────────────────┘
 ```
 
-**DNS flow:** LAN clients → core3 AGH (filtering + cache) → core4 Unbound (recursive resolution to root servers with DNSSEC). Core4's own clients go through core4 AGH → core4 Unbound.
+**DNS flow:** each of core4 and lifeline is self-contained: AdGuard Home filters on :53 and forwards to that same host's Unbound on :5335, which resolves recursively from the root servers with DNSSEC. They share no state and neither depends on the other, so either can serve the LAN alone.
+
+core3 is the exception and is being retired: it runs AdGuard only and forwards to **core4's** Unbound, so it does not survive core4 going away. lifeline exists to replace it.
 
 ### Hosts
 
 | Host | Hardware | Role |
 |------|----------|------|
-| **core3** | Raspberry Pi 3B (1GB RAM) | AdGuard Home DNS (forwards to core4's Unbound) |
-| **core4** | Raspberry Pi 4 (Argon ONE M.2 case) | AdGuard Home DNS + Unbound recursive resolver + Docker |
-| **core5** | Raspberry Pi 5 | General purpose |
+| **core4** | Raspberry Pi 4 (8GB) | AdGuard Home + Unbound recursive resolver + Docker |
+| **lifeline** | Raspberry Pi 4 | AdGuard Home + Unbound recursive resolver — independent second DNS path |
+| **core5** | Raspberry Pi 5 | pimon collector, Docker, general purpose |
+| **core3** | Raspberry Pi 3B (1GB RAM) | AdGuard Home only, forwards to core4's Unbound. Being retired: 1GB cannot hold both services |
 
 Addressing (static IPs, interface names, cross-host ports) lives in `lib/net.nix` and is threaded to every host through `specialArgs`. Nothing else in the tree hardcodes an address, so renumbering the LAN is a one-file change.
 
@@ -104,7 +113,7 @@ From the Pi itself (or over SSH):
 sudo nixos-rebuild switch --flake github:nnorx/nix-config#core4 --accept-flake-config --refresh
 ```
 
-Replace `core4` with the target hostname (`core3`, `core4`, `core5`).
+Replace `core4` with the target hostname (`core3`, `core4`, `core5`, `lifeline`).
 
 If the Pi resolves DNS through itself and can't reach GitHub, temporarily override DNS first:
 
@@ -156,10 +165,12 @@ nix-config/
 ├── lib/
 │   └── net.nix            # LAN topology — static IPs, interface names, cross-host ports
 ├── hosts/
-│   ├── common/            # Shared NixOS config for all Pis (boot, locale, user accounts)
-│   ├── core3/             # Pi 3B — AdGuard Home DNS (forwards to core4)
+│   ├── common/            # Fleet-wide NixOS config (locale, user accounts, baseline)
+│   │   └── pi.nix         # Pi-only boot and SD-card storage layout
+│   ├── core3/             # Pi 3B — AdGuard Home DNS (forwards to core4), being retired
 │   ├── core4/             # Pi 4 — AdGuard Home + Unbound + Docker
-│   └── core5/             # Pi 5 — general purpose
+│   ├── core5/             # Pi 5 — pimon collector, Docker
+│   └── lifeline/          # Pi 4 — AdGuard Home + Unbound, independent DNS path
 ├── modules/
 │   ├── adguardhome.nix    # Parameterized AGH module (upstream/fallback DNS, caching, DNSSEC)
 │   ├── unbound.nix        # Recursive DNS resolver with DNSSEC
@@ -191,7 +202,7 @@ nix-config/
 | Profile | Hosts | What's included |
 |---------|-------|-----------------|
 | **Dev** (`default.nix`) | WSL (`nick`), macOS (`nicknorcross`) | Common + Node, Rust, Docker, kubectl, LSPs, direnv |
-| **Common** (`common.nix`) | Pi 5 (`core5`), Pi 4 (`core4`), Pi 3B (`core3`) | Shell, git, CLI tools, tmux, neovim |
+| **Common** (`common.nix`) | Pi 5 (`core5`), Pi 4 (`core4`, `lifeline`), Pi 3B (`core3`) | Shell, git, CLI tools, tmux, neovim |
 | **Darwin** (`darwin.nix`) | macOS only | GNU coreutils |
 
 ## What's Included

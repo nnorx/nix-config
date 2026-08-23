@@ -25,10 +25,29 @@
       ip = "192.168.86.49";
       iface = "end0";
     };
+
+    # Second, independent DNS path. Addressed below the Nest's DHCP pool
+    # (.20-.250) so the router can never lease this address to anything else,
+    # unlike the core* hosts which sit inside the pool and rely on being powered
+    # on to defend their addresses.
+    lifeline = {
+      ip = "192.168.86.11";
+      iface = "end0";
+    };
   };
 
+  # Hosts running a pimon agent that report to the collector on core5. Named
+  # rather than derived from `hosts`: address presence is not the same fact as
+  # running an agent, and core5's firewall opens a port per entry.
+  pimonAgents = [
+    "core3"
+    "core4"
+    "lifeline"
+  ];
+
   # Ports forming contracts *between* hosts, so they can't live in one module:
-  # core3 dials core4's unbound, core3/core4 dial core5's pimon collector.
+  # core3 dials core4's unbound; core3, core4 and lifeline dial core5's pimon
+  # collector; every AdGuard host opens adguardWeb on its LAN interface.
   ports = {
     unbound = 5335;
     pimon = 8080;

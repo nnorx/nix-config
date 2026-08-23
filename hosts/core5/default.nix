@@ -8,6 +8,11 @@
 }:
 let
   host = net.hosts.${hostname};
+
+  # Collector allow list, one rule per agent. Adding a host means adding it to
+  # net.pimonAgents and then rebuilding *this* host: until core5 is rebuilt the
+  # new agent's POSTs are dropped, and pimon's Restart=always hides that.
+  agentHosts = lib.filter (h: h != hostname) net.pimonAgents;
 in
 {
   imports = [
@@ -58,8 +63,7 @@ in
   ];
 
   # pimon collector — allow the collector port only from other Pis
-  networking.firewall.extraCommands = ''
-    iptables -A nixos-fw -p tcp --dport ${toString net.ports.pimon} -s ${net.hosts.core3.ip} -j nixos-fw-accept
-    iptables -A nixos-fw -p tcp --dport ${toString net.ports.pimon} -s ${net.hosts.core4.ip} -j nixos-fw-accept
-  '';
+  networking.firewall.extraCommands = lib.concatMapStrings (h: ''
+    iptables -A nixos-fw -p tcp --dport ${toString net.ports.pimon} -s ${net.hosts.${h}.ip} -j nixos-fw-accept
+  '') agentHosts;
 }

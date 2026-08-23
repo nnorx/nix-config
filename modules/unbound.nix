@@ -5,6 +5,7 @@
 }:
 {
   pkgs,
+  lib,
   config,
   hostname,
   net,
@@ -51,10 +52,14 @@ in
 
     settings = {
       server = {
+        # Bind the LAN address only when another host actually forwards here.
+        # With allowFrom empty the resolver is absent from the network rather
+        # than merely refusing it, so it does not depend on the firewall or on
+        # access-control to stay unreachable.
         interface = [
           "127.0.0.1"
-          net.hosts.${hostname}.ip # LAN — allowFrom hosts forward DNS here
-        ];
+        ]
+        ++ lib.optional (allowFrom != [ ]) net.hosts.${hostname}.ip;
         port = net.ports.unbound;
 
         # Recurse over IPv4 only. This network gets IPv6 via ULA + RA but has no

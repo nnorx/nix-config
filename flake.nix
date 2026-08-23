@@ -256,10 +256,13 @@
           ];
         }).config.system.build.sdImage;
 
-      # Installer images for Pi 3/4 — includes SSH key for headless access
-      # Build with: nix build .#packages.aarch64-linux.core{3,4}-installer --accept-flake-config
+      # Installer images for Pi 3/4 — includes SSH key for headless access.
+      # The image is host-agnostic: these three outputs are the same derivation,
+      # and the host config is applied by nixos-rebuild after first boot.
+      # Build with: nix build .#packages.aarch64-linux.{core3,core4,lifeline}-installer --accept-flake-config
       packages.aarch64-linux.core4-installer = mkPiInstaller "core4";
       packages.aarch64-linux.core3-installer = mkPiInstaller "core3";
+      packages.aarch64-linux.lifeline-installer = mkPiInstaller "lifeline";
 
       # NixOS configurations for Raspberry Pis
       nixosConfigurations = {
@@ -308,6 +311,10 @@
           hostname = "core3";
           hardwareModules = [ nixos-hardware.nixosModules.raspberry-pi-3 ];
         };
+        lifeline = mkPi {
+          hostname = "lifeline";
+          hardwareModules = [ nixos-hardware.nixosModules.raspberry-pi-4 ];
+        };
       };
 
       # Home Manager configurations for different machines
@@ -332,6 +339,14 @@
           system = "aarch64-linux";
           username = "core4";
           homeDirectory = "/home/core4";
+          homeModule = ./home/common.nix;
+        };
+
+        # Raspberry Pi 4 configuration (common profile — no dev tools)
+        "lifeline" = mkHome {
+          system = "aarch64-linux";
+          username = "lifeline";
+          homeDirectory = "/home/lifeline";
           homeModule = ./home/common.nix;
         };
 
