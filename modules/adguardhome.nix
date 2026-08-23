@@ -14,13 +14,13 @@
   dnssecEnabled ? false,
   upstreamTimeout ? "2s",
 }:
-{ ... }:
+{ net, ... }:
 {
   services.adguardhome = {
     enable = true;
     mutableSettings = false;
     host = "0.0.0.0";
-    port = 3000;
+    port = net.ports.adguardWeb;
     openFirewall = false; # Managed per-interface in host config
 
     settings = {

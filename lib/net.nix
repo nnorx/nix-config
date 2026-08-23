@@ -36,8 +36,18 @@
     };
   };
 
+  # Hosts running a pimon agent that report to the collector on core5. Named
+  # rather than derived from `hosts`: address presence is not the same fact as
+  # running an agent, and core5's firewall opens a port per entry.
+  pimonAgents = [
+    "core3"
+    "core4"
+    "lifeline"
+  ];
+
   # Ports forming contracts *between* hosts, so they can't live in one module:
-  # core3 dials core4's unbound, core3/core4 dial core5's pimon collector.
+  # core3 dials core4's unbound; core3, core4 and lifeline dial core5's pimon
+  # collector; every AdGuard host opens adguardWeb on its LAN interface.
   ports = {
     unbound = 5335;
     pimon = 8080;

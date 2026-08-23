@@ -9,11 +9,10 @@
 let
   host = net.hosts.${hostname};
 
-  # Every addressed host other than this one reports to the collector here.
-  # Derived rather than listed so a new Pi is covered by adding it to
-  # lib/net.nix alone. Hosts without an `ip` yet (gate, while it holds a DHCP
-  # lease) are skipped rather than breaking evaluation.
-  agentHosts = lib.filter (h: h != hostname && net.hosts.${h} ? ip) (lib.attrNames net.hosts);
+  # Collector allow list, one rule per agent. Adding a host means adding it to
+  # net.pimonAgents and then rebuilding *this* host: until core5 is rebuilt the
+  # new agent's POSTs are dropped, and pimon's Restart=always hides that.
+  agentHosts = lib.filter (h: h != hostname) net.pimonAgents;
 in
 {
   imports = [
