@@ -44,9 +44,6 @@ in
   # Resolve through own AGH instance
   networking.nameservers = [ "127.0.0.1" ];
 
-  # Argon ONE M.2 case fan + power button
-  services.hardware.argonone.enable = true;
-
   # Docker access for this host's user
   users.users.${hostname}.extraGroups = [ "docker" ];
 
