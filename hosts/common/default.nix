@@ -1,7 +1,9 @@
-# Shared NixOS configuration for all Raspberry Pis
+# Shared NixOS configuration for every host.
+#
+# Boot and storage live in pi.nix (Pis) or the host's own directory (x86), since
+# those genuinely differ per platform. Everything here applies fleet-wide.
 {
   pkgs,
-  lib,
   hostname,
   ...
 }:
@@ -14,16 +16,6 @@
   ];
 
   system.stateVersion = "25.11";
-
-  # Boot — Pi 3/4 use U-Boot/extlinux; Pi 5 overrides this via nixos-raspberrypi
-  boot.loader.grub.enable = lib.mkDefault false;
-  boot.loader.generic-extlinux-compatible.enable = lib.mkDefault true;
-
-  # SD card filesystem layout (standard NixOS Pi image partitioning)
-  fileSystems."/" = {
-    device = "/dev/disk/by-label/NIXOS_SD";
-    fsType = "ext4";
-  };
 
   # Locale and timezone
   time.timeZone = "America/New_York";

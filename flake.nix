@@ -103,12 +103,11 @@
           }
         );
 
-      # Helper function to create a NixOS configuration for Raspberry Pis
-      mkPi =
+      # Helper function to create a NixOS configuration for any host
+      mkHost =
         {
           hostname,
           system ? "aarch64-linux",
-          hardwareModules ? [ ],
           extraModules ? [ ],
         }:
         nixpkgs.lib.nixosSystem {
@@ -134,8 +133,19 @@
               };
             }
           ]
-          ++ hardwareModules
           ++ extraModules;
+        };
+
+      # Raspberry Pi hosts — mkHost plus the SD-card boot and filesystem layout
+      mkPi =
+        {
+          hostname,
+          hardwareModules ? [ ],
+          extraModules ? [ ],
+        }:
+        mkHost {
+          inherit hostname;
+          extraModules = [ ./hosts/common/pi.nix ] ++ hardwareModules ++ extraModules;
         };
 
       # Helper function to create an SD card installer image for Pi 3/4
@@ -272,6 +282,7 @@
               }
             )
             ./hosts/common
+            ./hosts/common/pi.nix
             ./hosts/core5
             { system.configurationRevision = self.rev or self.dirtyRev or "unknown"; }
             home-manager.nixosModules.home-manager
