@@ -52,7 +52,19 @@
         # or a hung resolver, both of which drop packets rather than reset.
         upstream_timeout = upstreamTimeout;
 
-        ratelimit = 300; # Per-client queries/sec — generous for normal use, limits abuse
+        # Queries/sec ceiling. This is a *whole-LAN* limit, not per device, for
+        # two independent reasons: AdGuard buckets clients by subnet
+        # (ratelimit_subnet_len_ipv4 defaults to 24, and the LAN is a /24), and
+        # the router proxies all client DNS so every query arrives from the
+        # gateway anyway. No setting makes it per-device while that is true.
+        #
+        # 300 was chosen when it read as per-device. As a household ceiling it
+        # is tight: one page load is 20-50 lookups, so a handful of devices
+        # waking together can clip it, and exceeded queries are dropped rather
+        # than refused — the symptom is intermittent partial resolution, which
+        # looks like a network fault. Kept as a runaway-abuse ceiling only;
+        # port 53 is already restricted to the LAN interface by the firewall.
+        ratelimit = 3000;
       };
 
       filtering = {
