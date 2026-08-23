@@ -1,9 +1,13 @@
 # System hardening and maintenance baseline for all Pis
 { lib, ... }:
 {
-  # Automatic NixOS upgrades from the flake
+  # Automatic NixOS upgrades from the flake.
+  #
+  # Paused: unattended 3-5am reboots are hard to tell apart from a fault while
+  # hosts are being physically moved, so deploys are manual for now. Re-enable
+  # by flipping this back to true.
   system.autoUpgrade = {
-    enable = true;
+    enable = false;
     flake = "github:nnorx/nix-config";
     dates = "04:00";
     allowReboot = true;
