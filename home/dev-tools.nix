@@ -37,6 +37,9 @@
     kubectl # Kubernetes CLI
     k9s # Kubernetes TUI
 
+    # ===== Networking =====
+    dnsutils # dig/delv — query the Pi DNS hosts from outside
+
     # ===== Language Servers & Formatters =====
     nil # Nix LSP
     nixfmt-rfc-style # Nix formatter
