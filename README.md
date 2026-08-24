@@ -15,7 +15,7 @@ Reproducible system and development configuration managed with Nix Flakes — co
 │  - Ad/tracker block  │      │  - Ad/tracker block  │
 │         |            │      │         |            │
 │         v            │      │         v            │
-│  Unbound (:5335)     │      │  Unbound (:5335)     │
+│  Unbound (127.0.0.1) │      │  Unbound (127.0.0.1) │
 │  - Recursive resolver│      │  - Recursive resolver│
 │  - DNS caching       │      │  - DNS caching       │
 │  - DNSSEC validation │      │  - DNSSEC validation │
@@ -26,17 +26,16 @@ Reproducible system and development configuration managed with Nix Flakes — co
 │  Web UI :3000        │      │  Web UI :3000        │
 │  Docker              │      └──────────────────────┘
 └──────────────────────┘
-                              ┌──────────────────────┐
-┌──────────────────────┐      │  core3 (Pi 3B)       │
-│  core5 (Pi 5)        │      │  AdGuard Home (:53)  │
-│  pimon collector     │      │  -> core4's Unbound  │
-│  Docker              │      │  (being retired)     │
-└──────────────────────┘      └──────────────────────┘
+┌──────────────────────┐
+│  core5 (Pi 5)        │
+│  pimon collector     │
+│  Docker              │
+└──────────────────────┘
 ```
 
-**DNS flow:** each of core4 and lifeline is self-contained: AdGuard Home filters on :53 and forwards to that same host's Unbound on :5335, which resolves recursively from the root servers with DNSSEC. They share no state and neither depends on the other, so either can serve the LAN alone.
+**DNS flow:** core4 and lifeline are each self-contained. AdGuard Home filters on `:53` and forwards to that same host's Unbound, which listens on loopback only and resolves recursively from the root servers with DNSSEC. They share no state and neither depends on the other, so either can serve the LAN alone.
 
-core3 is the exception and is being retired: it runs AdGuard only and forwards to **core4's** Unbound, so it does not survive core4 going away. lifeline exists to replace it.
+The router is configured with both as upstreams and proxies client DNS to them, so queries reach AdGuard from the gateway address rather than from individual clients.
 
 ### Hosts
 
@@ -45,7 +44,6 @@ core3 is the exception and is being retired: it runs AdGuard only and forwards t
 | **core4** | Raspberry Pi 4 (8GB) | AdGuard Home + Unbound recursive resolver + Docker |
 | **lifeline** | Raspberry Pi 4 | AdGuard Home + Unbound recursive resolver — independent second DNS path |
 | **core5** | Raspberry Pi 5 | pimon collector, Docker, general purpose |
-| **core3** | Raspberry Pi 3B (1GB RAM) | AdGuard Home only, forwards to core4's Unbound. Being retired: 1GB cannot hold both services |
 
 Addressing (static IPs, interface names, cross-host ports) lives in `lib/net.nix` and is threaded to every host through `specialArgs`. Nothing else in the tree hardcodes an address, so renumbering the LAN is a one-file change.
 
@@ -113,7 +111,7 @@ From the Pi itself (or over SSH):
 sudo nixos-rebuild switch --flake github:nnorx/nix-config#core4 --accept-flake-config --refresh
 ```
 
-Replace `core4` with the target hostname (`core3`, `core4`, `core5`, `lifeline`).
+Replace `core4` with the target hostname (`core4`, `core5`, `lifeline`).
 
 If the Pi resolves DNS through itself and can't reach GitHub, temporarily override DNS first:
 
@@ -125,7 +123,7 @@ sudo bash -c 'echo "nameserver 1.1.1.1" > /etc/resolv.conf'
 
 1. Build the installer image (from a machine with Nix — e.g., WSL):
    ```bash
-   nix build .#packages.aarch64-linux.core3-installer --accept-flake-config
+   nix build .#packages.aarch64-linux.lifeline-installer --accept-flake-config
    ```
 
 2. Flash to SD card:
@@ -146,13 +144,14 @@ sudo bash -c 'echo "nameserver 1.1.1.1" > /etc/resolv.conf'
 5. Build first, then switch (two-step avoids hanging during service stop):
    ```bash
    sudo bash -c 'echo "nameserver 1.1.1.1" > /etc/resolv.conf'
-   sudo nixos-rebuild build --flake github:nnorx/nix-config#core3 --accept-flake-config --refresh
-   sudo nixos-rebuild switch --flake github:nnorx/nix-config#core3 --accept-flake-config --refresh
+   sudo nixos-rebuild build --flake github:nnorx/nix-config#lifeline --accept-flake-config --refresh
+   sudo nixos-rebuild boot  --flake github:nnorx/nix-config#lifeline --accept-flake-config --refresh
+   sudo reboot
    ```
 
 6. After reboot, SSH in as the host user and change the default password:
    ```bash
-   ssh core3@<ip>   # address from lib/net.nix
+   ssh lifeline@<ip>   # address from lib/net.nix
    passwd
    ```
 
@@ -167,7 +166,6 @@ nix-config/
 ├── hosts/
 │   ├── common/            # Fleet-wide NixOS config (locale, user accounts, baseline)
 │   │   └── pi.nix         # Pi-only boot and SD-card storage layout
-│   ├── core3/             # Pi 3B — AdGuard Home DNS (forwards to core4), being retired
 │   ├── core4/             # Pi 4 — AdGuard Home + Unbound + Docker
 │   ├── core5/             # Pi 5 — pimon collector, Docker
 │   └── lifeline/          # Pi 4 — AdGuard Home + Unbound, independent DNS path
@@ -202,7 +200,7 @@ nix-config/
 | Profile | Hosts | What's included |
 |---------|-------|-----------------|
 | **Dev** (`default.nix`) | WSL (`nick`), macOS (`nicknorcross`) | Common + Node, Rust, Docker, kubectl, LSPs, direnv |
-| **Common** (`common.nix`) | Pi 5 (`core5`), Pi 4 (`core4`, `lifeline`), Pi 3B (`core3`) | Shell, git, CLI tools, tmux, neovim |
+| **Common** (`common.nix`) | Pi 5 (`core5`), Pi 4 (`core4`, `lifeline`) | Shell, git, CLI tools, tmux, neovim |
 | **Darwin** (`darwin.nix`) | macOS only | GNU coreutils |
 
 ## What's Included

@@ -10,13 +10,9 @@
     gateway = "192.168.86.1";
   };
 
-  # Per-host wired NIC. `iface` is the kernel name — the Pi 3B enumerates its
-  # onboard NIC as eth0, the Pi 4 and 5 as end0.
+  # Per-host wired NIC. `iface` is the kernel name — the Pi 4 and 5 enumerate
+  # their onboard NIC as end0.
   hosts = {
-    core3 = {
-      ip = "192.168.86.36";
-      iface = "eth0";
-    };
     core4 = {
       ip = "192.168.86.32";
       iface = "end0";
@@ -40,14 +36,14 @@
   # rather than derived from `hosts`: address presence is not the same fact as
   # running an agent, and core5's firewall opens a port per entry.
   pimonAgents = [
-    "core3"
     "core4"
     "lifeline"
   ];
 
   # Ports forming contracts *between* hosts, so they can't live in one module:
-  # core3 dials core4's unbound; core3, core4 and lifeline dial core5's pimon
-  # collector; every AdGuard host opens adguardWeb on its LAN interface.
+  # core4 and lifeline each dial their own unbound on loopback; both dial
+  # core5's pimon collector; every AdGuard host opens adguardWeb on its LAN
+  # interface.
   ports = {
     unbound = 5335;
     pimon = 8080;

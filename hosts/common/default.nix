@@ -24,7 +24,7 @@
   # Networking
   networking.useDHCP = false;
 
-  # User account — hostname doubles as username (core3, core4, core5)
+  # User account — hostname doubles as username (core4, core5, lifeline)
   users.users.${hostname} = {
     isNormalUser = true;
     initialPassword = "changeme"; # Change on first login with: passwd
