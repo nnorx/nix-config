@@ -28,10 +28,15 @@ jobs:
 
       - uses: DeterminateSystems/nix-installer-action@main
 
-      - uses: cachix/cachix-action@v15
+      - uses: cachix/cachix-action@v17
         with:
           name: nnorx-nix-config
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          # Push via post-build hooks, so only paths this job actually *builds*
+          # are uploaded. The default captures everything added to the store,
+          # which would re-upload the several GB substituted from
+          # cache.nixos.org and burn cache quota for no benefit.
+          useDaemon: true
 
       # One invocation rather than a job matrix on purpose: core4 and lifeline
       # resolve to the *same* kernel derivation, so parallel jobs would compile
