@@ -15,9 +15,15 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Serialise runs but never cancel one in flight. Cancelling is the right default
+# for test suites, where a superseded result is worthless — here it is the
+# opposite: nix does not checkpoint partial builds, so killing a run discards
+# the whole kernel compile, and the kernel derivation is usually identical
+# between commits anyway (only a flake.lock change moves it). A superseded run
+# still populates the cache with paths the next one would otherwise rebuild.
 concurrency:
   group: cache-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
