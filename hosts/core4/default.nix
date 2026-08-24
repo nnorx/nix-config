@@ -20,9 +20,9 @@ in
       cacheEnabled = false; # Unbound handles caching
       dnssecEnabled = false; # Unbound handles DNSSEC
     })
-    (import ../../modules/unbound.nix {
-      allowFrom = [ "core3" ]; # Only core3 forwards DNS here
-    })
+    # allowFrom is empty: core3 is retired and nothing off-box queries this
+    # Unbound, so the module binds 127.0.0.1 only and it is not on the LAN.
+    (import ../../modules/unbound.nix { })
     ../../modules/docker.nix
     (import ../../modules/pimon.nix {
       mode = "agent";
@@ -47,16 +47,13 @@ in
   # Docker access for this host's user
   users.users.${hostname}.extraGroups = [ "docker" ];
 
-  # DNS + AGH web UI + Unbound (for core3) — LAN interface only
+  # DNS + AGH web UI — LAN interface only. Unbound's port is not opened, and
+  # with an empty allowFrom it is not bound to the LAN either.
   networking.firewall.interfaces.${host.iface} = {
     allowedTCPPorts = [
       53 # DNS
       net.ports.adguardWeb
-      net.ports.unbound # for core3
     ];
-    allowedUDPPorts = [
-      53 # DNS
-      net.ports.unbound # for core3
-    ];
+    allowedUDPPorts = [ 53 ];
   };
 }
