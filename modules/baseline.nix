@@ -9,6 +9,9 @@
   system.autoUpgrade = {
     enable = false;
     flake = "github:nnorx/nix-config";
+    # Without this the flake's nixConfig is ignored, so an unattended upgrade
+    # would skip the binary caches and compile the kernel on the host.
+    flags = [ "--accept-flake-config" ];
     dates = "04:00";
     allowReboot = true;
     rebootWindow = {

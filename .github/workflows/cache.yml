@@ -1,0 +1,49 @@
+name: Cache
+
+# Builds every Pi's system closure on native aarch64 runners and pushes the
+# result to Cachix, so the hosts substitute instead of compiling.
+#
+# This exists because linux_rpi4 is in no public cache: without it, a kernel
+# bump costs each Pi 4 roughly 9-15 hours of compiling, separately, with no
+# shared build output between them.
+#
+# GitHub's ubuntu-*-arm runners are free for public repositories and are real
+# aarch64 hardware, so this is a native build rather than qemu emulation.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: cache-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: cachix/cachix-action@v17
+        with:
+          name: nnorx-nix-config
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          # Push via post-build hooks, so only paths this job actually *builds*
+          # are uploaded. The default captures everything added to the store,
+          # which would re-upload the several GB substituted from
+          # cache.nixos.org and burn cache quota for no benefit.
+          useDaemon: true
+
+      # One invocation rather than a job matrix on purpose: core4 and lifeline
+      # resolve to the *same* kernel derivation, so parallel jobs would compile
+      # it twice. Sequentially, nix builds it once and both reuse it.
+      - name: Build Pi system closures
+        run: |
+          nix build --no-link --print-build-logs --accept-flake-config \
+            .#nixosConfigurations.core4.config.system.build.toplevel \
+            .#nixosConfigurations.lifeline.config.system.build.toplevel \
+            .#nixosConfigurations.core5.config.system.build.toplevel
