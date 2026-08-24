@@ -7,8 +7,6 @@
   ...
 }:
 let
-  host = net.hosts.${hostname};
-
   # Collector allow list, one rule per agent. Adding a host means adding it to
   # net.pimonAgents and then rebuilding *this* host: until core5 is rebuilt the
   # new agent's POSTs are dropped, and pimon's Restart=always hides that.
@@ -27,8 +25,6 @@ in
       collectorUrl = "http://127.0.0.1:${toString net.ports.pimon}";
     })
   ];
-
-  networking.hostName = hostname;
 
   # Docker access for this host's user
   users.users.${hostname}.extraGroups = [ "docker" ];
@@ -49,14 +45,6 @@ in
     ];
   };
 
-  # Static IP
-  networking.interfaces.${host.iface}.ipv4.addresses = [
-    {
-      address = host.ip;
-      inherit (net.lan) prefixLength;
-    }
-  ];
-  networking.defaultGateway = net.lan.gateway;
   networking.nameservers = [
     "1.1.1.1"
     "8.8.8.8"

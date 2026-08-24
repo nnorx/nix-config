@@ -30,17 +30,6 @@ in
     })
   ];
 
-  networking.hostName = hostname;
-
-  # Static IP
-  networking.interfaces.${host.iface}.ipv4.addresses = [
-    {
-      address = host.ip;
-      inherit (net.lan) prefixLength;
-    }
-  ];
-  networking.defaultGateway = net.lan.gateway;
-
   # Resolve through own AGH instance
   networking.nameservers = [ "127.0.0.1" ];
 

@@ -4,9 +4,14 @@
 # those genuinely differ per platform. Everything here applies fleet-wide.
 {
   pkgs,
+  lib,
   hostname,
+  net,
   ...
 }:
+let
+  host = net.hosts.${hostname} or { };
+in
 {
   imports = [
     ../../modules/baseline.nix
@@ -21,8 +26,23 @@
   time.timeZone = "America/New_York";
   i18n.defaultLocale = "en_US.UTF-8";
 
-  # Networking
-  networking.useDHCP = false;
+  # Networking. Addressing is derived from lib/net.nix rather than repeated per
+  # host, so that file's promise — renumbering the LAN is a one-file change —
+  # holds structurally instead of depending on every host repeating the same
+  # block correctly. Hosts with no `ip` there keep their DHCP lease.
+  networking = {
+    useDHCP = false;
+    hostName = hostname;
+  }
+  // lib.optionalAttrs (host ? ip) {
+    interfaces.${host.iface}.ipv4.addresses = [
+      {
+        address = host.ip;
+        inherit (net.lan) prefixLength;
+      }
+    ];
+    defaultGateway = net.lan.gateway;
+  };
 
   # User account — hostname doubles as username (core4, core5, lifeline)
   users.users.${hostname} = {
