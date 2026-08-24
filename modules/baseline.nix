@@ -27,6 +27,23 @@
     options = "--delete-older-than 14d";
   };
 
+  # Binary caches, baked into each host's nix.conf so they apply to every user
+  # and every nix invocation. The same list lives in flake.nix's nixConfig, but
+  # that form is client-supplied: Nix ignores it for anyone outside
+  # trusted-users, and only honours it with --accept-flake-config. Relying on
+  # the flake copy alone means a host silently compiles instead of substituting
+  # — which for linux_rpi4 is 9-15 hours on a Pi 4.
+  nix.settings = {
+    substituters = [
+      "https://nixos-raspberrypi.cachix.org"
+      "https://nnorx-nix-config.cachix.org"
+    ];
+    trusted-public-keys = [
+      "nixos-raspberrypi.cachix.org-1:4iMO9LXa8BqhU+Rpg6LQKiGa2lsNh/j2oiYLNOQ5sPI="
+      "nnorx-nix-config.cachix.org-1:/vn4K3PMf39c802pIvdiQ8ErecC5eTFuXxQ6/g6Sqro="
+    ];
+  };
+
   # Enable flakes and the nix command
   nix.settings.experimental-features = [
     "nix-command"
