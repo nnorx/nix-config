@@ -34,12 +34,13 @@
     };
   };
 
-  # Binary caches. nixos-raspberrypi supplies the pre-built Pi 5 kernel and
-  # firmware; nnorx-nix-config is this repo's own, filled by .github/workflows/
-  # cache.yml, and carries the Pi 4 kernel that no public cache provides.
-  #
-  # These apply only with --accept-flake-config, which is why autoUpgrade passes
-  # it (see modules/baseline.nix) — without it hosts silently compile instead.
+  # Binary caches. Nix requires nixConfig to be a literal attrset — it cannot be
+  # computed — so this list is duplicated in modules/baseline.nix and the two
+  # must be kept in sync. baseline.nix is the one that matters on the hosts:
+  # settings from a flake are client-supplied, so Nix discards them for any user
+  # not in trusted-users, and honours them only with --accept-flake-config.
+  # This copy covers evaluating the flake from a workstation, and a freshly
+  # flashed host whose nix.conf does not yet know about these.
   nixConfig = {
     extra-substituters = [
       "https://nixos-raspberrypi.cachix.org"
