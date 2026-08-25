@@ -3,6 +3,12 @@
 { pkgs, ... }:
 {
   programs.neovim = {
+    # 26.05 flipped these defaults to false. Nothing here uses the :python3 or
+    # :ruby providers — treesitter, telescope, cmp and the LSPs are all Lua or
+    # native — so adopt the new default explicitly rather than inheriting the
+    # legacy true via stateVersion, and drop both interpreters from the closure.
+    withPython3 = false;
+    withRuby = false;
     enable = true;
 
     # Set as default editor
@@ -242,7 +248,7 @@
     ];
 
     # Extra Lua configuration
-    extraLuaConfig = ''
+    initLua = ''
       -- Set leader key to space
       vim.g.mapleader = ' '
       vim.g.maplocalleader = ' '
