@@ -6,14 +6,10 @@
   pkgs,
   lib,
   unstable,
-  daybriefPkg,
   ...
 }:
 {
   home.packages = with pkgs; [
-    # ===== CLI Tools =====
-    daybriefPkg # Daily brief CLI
-
     # ===== JavaScript/TypeScript =====
     nodejs_24 # Node.js 24 (includes npm)
     unstable.pnpm # pnpm 10 from nixpkgs-unstable
@@ -60,9 +56,6 @@
 
     # AI tools
     cld = "claude";
-
-    # Daily brief
-    b = "daybrief";
 
     # Playwright
     pwt = "npx playwright test";
