@@ -17,8 +17,8 @@
     # ===== JavaScript/TypeScript =====
     nodejs_24 # Node.js 24 (includes npm)
     unstable.pnpm # pnpm 10 from nixpkgs-unstable
-    nodePackages.typescript
-    nodePackages.typescript-language-server
+    typescript # was nodePackages.typescript; that set was removed in 26.05
+    typescript-language-server
 
     # ===== Rust =====
     rustc # Rust compiler
