@@ -26,12 +26,6 @@
       url = "github:nnorx/pimon";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-
-    # daybrief — CLI for morning briefs and status updates
-    daybrief = {
-      url = "github:nnorx/daybrief";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
   };
 
   # Binary caches. Nix requires nixConfig to be a literal attrset — it cannot be
@@ -61,7 +55,6 @@
       nixos-hardware,
       nixos-raspberrypi,
       pimon,
-      daybrief,
       ...
     }:
     let
@@ -200,7 +193,6 @@
           extraSpecialArgs = {
             inherit username homeDirectory;
             unstable = unstableFor.${system};
-            daybriefPkg = daybrief.packages.${system}.default;
           };
         };
     in
