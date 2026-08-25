@@ -121,39 +121,56 @@ sudo bash -c 'echo "nameserver 1.1.1.1" > /etc/resolv.conf'
 
 ### First-time setup (flashing a new Pi)
 
-1. Build the installer image (from a machine with Nix — e.g., WSL):
+The installer image is **host-agnostic** — `core4-installer`, `core5-installer` and `lifeline-installer` are the same derivation. It boots as user `nixos` on DHCP with the fleet SSH key; the host identity is applied by `nixos-rebuild` afterwards.
+
+1. Build the image (any machine with Nix, e.g. WSL):
    ```bash
    nix build .#packages.aarch64-linux.lifeline-installer --accept-flake-config
    ```
+   The output is **zstd-compressed** — `result/sd-image/*.img.zst`, about 1.3 GiB compressed and 3.1 GiB expanded.
 
-2. Flash to SD card:
+2. Flash it. **Do not `dd` from WSL.** WSL2 cannot see USB card readers, and `/dev/sda`–`/dev/sdd` there are WSL's own virtual disks — one of which is its root filesystem. Flash from whichever OS owns the reader.
+
+   **From Windows** — decompress somewhere Windows can read, then use Raspberry Pi Imager or balenaEtcher ("Use custom" → pick the image):
    ```bash
-   sudo dd if=result/sd-image/*.img of=/dev/sdX bs=4M status=progress
+   nix run nixpkgs#zstd -- -d result/sd-image/*.img.zst -o /mnt/c/Users/<you>/nixos-sd.img
+   ```
+   Current Raspberry Pi Imager reads `.img.zst` directly if you would rather skip the decompress step.
+
+   **From a Linux host with the reader attached** — confirm the device with `lsblk` first, since `dd` asks nothing and cannot be undone:
+   ```bash
+   zstd -d result/sd-image/*.img.zst -o nixos-sd.img
+   sudo dd if=nixos-sd.img of=/dev/sdX bs=4M status=progress conv=fsync
    ```
 
-3. Boot the Pi, then SSH in:
-   ```bash
-   ssh nixos@<ip-address>
-   ```
+   Use 16 GB or larger. The image is ~3 GiB and NixOS expands the root partition on first boot, but `nix.gc` keeps 14 days of generations and a rebuild needs room for the old and new one simultaneously.
 
-4. Set up temporary swap (important for low-RAM Pis like the 3B):
+3. Boot the Pi and find its DHCP address (the router's device list, or a ping sweep). Pass the key explicitly — a bare IP matches no `Host` block in `~/.ssh/config`:
+   ```bash
+   ssh -i ~/.ssh/id_ed25519_pis nixos@<dhcp-address>
+   ```
+   Do not go looking for a password: the `nixos` account has none, so the key is the only way in.
+
+4. Low-RAM boards only (1 GB Pi 3B and similar) — add temporary swap:
    ```bash
    sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
    ```
 
-5. Build first, then switch (two-step avoids hanging during service stop):
+5. Build, stage, reboot. **Run these one at a time.** Pasted as a block, interrupting one leaves the shell to run the rest — including the reboot:
    ```bash
    sudo bash -c 'echo "nameserver 1.1.1.1" > /etc/resolv.conf'
    sudo nixos-rebuild build --flake github:nnorx/nix-config#lifeline --accept-flake-config --refresh
    sudo nixos-rebuild boot  --flake github:nnorx/nix-config#lifeline --accept-flake-config --refresh
    sudo reboot
    ```
+   `boot` rather than `switch`: activation moves the host onto its static address from `lib/net.nix`, reconfiguring the very interface you are connected over. `boot` stages the generation and the reboot brings it up cleanly, and a failed boot leaves the previous generation selectable.
 
-6. After reboot, SSH in as the host user and change the default password:
+6. Reconnect at the static address and set a password:
    ```bash
-   ssh lifeline@<ip>   # address from lib/net.nix
-   passwd
+   ssh <hostname>@<static-ip>   # address from lib/net.nix
+   passwd                       # initialPassword is "changeme"
    ```
+   SSH is key-only, so that password is only used for `sudo` and at the console.
 
 ## Repository Structure
 
