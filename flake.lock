@@ -16,6 +16,22 @@
         "type": "github"
       }
     },
+    "claude-plugins": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1787703343,
+        "narHash": "sha256-OSCCKvB98KDCnJ0lcf1htZ1E3w9EqaeokosyGvWrd+g=",
+        "owner": "nnorx",
+        "repo": "claude-plugins",
+        "rev": "252091839d436e67f9a7ff43cce94f5c250f8490",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nnorx",
+        "repo": "claude-plugins",
+        "type": "github"
+      }
+    },
     "flake-compat": {
       "locked": {
         "lastModified": 1767039857,
@@ -201,6 +217,7 @@
     },
     "root": {
       "inputs": {
+        "claude-plugins": "claude-plugins",
         "home-manager": "home-manager",
         "nixos-hardware": "nixos-hardware",
         "nixos-raspberrypi": "nixos-raspberrypi",

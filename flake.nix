@@ -26,6 +26,14 @@
       url = "github:nnorx/pimon";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    # claude-plugins: personal Claude Code skills marketplace.
+    # A plain git repo, not a flake, so it lands in the store as a source path
+    # that ~/.claude/settings.json can point at directly.
+    claude-plugins = {
+      url = "github:nnorx/claude-plugins";
+      flake = false;
+    };
   };
 
   # Binary caches. Nix requires nixConfig to be a literal attrset — it cannot be
@@ -55,6 +63,7 @@
       nixos-hardware,
       nixos-raspberrypi,
       pimon,
+      claude-plugins,
       ...
     }:
     let
@@ -193,6 +202,7 @@
           extraSpecialArgs = {
             inherit username homeDirectory;
             unstable = unstableFor.${system};
+            claudePlugins = claude-plugins;
           };
         };
     in
