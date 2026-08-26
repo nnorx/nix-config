@@ -26,6 +26,21 @@
       url = "github:nnorx/pimon";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    # claude-plugins: personal Claude Code skills marketplace.
+    # A plain git repo, not a flake, so it lands in the store as a source path
+    # that ~/.claude/settings.json can point at directly.
+    claude-plugins = {
+      url = "github:nnorx/claude-plugins";
+      flake = false;
+    };
+
+    # improve: shadcn's read-only codebase-audit skill. Ships as its own
+    # marketplace, so it is consumed upstream rather than vendored.
+    improve = {
+      url = "github:shadcn/improve";
+      flake = false;
+    };
   };
 
   # Binary caches. Nix requires nixConfig to be a literal attrset — it cannot be
@@ -55,6 +70,8 @@
       nixos-hardware,
       nixos-raspberrypi,
       pimon,
+      claude-plugins,
+      improve,
       ...
     }:
     let
@@ -193,6 +210,12 @@
           extraSpecialArgs = {
             inherit username homeDirectory;
             unstable = unstableFor.${system};
+            # Claude Code plugin marketplaces, keyed by the `name` field in each
+            # marketplace's .claude-plugin/marketplace.json.
+            claudeMarketplaces = {
+              nnorx = claude-plugins;
+              improve = improve;
+            };
           };
         };
     in
