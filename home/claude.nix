@@ -1,18 +1,21 @@
 # Claude Code configuration.
 #
-# The personal skills marketplace (github:nnorx/claude-plugins) is pinned as a
-# flake input, so it lands in the store as a plain source path. Declaring it
-# here as a "directory" source means Claude Code registers it during startup
-# with no imperative `claude plugin` commands on a new machine, and it never
-# needs network access to do so. Claude only ever reads the marketplace path,
-# so a read-only store path is safe.
+# Plugin marketplaces are pinned as flake inputs, so each lands in the store as
+# a plain source path. Declaring them here as "directory" sources means Claude
+# Code registers them during startup with no imperative `claude plugin`
+# commands on a new machine, and with no network access. Claude only ever reads
+# a marketplace path, so a read-only store path is safe.
+#
+# Third-party skills are consumed upstream this way rather than vendored into
+# nnorx/claude-plugins, so `nix flake update <input>` is the whole update path.
 #
 # Caveat: settings.json is a read-only store symlink, so /model and /config
 # cannot write to it. Change the model here and re-switch instead.
 
 {
   pkgs,
-  claudePlugins,
+  lib,
+  claudeMarketplaces,
   ...
 }:
 let
@@ -21,15 +24,21 @@ let
     effortLevel = "xhigh";
     switchModelsOnFlag = false;
 
-    extraKnownMarketplaces.nnorx.source = {
-      source = "directory";
-      path = "${claudePlugins}";
-    };
+    extraKnownMarketplaces = lib.mapAttrs (_name: src: {
+      source = {
+        source = "directory";
+        path = "${src}";
+      };
+    }) claudeMarketplaces;
 
-    # The "nnorx" half must match the `name` field in the marketplace's
-    # .claude-plugin/marketplace.json, NOT the attribute key above. A mismatch
-    # fails with a misleading "Plugin not found".
-    enabledPlugins."core@nnorx" = true;
+    # "<plugin>@<marketplace>". The marketplace half must match the `name`
+    # field in that marketplace's .claude-plugin/marketplace.json, NOT the
+    # attribute key above. A mismatch fails with a misleading
+    # "Plugin not found".
+    enabledPlugins = {
+      "core@nnorx" = true;
+      "improve@improve" = true;
+    };
   };
 in
 {
