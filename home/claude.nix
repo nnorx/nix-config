@@ -43,5 +43,6 @@ let
 in
 {
   home.file.".claude/settings.json".source =
-    (pkgs.formats.json { }).generate "claude-settings.json" settings;
+    (pkgs.formats.json { }).generate "claude-settings.json"
+      settings;
 }
