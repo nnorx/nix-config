@@ -181,11 +181,19 @@ The installer image is **host-agnostic** — `core4-installer`, `core5-installer
 
 ### Recovery USB (x86 hosts)
 
-`gate` is the one host that cannot be recovered by pulling a card and reflashing
-it, so it gets a rescue image. It is the stock NixOS minimal ISO plus the fleet
-SSH key, which makes it **headless**: it boots on DHCP with sshd running, so a
-box that will not boot its own generations is still reachable over the network
-rather than needing a monitor and keyboard at the rack.
+**This does not install anything.** Unlike the Pi section above, nothing here is
+written to the host: the USB stick is the only thing flashed, `gate`'s NVMe is
+untouched, and pulling the stick and rebooting returns it exactly as it was. It
+is a rescue disk, in the sense of a live USB.
+
+It exists because `gate` is the one host whose recovery is otherwise physical. A
+Pi that will not boot gets its card pulled and reflashed. `gate` boots from an
+internal NVMe, so a generation that comes up without networking leaves no way
+in. The stick is that way in.
+
+The image is the stock NixOS minimal ISO plus the fleet SSH key, which makes it
+**headless**: it boots on DHCP with sshd running, so recovery is an SSH session
+rather than a monitor and keyboard at the rack.
 
 1. Build it (any machine with Nix, e.g. WSL):
    ```bash
@@ -204,8 +212,10 @@ rather than needing a monitor and keyboard at the rack.
    sudo dd if=result/iso/*.iso of=/dev/sdX bs=4M status=progress conv=fsync
    ```
 
-3. Test it once, while nothing depends on the box. Plug it in, reboot, and try
-   to SSH to the new DHCP address as root:
+3. Test it once, while nothing depends on the box. This changes nothing on
+   `gate`: it boots the stick instead of its own install, and pulling the stick
+   and rebooting puts it back. Plug it in, reboot, and try to SSH to the new
+   DHCP address as root:
    ```bash
    ssh -i ~/.ssh/id_ed25519_pis root@<dhcp-address>
    ```
@@ -214,7 +224,8 @@ rather than needing a monitor and keyboard at the rack.
    USB is behind the internal disk in the boot order, and that is the one thing
    worth a single visit with a monitor to change in the firmware.
 
-4. To recover a broken host from it:
+4. To recover a broken host from it. **These are the only steps here that
+   write to the host**, and they are for when something is already wrong:
    ```bash
    mount /dev/nvme0n1p2 /mnt && mount /dev/nvme0n1p1 /mnt/boot
    nixos-enter --root /mnt
