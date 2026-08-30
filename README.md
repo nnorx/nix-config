@@ -1,6 +1,6 @@
 # Nix Configuration
 
-Reproducible system and development configuration managed with Nix Flakes — covering NixOS on a Raspberry Pi fleet, Home Manager for dev environments, and shared modules for DNS, firewalls, and security.
+Reproducible system and development configuration managed with Nix Flakes — covering NixOS on a Raspberry Pi fleet and an x86 router, Home Manager for dev environments, and shared modules for DNS, firewalls, and security.
 
 ## Network Architecture
 
@@ -102,7 +102,7 @@ cd ~/projects/nix-config
 nfu && hms
 ```
 
-## NixOS Deployment (Raspberry Pis)
+## NixOS Deployment
 
 ### Rebuilding a host
 
@@ -112,7 +112,13 @@ From the Pi itself (or over SSH):
 sudo nixos-rebuild switch --flake github:nnorx/nix-config#core4 --accept-flake-config --refresh
 ```
 
-Replace `core4` with the target hostname (`core4`, `core5`, `lifeline`).
+Replace `core4` with the target hostname (`core4`, `core5`, `lifeline`, `gate`).
+
+`gate` is not a Pi, and its first deploy from a fresh install differs: the
+attribute has to be named explicitly, because `nixos-rebuild` otherwise resolves
+it from a hostname that is not yet `gate`. Use `boot` and a reboot rather than
+`switch`, since the rebuild reconfigures the interface the session runs over.
+See [docs/router.md](docs/router.md).
 
 If the Pi resolves DNS through itself and can't reach GitHub, temporarily override DNS first:
 
@@ -221,7 +227,7 @@ nix-config/
 | Profile | Hosts | What's included |
 |---------|-------|-----------------|
 | **Dev** (`default.nix`) | WSL (`nick`), macOS (`nicknorcross`) | Common + Node, Rust, Docker, kubectl, LSPs, direnv |
-| **Common** (`common.nix`) | Pi 5 (`core5`), Pi 4 (`core4`, `lifeline`) | Shell, git, CLI tools, tmux, neovim |
+| **Common** (`common.nix`) | Pi 5 (`core5`), Pi 4 (`core4`, `lifeline`), N100 (`gate`) | Shell, git, CLI tools, tmux, neovim |
 | **Darwin** (`darwin.nix`) | macOS only | GNU coreutils |
 
 ## What's Included
@@ -392,12 +398,13 @@ git add .
 | `nix shell nixpkgs#<package>` | Temporarily use a package |
 | `nix develop` | Enter development shell (if defined) |
 
-### NixOS (Raspberry Pis)
+### NixOS
 
 | Command | Description |
 |---------|-------------|
-| `sudo nixos-rebuild switch --flake github:nnorx/nix-config#<host>` | Deploy config to a Pi |
-| `nix build .#packages.aarch64-linux.<host>-installer` | Build installer SD image |
+| `sudo nixos-rebuild switch --flake github:nnorx/nix-config#<host>` | Deploy config to a host |
+| `sudo nixos-rebuild boot --flake github:nnorx/nix-config#<host>` | Stage for next boot, for changes that reconfigure the live interface |
+| `nix build .#packages.aarch64-linux.<host>-installer` | Build installer SD image (Pis only) |
 | `nix flake check --no-build` | Validate flake without building |
 
 ## Learning Resources

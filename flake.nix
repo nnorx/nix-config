@@ -375,6 +375,17 @@
           homeModule = ./home/common.nix;
         };
 
+        # The router (common profile, x86_64)
+        "gate" = mkHome {
+          system = "x86_64-linux";
+          username = "gate";
+          homeDirectory = "/home/gate";
+          homeModule = ./home/common.nix;
+          # Installed from 26.05, unlike the Pis. Mirrors the override the
+          # NixOS-embedded home-manager user gets in hosts/gate.
+          extraModules = [ { home.stateVersion = "26.05"; } ];
+        };
+
         # macOS configuration
         "nicknorcross" = mkHome {
           system = "aarch64-darwin";

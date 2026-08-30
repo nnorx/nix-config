@@ -1,4 +1,4 @@
-# System hardening and maintenance baseline for all Pis
+# System hardening and maintenance baseline for every host
 { lib, ... }:
 {
   # Automatic NixOS upgrades from the flake.
@@ -20,7 +20,8 @@
     };
   };
 
-  # Nix garbage collection — keep SD cards from filling up
+  # Nix garbage collection — keeps SD cards from filling up, and bounds how
+  # many generations gate's ESP has to hold
   nix.gc = {
     automatic = true;
     dates = "weekly";
@@ -72,10 +73,11 @@
   # Lightweight NTP for accurate time
   services.timesyncd.enable = true;
 
-  # Disable services not needed on headless Pis
+  # Disable services not needed on a headless box
   services.avahi.enable = false;
 
-  # Journald — cap disk usage on SD cards
+  # Journald — cap disk usage on SD cards. gate raises this in its own host
+  # config: it has NVMe, and it is the host whose logs are worth keeping
   services.journald.extraConfig = ''
     SystemMaxUse=200M
     MaxRetentionSec=1month

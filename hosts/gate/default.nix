@@ -6,6 +6,7 @@
 # land in follow-ups; see docs/router.md for the sequence.
 {
   pkgs,
+  lib,
   hostname,
   net,
   ...
@@ -21,15 +22,39 @@ in
   # apply older compatibility defaults than the box was ever set up with.
   system.stateVersion = "26.05";
 
+  # Same reasoning on the Home Manager side, which tracks its own release.
+  home-manager.users.gate.home.stateVersion = "26.05";
+
   # UEFI + systemd-boot. The Pis boot via extlinux from hosts/common/pi.nix,
   # which this host deliberately does not import.
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
 
-  # hosts/common sets networking.useDHCP = false fleet-wide, so opt this one
-  # interface back in. Keeping the lease means the box survives the switch off
-  # NetworkManager onto scripted networking without changing address.
-  networking.interfaces.${host.iface}.useDHCP = true;
+  # The default is unbounded. gate is the only host with a separate ESP, at
+  # 953M, and the Pis are immune because extlinux writes to their ext4 root.
+  # Phases 3 and 4 are repeated boot-and-reboot cycles, and each generation
+  # leaves a kernel and initrd here, so without a cap the partition fills and
+  # the failure surfaces partway through installing the bootloader.
+  boot.loader.systemd-boot.configurationLimit = 10;
+
+  # hosts/common sets networking.useDHCP = false fleet-wide, so opt the one
+  # cabled interface back in.
+  #
+  # This does not guarantee the same address. The switch replaces
+  # NetworkManager with dhcpcd, which presents a different client identifier,
+  # and hosts/common changes the hostname from `router` to `gate` at the same
+  # time, so the Nest may treat it as a new client and lease a different
+  # address on the interface the SSH session is running over. Deploy with
+  # `boot` and a reboot, with a console at the box.
+  networking.interfaces.${host.wanIface}.useDHCP = true;
+
+  # The fleet cap is 200M, sized for SD-card wear. gate has NVMe with 218G
+  # free and is the host whose logs are worth having: a week of firewall drops
+  # and DHCP churn is the evidence for every question this box will raise.
+  services.journald.extraConfig = lib.mkForce ''
+    SystemMaxUse=2G
+    MaxRetentionSec=3month
+  '';
 
   # i226 link flapping under ASPM is a known failure on these NICs, and
   # diagnosing it needs the driver's firmware revision and the PCI stepping.

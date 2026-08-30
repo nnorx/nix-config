@@ -47,7 +47,7 @@ in
     defaultGateway = net.lan.gateway;
   };
 
-  # User account — hostname doubles as username (core4, core5, lifeline)
+  # User account — hostname doubles as username (core4, core5, lifeline, gate)
   users.users.${hostname} = {
     isNormalUser = true;
     initialPassword = "changeme"; # Change on first login with: passwd

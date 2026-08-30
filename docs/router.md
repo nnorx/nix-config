@@ -18,8 +18,8 @@ Phase 0 fills these in. Several later phases cannot be designed without them.
 | Question | Answer |
 |---|---|
 | ISP handoff: pure modem/ONT, or a gateway needing bridge mode? | **Standalone modem, no router in it.** Nothing to bridge |
-| WAN protocol: DHCP or PPPoE? | Expected DHCP, confirm at cutover |
-| Does the WAN need 802.1Q VLAN tagging? (AT&T fiber does) | Not expected on a cable handoff, confirm at cutover |
+| WAN protocol: DHCP or PPPoE? | Expected DHCP. **Confirm in Phase 0 with a laptop on the modem**, not at cutover |
+| Does the WAN need 802.1Q VLAN tagging? (AT&T fiber does) | Not expected on a cable handoff. Same test, same phase |
 | Does the ISP bind the lease to a MAC? | A cable modem caches the CPE MAC for the lease. Power-cycling the modem clears it, which is why Phase 7 starts there |
 | Behind CGNAT? | **Open.** From behind the Nest the internet sees a routable address, so the remaining question is whether the Nest's own WAN address matches it or is in 100.64.0.0/10 |
 | Service tier actually purchased | |
@@ -78,8 +78,8 @@ rules and the reasoning behind the topology are the useful part, and a ruleset
 that is only correct while nobody has read it was never correct. Three kinds of
 thing do not belong here.
 
-**Secrets, which sops handles.** WireGuard private keys, DDNS API tokens, the
-AdGuard admin hash (#32), any PSK. `sops-nix` renders these at activation, so
+**Secrets, which sops handles.** WireGuard private keys, DDNS API tokens, both
+AdGuard admin hashes (#32: core4's and lifeline's), any PSK. `sops-nix` renders these at activation, so
 the Nix store holds ciphertext or a sentinel rather than the value.
 
 **Identifying data, which is not secret but is a map to one specific house.**
@@ -99,10 +99,12 @@ MAC table is not.
 **Anything the UniFi controller exports.** Backups carry Wi-Fi PSKs and device
 credentials. They stay off the repo entirely, encrypted or not.
 
-One thing is already public and should be treated as disclosed rather than
-merely fixed: the bcrypt hash at cost 05 in `hosts/core4`. Cost 05 is cheap to
-attack offline, so it wants rotating, not just encrypting. That is what #32
-does.
+Two things are already public and should be treated as disclosed rather than
+merely fixed: the bcrypt hashes in `hosts/core4` and `hosts/lifeline`. core4's
+is cost 05, cheap enough to attack offline that it wants rotating rather than
+just encrypting; lifeline's is cost 10 but has been in a public repo just as
+long. #32 covers both. So is `initialPassword = "changeme"` in `hosts/common`,
+which is every host's console and sudo password until someone runs `passwd`.
 
 ## Phase 0: recon, no config changes
 
@@ -114,6 +116,11 @@ does.
       and label the chassis. The kernel names are known but their physical
       order is not, and Phase 3 renames by MAC on the assumption that `wan` is
       the port actually intended
+- [ ] Put a laptop directly on the modem and answer the WAN shape from it:
+      whether an address arrives by plain DHCP or wants PPPoE credentials, and
+      whether anything needs a VLAN tag. Guessing these and finding out at
+      Phase 7 means discovering it with the modem power-cycled and the house
+      offline
 - [ ] Answer the rest of the Open Questions table
 - [ ] Boot `gate` with a monitor and keyboard, confirm the systemd-boot menu is
       reachable and an older generation can be selected
@@ -152,8 +159,10 @@ names rather than values.
 ## Phase 2: land the host PR and close the firewall gap
 
 - [ ] Merge the `gate` host PR (#8). It no longer stacks on the sops PR: the
-      `hosts/common` split it carried landed independently in #12, so the only
-      thing left in it is `gate` itself
+      `hosts/common` split it carried landed independently in #12. It is not
+      gate-only, though: it makes `system.stateVersion` and `home.stateVersion`
+      overridable per host, which every host evaluates, and it edits
+      `lib/net.nix`, which every host reads. Re-verify the Pis still read 25.11
 - [x] Confirm the UUIDs in `hosts/gate/hardware-configuration.nix` still match
       `lsblk -f` on the box. Verified 2026-08-30: root and ESP both match, and
       the firmware is UEFI as the config assumes
@@ -169,6 +178,10 @@ names rather than values.
       `AllowUsers = [ hostname ]`, turns password auth off, and deploys the key
       to `gate` alone. Update `~/.ssh/config` to `User gate` afterwards; it is
       the same key, so nothing else changes
+- [ ] Change gate's password at the console. `hosts/common` creates the account
+      with `initialPassword = "changeme"`, which is public in this repo and, with
+      `wheelNeedsPassword = true` in the baseline, is also the sudo password.
+      The README says this for a freshly flashed Pi and it applies here too
 - [ ] Make SSH interface-scoped in `modules/firewall.nix`, and bind `sshd` to
       LAN addresses explicitly rather than relying on firewall rules alone
 - [ ] `system.autoUpgrade` is already `enable = false` fleet-wide in
@@ -190,7 +203,10 @@ Small phase, gates everything after it. No firewall rules exist yet.
 
 - [ ] systemd `.link` files matching each NIC by MAC, renaming to `wan`,
       `lan0`, `lan1`, `lan2`
-- [ ] Update `lib/net.nix` so `gate.iface` is `wan`
+- [ ] Update `lib/net.nix` so `gate.wanIface` is `wan`. Note which attribute
+      that is: `iface` is the NIC `hosts/common` binds a static address and the
+      default gateway to, so on this host it names a LAN port and arrives in
+      Phase 4 with the address, not here
 - [ ] Deploy with `nrb`, reboot, verify, reboot again
 
 `wan` and `lan0` are safe names because the kernel never auto-generates them, so
@@ -206,7 +222,8 @@ some games, none of which is being tested here.
 
 - [ ] IPv4 forwarding sysctls; keep `networking.firewall.checkReversePath`
       strict; raise `net.netfilter.nf_conntrack_max` off its desktop default
-- [ ] Static address on `lan0` from `lib/net.nix`
+- [ ] Static address on `lan0` from `lib/net.nix`: give gate an `ip` and an
+      `iface` of `lan0`, which is what makes `hosts/common` configure it
 - [ ] nftables: default-drop forward, allow lan to wan with established/related
       return, masquerade on `wan`
 - [ ] Kea on the LAN side, with the static reservations from Phase 1

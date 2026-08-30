@@ -33,10 +33,22 @@
 
     # gate (CWWK N100, 4x i226) deliberately has no `ip` yet: it keeps its DHCP
     # lease from the Nest until the router subnets are settled, so pinning one
-    # here would be fiction. `iface` is the port chosen to face the WAN; it is
-    # still the management link until routing lands.
+    # here would be fiction.
+    #
+    # The WAN port is `wanIface`, deliberately not `iface`. `iface` means "the
+    # NIC hosts/common binds this host's static address and default gateway to",
+    # and on a router that is a LAN port. Naming the WAN port `iface` would mean
+    # that the moment gate gains an `ip`, hosts/common silently configures the
+    # LAN address and the LAN default gateway on the interface facing the
+    # internet. gate gets an `iface` of its own when the LAN side exists.
+    #
+    # Until then it has no `ip`, and nothing may assume otherwise: hosts/core5's
+    # pimon firewall and modules/unbound's allowFrom both dereference
+    # `net.hosts.<h>.ip` unguarded, so adding gate to `pimonAgents` or to an
+    # `allowFrom` before it is addressed fails *that* host's evaluation, not
+    # gate's.
     gate = {
-      iface = "enp2s0";
+      wanIface = "enp2s0";
     };
   };
 
