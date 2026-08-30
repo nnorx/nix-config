@@ -333,6 +333,13 @@
           hostname = "lifeline";
           hardwareModules = [ nixos-hardware.nixosModules.raspberry-pi-4 ];
         };
+
+        # The router. x86_64 and UEFI, so it takes mkHost directly rather than
+        # mkPi, and brings its own hardware-configuration.nix.
+        gate = mkHost {
+          hostname = "gate";
+          system = "x86_64-linux";
+        };
       };
 
       # Home Manager configurations for different machines

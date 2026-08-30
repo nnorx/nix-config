@@ -30,6 +30,14 @@
       ip = "192.168.86.11";
       iface = "end0";
     };
+
+    # gate (CWWK N100, 4x i226) deliberately has no `ip` yet: it keeps its DHCP
+    # lease from the Nest until the router subnets are settled, so pinning one
+    # here would be fiction. `iface` is the port chosen to face the WAN; it is
+    # still the management link until routing lands.
+    gate = {
+      iface = "enp2s0";
+    };
   };
 
   # Hosts running a pimon agent that report to the collector on core5. Named
