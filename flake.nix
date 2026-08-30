@@ -291,6 +291,18 @@
           system = "x86_64-linux";
           modules = [
             "${nixpkgs}/nixos/modules/installer/cd-dvd/installation-cd-minimal.nix"
+            (
+              { lib, ... }:
+              {
+                # No host in this fleet uses ZFS, and on a rescue image the
+                # default is actively wrong: boot.zfs.forceImportRoot defaults
+                # to true, which imports a pool even when another system has it
+                # marked in use. Booting rescue against a live pool is how one
+                # gets corrupted. Dropping ZFS removes the hazard rather than
+                # muting the warning, and matches mkPiInstaller above.
+                boot.supportedFilesystems.zfs = lib.mkForce false;
+              }
+            )
             {
               # The live environment's only account is root and it has no
               # password, so the key is the sole way in. The installer profile
