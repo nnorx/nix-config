@@ -191,7 +191,7 @@ rather than needing a monitor and keyboard at the rack.
    ```bash
    nix build .#packages.x86_64-linux.recovery-iso --accept-flake-config
    ```
-   The output is `result/iso/*.iso`, roughly 1 GiB.
+   The output is `result/iso/*.iso`, 1.4 GiB. Any USB stick will do.
 
 2. Write it to a USB stick. **Do not `dd` from WSL** — the same warning as the
    Pi images above: `/dev/sda`-`/dev/sdd` there are WSL's own virtual disks.
