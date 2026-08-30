@@ -24,7 +24,7 @@ Phase 0 fills these in. Several later phases cannot be designed without them.
 | Behind CGNAT? | **Open.** From behind the Nest the internet sees a routable address, so the remaining question is whether the Nest's own WAN address matches it or is in 100.64.0.0/10. Google Home app, gear icon, Advanced networking. Without the app: `ping -c 2 -t 2 1.1.1.1` from gate and read the address in the time-exceeded reply, which is the hop the Nest's WAN faces |
 | Service tier actually purchased | |
 | NIC MAC addresses | Recorded outside this repo, see "What stays out of this repo" |
-| Which physical port is which kernel name | |
+| Which physical port is which kernel name | `enp2s0`=ETH0, `enp3s0`=ETH1, `enp4s0`=ETH2, `enp5s0`=ETH3, matching PCI order. All four are identical i226, so `wanIface` stays ETH0 |
 
 CGNAT is the one that changes a design decision rather than a config value: if
 the WAN address is in 100.64.0.0/10, inbound WireGuard is off the table and
@@ -112,22 +112,19 @@ which is every host's console and sudo password until someone runs `passwd`.
       192.168.86.126, and only `enp2s0` has carrier
 - [x] Record the four NIC MACs, kept outside this repo. Phase 3 renames by MAC,
       and losing them means another trip to the rack
-- [ ] Walk the ports and label the chassis. The kernel names are known but
-      their physical order is not, and Phase 3 renames by MAC on the assumption
-      that `wan` is the socket actually intended. Leave the existing cable in
-      enp2s0 so the session survives, put a spare cable from the free switch
-      port into each other socket in turn, and read `ip -br link`: the name
-      that flips from NO-CARRIER to LOWER_UP is that socket. Carrier is a
-      link-layer fact, so nothing needs an address. Unplug the spare between
-      moves rather than briefly dual-homing on one subnet.
+- [x] Map the sockets to kernel names. Answered 2026-08-30 from the chassis
+      labels: ETH0 through ETH3 are enp2s0 through enp5s0, in PCI order.
+      Confirm the cabled socket is ETH0, which closes it end to end, since
+      enp2s0 is the interface holding carrier
 
-      Do this **before the first deploy**. Moving the single cable instead of
-      using a spare works only while NetworkManager still manages all four
-      NICs; afterwards `hosts/common` sets `useDHCP = false` and only
-      `wanIface` is opted back in, so a cable in any other port gets no address
-      and the way back is the console. The result can also change which port
-      `wanIface` names, which is a one-line edit now and a coordinated reboot
-      and cable move later
+      Had the labels not existed, the walk would have been: leave the existing
+      cable in enp2s0 so the session survives, put a spare cable from the free
+      switch port into each other socket in turn, and read `ip -br link` for the
+      name that flips from NO-CARRIER to LOWER_UP. It has to happen before the
+      first deploy either way: afterwards `hosts/common` sets
+      `useDHCP = false` with only `wanIface` opted back in, so a cable in any
+      other port gets no address and the way back is the console
+
 - [ ] Put a laptop directly on the modem and answer the WAN shape from it:
       whether an address arrives by plain DHCP or wants PPPoE credentials, and
       whether anything needs a VLAN tag. Guessing these and finding out at
