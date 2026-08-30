@@ -44,6 +44,7 @@ The router is configured with both as upstreams and proxies client DNS to them, 
 | **core4** | Raspberry Pi 4 (8GB) | AdGuard Home + Unbound recursive resolver + Docker |
 | **lifeline** | Raspberry Pi 4 | AdGuard Home + Unbound recursive resolver — independent second DNS path |
 | **core5** | Raspberry Pi 5 | pimon collector, Docker, general purpose |
+| **gate** | CWWK N100 (4x Intel i226) | The future router. Under config, not routing yet — see [docs/router.md](docs/router.md) |
 
 Addressing (static IPs, interface names, cross-host ports) lives in `lib/net.nix` and is threaded to every host through `specialArgs`. Nothing else in the tree hardcodes an address, so renumbering the LAN is a one-file change.
 
@@ -185,7 +186,8 @@ nix-config/
 │   │   └── pi.nix         # Pi-only boot and SD-card storage layout
 │   ├── core4/             # Pi 4 — AdGuard Home + Unbound + Docker
 │   ├── core5/             # Pi 5 — pimon collector, Docker
-│   └── lifeline/          # Pi 4 — AdGuard Home + Unbound, independent DNS path
+│   ├── lifeline/          # Pi 4 — AdGuard Home + Unbound, independent DNS path
+│   └── gate/              # CWWK N100 — the router, not routing yet
 ├── modules/
 │   ├── adguardhome.nix    # Parameterized AGH module (upstream/fallback DNS, caching, DNSSEC)
 │   ├── unbound.nix        # Recursive DNS resolver with DNSSEC
@@ -209,6 +211,8 @@ nix-config/
 │   ├── tmux.nix           # tmux terminal multiplexer
 │   ├── neovim.nix         # Neovim editor configuration
 │   └── darwin.nix         # macOS-specific configuration
+├── docs/
+│   └── router.md          # Phased build plan for gate
 └── README.md
 ```
 
