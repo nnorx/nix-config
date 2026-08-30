@@ -18,10 +18,10 @@ Phase 0 fills these in. Several later phases cannot be designed without them.
 | Question | Answer |
 |---|---|
 | ISP handoff: pure modem/ONT, or a gateway needing bridge mode? | **Standalone modem, no router in it.** Nothing to bridge |
-| WAN protocol: DHCP or PPPoE? | Expected DHCP. **Confirm in Phase 0 with a laptop on the modem**, not at cutover |
-| Does the WAN need 802.1Q VLAN tagging? (AT&T fiber does) | Not expected on a cable handoff. Same test, same phase |
+| WAN protocol: DHCP or PPPoE? | Almost certainly DHCP: cable handoffs are, and PPPoE would have meant typing credentials into the Home app at setup. Its Internet screen shows which. Worst case is discovering it at cutover and rescheduling, with the Nest plugged back in |
+| Does the WAN need 802.1Q VLAN tagging? (AT&T fiber does) | **No.** Nest Wifi has no 802.1Q option on its WAN and the house works, so there is nothing to tag |
 | Does the ISP bind the lease to a MAC? | A cable modem caches the CPE MAC for the lease. Power-cycling the modem clears it, which is why Phase 7 starts there |
-| Behind CGNAT? | **Open**, and answered by the modem test below rather than from inside the LAN. A TTL-limited ping put the Nest's next hop at 172.20.25.131, which proves nothing either way: ISPs number internal router interfaces out of RFC1918 routinely, and it is not 100.64.0.0/10. What settles it is the address the CPE holds on its own WAN |
+| Behind CGNAT? | **Open, and deliberately deferred to Phase 8.** It changes WireGuard vs Tailscale and nothing before that, and once gate is the router it reads its own WAN address for free. A TTL-limited ping from inside the LAN proves nothing either way: the Nest's next hop is 172.20.25.131, and ISPs number internal router interfaces out of RFC1918 routinely. The Home app's Internet screen answers it early if convenient |
 | Service tier actually purchased | |
 | NIC MAC addresses | Recorded outside this repo, see "What stays out of this repo" |
 | Which physical port is which kernel name | `enp2s0`=ETH0, `enp3s0`=ETH1, `enp4s0`=ETH2, `enp5s0`=ETH3, matching PCI order. All four are identical i226, so `wanIface` stays ETH0 |
@@ -125,41 +125,27 @@ which is every host's console and sudo password until someone runs `passwd`.
       `useDHCP = false` with only `wanIface` opted back in, so a cable in any
       other port gets no address and the way back is the console
 
-- [ ] The modem test, which closes four open questions at once: CGNAT, DHCP vs
-      PPPoE, VLAN tagging, and what IPv6 the ISP offers. Guessing any of them
-      and finding out at Phase 7 means discovering it with the house offline.
+- [ ] Check what IPv6 the ISP offers, from where you already are:
+      `ip -6 addr show enp2s0`. A global address, starting 2 or 3, means the
+      ISP does v6 and the Nest passes it through. That is the Phase 8 input
 
-      Use gate rather than a laptop. It is the box that does this for real at
-      cutover, so the NIC and the DHCP client under test are the ones that will
-      be doing the job. ETH0 stays on the LAN throughout, so the SSH session
-      survives and only internet access drops. Do it **before deploying**,
-      while NetworkManager still manages all four NICs and will lease on ETH1
-      without config.
+      There is no standalone modem test. An earlier draft had one, on the
+      reasoning that guessing the WAN shape and finding out at cutover is
+      expensive. It is not, here: VLAN tagging is already ruled out by the Nest
+      working at all, PPPoE is visible in the Home app and its worst case is a
+      rescheduled evening with the Nest plugged back in, and CGNAT is a Phase 8
+      input that gate answers by itself once it is routing. None of that is
+      worth taking the house offline for
 
-      1. Unplug the modem's cable, then **power-cycle the modem** and wait for
-         steady lights. A cable modem binds its lease to the first CPE MAC it
-         sees and is still holding the Nest's, so skipping this is the usual
-         reason the test appears to fail
-      2. Cable the modem to gate's **ETH1** (enp3s0)
-      3. `ip -br addr show enp3s0`, `ip -6 addr show enp3s0`, `ip route`,
-         `curl --interface enp3s0 -s https://ifconfig.me`, and
-         `journalctl -u NetworkManager -n 30`
-      4. Unplug, **power-cycle the modem again**, reconnect the Nest. It will
-         not get a lease while the modem holds one bound to gate's MAC
-
-      Reading it: enp3s0's address matching what ifconfig.me returns means a
-      bridged modem, a public address, and WireGuard is viable. A private
-      address on enp3s0 with a different public one means CGNAT, and Phase 8
-      becomes Tailscale. An address arriving at all rules out PPPoE and VLAN
-      tagging together
 - [ ] Answer the rest of the Open Questions table
 - [ ] Boot `gate` with a monitor and keyboard, confirm the systemd-boot menu is
       reachable and an older generation can be selected
 - [ ] Build a NixOS recovery USB and boot it once to confirm it works
 - [ ] Note the Nest's WAN MAC before anything is unplugged
 
-**Exit test:** "what happens when the WAN cable moves" is answerable without
-guessing, and the box is recoverable without the network.
+**Exit test:** the box is recoverable without the network, and the only
+remaining WAN unknown is one whose worst case is plugging the Nest back in and
+picking another evening.
 
 ## Phase 1: design the addressing, then encode it
 
@@ -329,7 +315,9 @@ One at a time, weeks apart, once the house is boring.
 - [ ] `node_exporter` or a pimon agent on `gate`, reporting to core5
 - [ ] Inbound remote access. This is the one with clear payoff: SSH into the
       fleet, the AdGuard UI, Home Assistant, and filtered DNS from a hotel.
-      WireGuard if there is a routable WAN address, Tailscale if behind CGNAT
+      Start by answering the CGNAT question deferred from Phase 0, which is now
+      a one-liner: read gate's own WAN address off `wan`. Routable means
+      WireGuard, and 100.64.0.0/10 means Tailscale
 - [ ] IPv6: DHCPv6-PD, a /64 per VLAN, `corerad` for advertisements, and an
       explicit v6 default-deny inbound. There is no NAT hiding anything on v6,
       so every device is globally routable and the forward chain is the only
