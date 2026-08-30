@@ -1,6 +1,6 @@
 # Nix Configuration
 
-Reproducible system and development configuration managed with Nix Flakes — covering NixOS on a Raspberry Pi fleet, Home Manager for dev environments, and shared modules for DNS, firewalls, and security.
+Reproducible system and development configuration managed with Nix Flakes — covering NixOS on a Raspberry Pi fleet and an x86 router, Home Manager for dev environments, and shared modules for DNS, firewalls, and security.
 
 ## Network Architecture
 
@@ -44,6 +44,7 @@ The router is configured with both as upstreams and proxies client DNS to them, 
 | **core4** | Raspberry Pi 4 (8GB) | AdGuard Home + Unbound recursive resolver + Docker |
 | **lifeline** | Raspberry Pi 4 | AdGuard Home + Unbound recursive resolver — independent second DNS path |
 | **core5** | Raspberry Pi 5 | pimon collector, Docker, general purpose |
+| **gate** | CWWK N100 (4x Intel i226) | The future router. Under config, not routing yet — see [docs/router.md](docs/router.md) |
 
 Addressing (static IPs, interface names, cross-host ports) lives in `lib/net.nix` and is threaded to every host through `specialArgs`. Nothing else in the tree hardcodes an address, so renumbering the LAN is a one-file change.
 
@@ -101,7 +102,7 @@ cd ~/projects/nix-config
 nfu && hms
 ```
 
-## NixOS Deployment (Raspberry Pis)
+## NixOS Deployment
 
 ### Rebuilding a host
 
@@ -111,7 +112,13 @@ From the Pi itself (or over SSH):
 sudo nixos-rebuild switch --flake github:nnorx/nix-config#core4 --accept-flake-config --refresh
 ```
 
-Replace `core4` with the target hostname (`core4`, `core5`, `lifeline`).
+Replace `core4` with the target hostname (`core4`, `core5`, `lifeline`, `gate`).
+
+`gate` is not a Pi, and its first deploy from a fresh install differs: the
+attribute has to be named explicitly, because `nixos-rebuild` otherwise resolves
+it from a hostname that is not yet `gate`. Use `boot` and a reboot rather than
+`switch`, since the rebuild reconfigures the interface the session runs over.
+See [docs/router.md](docs/router.md).
 
 If the Pi resolves DNS through itself and can't reach GitHub, temporarily override DNS first:
 
@@ -172,6 +179,70 @@ The installer image is **host-agnostic** — `core4-installer`, `core5-installer
    ```
    SSH is key-only, so that password is only used for `sudo` and at the console.
 
+### Recovery USB (x86 hosts)
+
+**This does not install anything.** Unlike the Pi section above, nothing here is
+written to the host: the USB stick is the only thing flashed, `gate`'s NVMe is
+untouched, and pulling the stick and rebooting returns it exactly as it was. It
+is a rescue disk, in the sense of a live USB.
+
+It exists because `gate` is the one host whose recovery is otherwise physical. A
+Pi that will not boot gets its card pulled and reflashed. `gate` boots from an
+internal NVMe, so a generation that comes up without networking leaves no way
+in. The stick is that way in.
+
+The image is the stock NixOS minimal ISO plus the fleet SSH key, which makes it
+**headless**: it boots on DHCP with sshd running, so recovery is an SSH session
+rather than a monitor and keyboard at the rack.
+
+1. Build it (any machine with Nix, e.g. WSL):
+   ```bash
+   nix build .#packages.x86_64-linux.recovery-iso --accept-flake-config
+   ```
+   The output is `result/iso/*.iso`, 1.4 GiB. Any USB stick will do.
+
+2. Write it to a USB stick. **Do not `dd` from WSL** — the same warning as the
+   Pi images above: `/dev/sda`-`/dev/sdd` there are WSL's own virtual disks.
+   ```bash
+   cp result/iso/*.iso /mnt/c/Users/<you>/Downloads/nixos-recovery.iso
+   ```
+   Then, on the Windows side, balenaEtcher is the least fiddly: flash from
+   file, pick the stick, go, since it writes in DD mode by default and that is
+   what a hybrid ISO wants. Rufus works too but will ask, on seeing
+   "ISOHybrid image detected" — choose **DD Image mode**, not ISO mode.
+
+   Afterwards Windows sees an unrecognized partition and offers to format the
+   stick. Decline: the stick is fine, Windows just cannot read the filesystem.
+
+   From a Linux host with the stick attached, confirm the device with `lsblk`
+   first:
+   ```bash
+   sudo dd if=result/iso/*.iso of=/dev/sdX bs=4M status=progress conv=fsync
+   ```
+
+3. Test it once, while nothing depends on the box. This changes nothing on
+   `gate`: it boots the stick instead of its own install, and pulling the stick
+   and rebooting puts it back. Plug it in, reboot, and try to SSH to the new
+   DHCP address as root:
+   ```bash
+   ssh -i ~/.ssh/id_ed25519_pis root@<dhcp-address>
+   ```
+   Two outcomes, both useful. If you get a shell, headless recovery works and
+   the monitor stays in the cupboard. If the host comes back as itself instead,
+   USB is behind the internal disk in the boot order, and that is the one thing
+   worth a single visit with a monitor to change in the firmware.
+
+4. To recover a broken host from it. **These are the only steps here that
+   write to the host**, and they are for when something is already wrong:
+   ```bash
+   mount /dev/nvme0n1p2 /mnt && mount /dev/nvme0n1p1 /mnt/boot
+   nixos-enter --root /mnt
+   # then, inside:
+   nix-env --list-generations --profile /nix/var/nix/profiles/system
+   /nix/var/nix/profiles/system-<N>-link/bin/switch-to-configuration boot
+   ```
+   Reboot without the stick. Device names are from `hosts/gate/hardware-configuration.nix`.
+
 ## Repository Structure
 
 ```
@@ -185,7 +256,8 @@ nix-config/
 │   │   └── pi.nix         # Pi-only boot and SD-card storage layout
 │   ├── core4/             # Pi 4 — AdGuard Home + Unbound + Docker
 │   ├── core5/             # Pi 5 — pimon collector, Docker
-│   └── lifeline/          # Pi 4 — AdGuard Home + Unbound, independent DNS path
+│   ├── lifeline/          # Pi 4 — AdGuard Home + Unbound, independent DNS path
+│   └── gate/              # CWWK N100 — the router, not routing yet
 ├── modules/
 │   ├── adguardhome.nix    # Parameterized AGH module (upstream/fallback DNS, caching, DNSSEC)
 │   ├── unbound.nix        # Recursive DNS resolver with DNSSEC
@@ -209,6 +281,8 @@ nix-config/
 │   ├── tmux.nix           # tmux terminal multiplexer
 │   ├── neovim.nix         # Neovim editor configuration
 │   └── darwin.nix         # macOS-specific configuration
+├── docs/
+│   └── router.md          # Phased build plan for gate
 └── README.md
 ```
 
@@ -217,7 +291,7 @@ nix-config/
 | Profile | Hosts | What's included |
 |---------|-------|-----------------|
 | **Dev** (`default.nix`) | WSL (`nick`), macOS (`nicknorcross`) | Common + Node, Rust, Docker, kubectl, LSPs, direnv |
-| **Common** (`common.nix`) | Pi 5 (`core5`), Pi 4 (`core4`, `lifeline`) | Shell, git, CLI tools, tmux, neovim |
+| **Common** (`common.nix`) | Pi 5 (`core5`), Pi 4 (`core4`, `lifeline`), N100 (`gate`) | Shell, git, CLI tools, tmux, neovim |
 | **Darwin** (`darwin.nix`) | macOS only | GNU coreutils |
 
 ## What's Included
@@ -388,12 +462,14 @@ git add .
 | `nix shell nixpkgs#<package>` | Temporarily use a package |
 | `nix develop` | Enter development shell (if defined) |
 
-### NixOS (Raspberry Pis)
+### NixOS
 
 | Command | Description |
 |---------|-------------|
-| `sudo nixos-rebuild switch --flake github:nnorx/nix-config#<host>` | Deploy config to a Pi |
-| `nix build .#packages.aarch64-linux.<host>-installer` | Build installer SD image |
+| `sudo nixos-rebuild switch --flake github:nnorx/nix-config#<host>` | Deploy config to a host |
+| `sudo nixos-rebuild boot --flake github:nnorx/nix-config#<host>` | Stage for next boot, for changes that reconfigure the live interface |
+| `nix build .#packages.aarch64-linux.<host>-installer` | Build installer SD image (Pis only) |
+| `nix build .#packages.x86_64-linux.recovery-iso` | Build the headless x86 rescue ISO |
 | `nix flake check --no-build` | Validate flake without building |
 
 ## Learning Resources

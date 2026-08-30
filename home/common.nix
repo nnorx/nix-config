@@ -28,8 +28,10 @@
   home.username = username;
   home.homeDirectory = homeDirectory;
 
-  # This should match the Home Manager release you're using
-  home.stateVersion = "25.11";
+  # Records the release a host started on, not the one it runs, so it is
+  # mkDefault for the same reason system.stateVersion is in hosts/common: a
+  # host set up from a later release keeps its own.
+  home.stateVersion = lib.mkDefault "25.11";
 
   # Session environment variables
   home.sessionVariables = {

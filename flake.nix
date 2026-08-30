@@ -279,6 +279,43 @@
           ];
         }).config.system.build.sdImage;
 
+      # Headless x86 recovery ISO. The stock NixOS minimal image assumes a
+      # monitor and keyboard; this one boots on DHCP with sshd and the fleet
+      # key, so a box that will not boot its own generations is still reachable
+      # over the network. Recovery is then `nixos-enter` against the mounted
+      # root, or picking an older generation with `bootctl`.
+      #
+      # Build with: nix build .#packages.x86_64-linux.recovery-iso --accept-flake-config
+      packages.x86_64-linux.recovery-iso =
+        (nixpkgs.lib.nixosSystem {
+          system = "x86_64-linux";
+          modules = [
+            "${nixpkgs}/nixos/modules/installer/cd-dvd/installation-cd-minimal.nix"
+            (
+              { lib, ... }:
+              {
+                # No host in this fleet uses ZFS, and on a rescue image the
+                # default is actively wrong: boot.zfs.forceImportRoot defaults
+                # to true, which imports a pool even when another system has it
+                # marked in use. Booting rescue against a live pool is how one
+                # gets corrupted. Dropping ZFS removes the hazard rather than
+                # muting the warning, and matches mkPiInstaller above.
+                boot.supportedFilesystems.zfs = lib.mkForce false;
+              }
+            )
+            {
+              # The live environment's only account is root and it has no
+              # password, so the key is the sole way in. The installer profile
+              # already enables sshd with PermitRootLogin, but leaves
+              # PasswordAuthentication on, which only fails closed because
+              # sshd's own PermitEmptyPasswords default is "no". Say it
+              # explicitly rather than resting on that.
+              services.openssh.settings.PasswordAuthentication = false;
+              users.users.root.openssh.authorizedKeys.keys = [ sshPubKey ];
+            }
+          ];
+        }).config.system.build.isoImage;
+
       # Installer images for Pi 3/4 — includes SSH key for headless access.
       # The image is host-agnostic: these three outputs are the same derivation,
       # and the host config is applied by nixos-rebuild after first boot.
@@ -333,6 +370,13 @@
           hostname = "lifeline";
           hardwareModules = [ nixos-hardware.nixosModules.raspberry-pi-4 ];
         };
+
+        # The router. x86_64 and UEFI, so it takes mkHost directly rather than
+        # mkPi, and brings its own hardware-configuration.nix.
+        gate = mkHost {
+          hostname = "gate";
+          system = "x86_64-linux";
+        };
       };
 
       # Home Manager configurations for different machines
@@ -366,6 +410,17 @@
           username = "lifeline";
           homeDirectory = "/home/lifeline";
           homeModule = ./home/common.nix;
+        };
+
+        # The router (common profile, x86_64)
+        "gate" = mkHome {
+          system = "x86_64-linux";
+          username = "gate";
+          homeDirectory = "/home/gate";
+          homeModule = ./home/common.nix;
+          # Installed from 26.05, unlike the Pis. Mirrors the override the
+          # NixOS-embedded home-manager user gets in hosts/gate.
+          extraModules = [ { home.stateVersion = "26.05"; } ];
         };
 
         # macOS configuration

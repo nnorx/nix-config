@@ -20,7 +20,10 @@ in
     ../../modules/fail2ban.nix
   ];
 
-  system.stateVersion = "25.11";
+  # mkDefault so a host installed from a later release can keep its own. This
+  # pins backward-compatible defaults for stateful data, not the release in
+  # use, so it should record the release a host was *installed* from.
+  system.stateVersion = lib.mkDefault "25.11";
 
   # Locale and timezone
   time.timeZone = "America/New_York";
@@ -44,7 +47,7 @@ in
     defaultGateway = net.lan.gateway;
   };
 
-  # User account — hostname doubles as username (core4, core5, lifeline)
+  # User account — hostname doubles as username (core4, core5, lifeline, gate)
   users.users.${hostname} = {
     isNormalUser = true;
     initialPassword = "changeme"; # Change on first login with: passwd
