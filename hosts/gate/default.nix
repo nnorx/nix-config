@@ -15,7 +15,13 @@ let
   host = net.hosts.${hostname};
 in
 {
-  imports = [ ./hardware-configuration.nix ];
+  imports = [
+    ./hardware-configuration.nix
+    # Automatic rollback for reboots that go wrong. Not fleet-wide: the Pis are
+    # a card-pull away from recovery, and gate is the host where an
+    # unreachable box means the house has no router.
+    ../../modules/deploy-guard.nix
+  ];
 
   # Installed from 26.05, unlike the Pis. hosts/common defaults this to 25.11,
   # which is the release *they* were installed from; lowering it here would
