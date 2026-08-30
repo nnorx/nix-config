@@ -17,13 +17,14 @@ Phase 0 fills these in. Several later phases cannot be designed without them.
 
 | Question | Answer |
 |---|---|
-| ISP handoff: pure modem/ONT, or a gateway needing bridge mode? | |
-| WAN protocol: DHCP or PPPoE? | |
-| Does the WAN need 802.1Q VLAN tagging? (AT&T fiber does) | |
-| Does the ISP bind the lease to a MAC? If so, the Nest's WAN MAC | |
-| Behind CGNAT? (compare the gateway's WAN address to `ifconfig.me`) | |
+| ISP handoff: pure modem/ONT, or a gateway needing bridge mode? | **Standalone modem, no router in it.** Nothing to bridge |
+| WAN protocol: DHCP or PPPoE? | Expected DHCP, confirm at cutover |
+| Does the WAN need 802.1Q VLAN tagging? (AT&T fiber does) | Not expected on a cable handoff, confirm at cutover |
+| Does the ISP bind the lease to a MAC? | A cable modem caches the CPE MAC for the lease. Power-cycling the modem clears it, which is why Phase 7 starts there |
+| Behind CGNAT? | **Open.** From behind the Nest the internet sees a routable address, so the remaining question is whether the Nest's own WAN address matches it or is in 100.64.0.0/10 |
 | Service tier actually purchased | |
-| The four NIC MAC addresses (`ip -br link`) | |
+| NIC MAC addresses | Recorded outside this repo, see "What stays out of this repo" |
+| Which physical port is which kernel name | |
 
 CGNAT is the one that changes a design decision rather than a config value: if
 the WAN address is in 100.64.0.0/10, inbound WireGuard is off the table and
@@ -70,11 +71,50 @@ hard to walk back.
 fallbacks rarely fire, but "get Google out of the path" is a stated goal and
 this is a one-line fix.
 
+## What stays out of this repo
+
+This repo is public and worth keeping that way. The module logic, the firewall
+rules and the reasoning behind the topology are the useful part, and a ruleset
+that is only correct while nobody has read it was never correct. Three kinds of
+thing do not belong here.
+
+**Secrets, which sops handles.** WireGuard private keys, DDNS API tokens, the
+AdGuard admin hash (#32), any PSK. `sops-nix` renders these at activation, so
+the Nix store holds ciphertext or a sentinel rather than the value.
+
+**Identifying data, which is not secret but is a map to one specific house.**
+The WAN address, the DDNS hostname, SSIDs (wigle.net maps SSIDs to physical
+locations), NIC MAC addresses, and above all the Kea reservation table, which is
+an inventory of every device in the house paired with a vendor OUI. None of it
+is cryptographically sensitive. All of it turns "a well-built router config"
+into "Nick's house, and what is in it."
+
+`lib/net.nix` already anticipates this. Its header notes that consumers
+reference attribute names rather than values, "which keeps the option open of
+moving this file into a private flake input later without editing anything that
+reads it." Phase 1 is when that option gets exercised, because Phase 1 is when
+reservations arrive. RFC1918 addresses alone are fine in public; a per-device
+MAC table is not.
+
+**Anything the UniFi controller exports.** Backups carry Wi-Fi PSKs and device
+credentials. They stay off the repo entirely, encrypted or not.
+
+One thing is already public and should be treated as disclosed rather than
+merely fixed: the bcrypt hash at cost 05 in `hosts/core4`. Cost 05 is cheap to
+attack offline, so it wants rotating, not just encrypting. That is what #32
+does.
+
 ## Phase 0: recon, no config changes
 
-- [ ] Cable `gate` to the Flex switch and power it on. It is racked but has
-      been sitting powered off, and it has never been built from this flake
-- [ ] Answer everything in the Open Questions table
+- [x] Cable `gate` and power it on. Done 2026-08-30: it holds a Nest lease at
+      192.168.86.126, and only `enp2s0` has carrier
+- [x] Record the four NIC MACs, kept outside this repo. Phase 3 renames by MAC,
+      and losing them means another trip to the rack
+- [ ] Walk the cable across all four ports, checking `ip -br link` each time,
+      and label the chassis. The kernel names are known but their physical
+      order is not, and Phase 3 renames by MAC on the assumption that `wan` is
+      the port actually intended
+- [ ] Answer the rest of the Open Questions table
 - [ ] Boot `gate` with a monitor and keyboard, confirm the systemd-boot menu is
       reachable and an older generation can be selected
 - [ ] Build a NixOS recovery USB and boot it once to confirm it works
@@ -114,14 +154,21 @@ names rather than values.
 - [ ] Merge the `gate` host PR (#8). It no longer stacks on the sops PR: the
       `hosts/common` split it carried landed independently in #12, so the only
       thing left in it is `gate` itself
-- [ ] Before deploying, confirm the UUIDs in
-      `hosts/gate/hardware-configuration.nix` still match `lsblk -f` on the box.
-      They were generated in early August from a NixOS install that has never
-      been rebuilt from this flake
-- [ ] Deploy it with `nrb` plus a reboot, not `nrs`. It moves the box off
+- [x] Confirm the UUIDs in `hosts/gate/hardware-configuration.nix` still match
+      `lsblk -f` on the box. Verified 2026-08-30: root and ESP both match, and
+      the firmware is UEFI as the config assumes
+- [ ] Deploy naming the attribute explicitly: `#gate`. The box's own hostname
+      is currently `router`, and `nixos-rebuild` resolves the flake attribute
+      from the hostname when `#name` is omitted, so a bare invocation looks for
+      a `router` config that does not exist. The `nrs`/`nrb` aliases omit it on
+      purpose and are only correct from the second deploy onward
+- [ ] Deploy it with `boot` plus a reboot, not `switch`. It moves the box off
       NetworkManager onto scripted networking, on the interface the session is
-      running over. The first rebuild is also the one that renames the login
-      user from the installer's to `gate`, so update `~/.ssh/config` after
+      running over. Have console access at the box for this one: the current
+      `nick` account loses SSH entirely, since `modules/ssh.nix` sets
+      `AllowUsers = [ hostname ]`, turns password auth off, and deploys the key
+      to `gate` alone. Update `~/.ssh/config` to `User gate` afterwards; it is
+      the same key, so nothing else changes
 - [ ] Make SSH interface-scoped in `modules/firewall.nix`, and bind `sshd` to
       LAN addresses explicitly rather than relying on firewall rules alone
 - [ ] `system.autoUpgrade` is already `enable = false` fleet-wide in
