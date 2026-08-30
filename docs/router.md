@@ -21,7 +21,7 @@ Phase 0 fills these in. Several later phases cannot be designed without them.
 | WAN protocol: DHCP or PPPoE? | Expected DHCP. **Confirm in Phase 0 with a laptop on the modem**, not at cutover |
 | Does the WAN need 802.1Q VLAN tagging? (AT&T fiber does) | Not expected on a cable handoff. Same test, same phase |
 | Does the ISP bind the lease to a MAC? | A cable modem caches the CPE MAC for the lease. Power-cycling the modem clears it, which is why Phase 7 starts there |
-| Behind CGNAT? | **Open.** From behind the Nest the internet sees a routable address, so the remaining question is whether the Nest's own WAN address matches it or is in 100.64.0.0/10 |
+| Behind CGNAT? | **Open.** From behind the Nest the internet sees a routable address, so the remaining question is whether the Nest's own WAN address matches it or is in 100.64.0.0/10. Google Home app, gear icon, Advanced networking. Without the app: `ping -c 2 -t 2 1.1.1.1` from gate and read the address in the time-exceeded reply, which is the hop the Nest's WAN faces |
 | Service tier actually purchased | |
 | NIC MAC addresses | Recorded outside this repo, see "What stays out of this repo" |
 | Which physical port is which kernel name | |
@@ -112,10 +112,22 @@ which is every host's console and sudo password until someone runs `passwd`.
       192.168.86.126, and only `enp2s0` has carrier
 - [x] Record the four NIC MACs, kept outside this repo. Phase 3 renames by MAC,
       and losing them means another trip to the rack
-- [ ] Walk the cable across all four ports, checking `ip -br link` each time,
-      and label the chassis. The kernel names are known but their physical
-      order is not, and Phase 3 renames by MAC on the assumption that `wan` is
-      the port actually intended
+- [ ] Walk the ports and label the chassis. The kernel names are known but
+      their physical order is not, and Phase 3 renames by MAC on the assumption
+      that `wan` is the socket actually intended. Leave the existing cable in
+      enp2s0 so the session survives, put a spare cable from the free switch
+      port into each other socket in turn, and read `ip -br link`: the name
+      that flips from NO-CARRIER to LOWER_UP is that socket. Carrier is a
+      link-layer fact, so nothing needs an address. Unplug the spare between
+      moves rather than briefly dual-homing on one subnet.
+
+      Do this **before the first deploy**. Moving the single cable instead of
+      using a spare works only while NetworkManager still manages all four
+      NICs; afterwards `hosts/common` sets `useDHCP = false` and only
+      `wanIface` is opted back in, so a cable in any other port gets no address
+      and the way back is the console. The result can also change which port
+      `wanIface` names, which is a one-line edit now and a coordinated reboot
+      and cable move later
 - [ ] Put a laptop directly on the modem and answer the WAN shape from it:
       whether an address arrives by plain DHCP or wants PPPoE credentials, and
       whether anything needs a VLAN tag. Guessing these and finding out at
