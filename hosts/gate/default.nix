@@ -5,6 +5,7 @@
 # DHCP lease so it stays reachable. Interface renaming, nftables NAT, and Kea
 # land in follow-ups; see docs/router.md for the sequence.
 {
+  pkgs,
   hostname,
   net,
   ...
@@ -29,4 +30,13 @@ in
   # interface back in. Keeping the lease means the box survives the switch off
   # NetworkManager onto scripted networking without changing address.
   networking.interfaces.${host.iface}.useDHCP = true;
+
+  # i226 link flapping under ASPM is a known failure on these NICs, and
+  # diagnosing it needs the driver's firmware revision and the PCI stepping.
+  # Neither tool is in the fleet baseline, and a router is the one host where
+  # being unable to inspect a NIC is the whole problem.
+  environment.systemPackages = with pkgs; [
+    ethtool
+    pciutils
+  ];
 }
