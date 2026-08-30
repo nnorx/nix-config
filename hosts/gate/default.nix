@@ -15,6 +15,11 @@ in
 {
   imports = [ ./hardware-configuration.nix ];
 
+  # Installed from 26.05, unlike the Pis. hosts/common defaults this to 25.11,
+  # which is the release *they* were installed from; lowering it here would
+  # apply older compatibility defaults than the box was ever set up with.
+  system.stateVersion = "26.05";
+
   # UEFI + systemd-boot. The Pis boot via extlinux from hosts/common/pi.nix,
   # which this host deliberately does not import.
   boot.loader.systemd-boot.enable = true;
