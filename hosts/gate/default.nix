@@ -43,6 +43,35 @@ in
   # the failure surfaces partway through installing the bootloader.
   boot.loader.systemd-boot.configurationLimit = 10;
 
+  # Rename the NICs to role names, matched on PCI path, from lib/net.nix.
+  #
+  # Renaming before any firewall rule exists is the point of doing it now. A
+  # rule that names `wan` stays correct across a systemd release that changes
+  # the predictable-naming scheme; a rule that names `enp2s0` is correct only
+  # until that happens, and a silent WAN/LAN swap under a permissive ruleset is
+  # the expensive version of this mistake.
+  #
+  # .link files are read by udev whether or not systemd-networkd is running,
+  # which is why this works alongside the scripted networking hosts/common
+  # uses. They apply at device enumeration, so this needs a reboot rather than
+  # a switch, and that is what deploy-guard is for.
+  systemd.network.links = lib.mapAttrs' (
+    name: path:
+    lib.nameValuePair "10-${name}" {
+      matchConfig.Path = path;
+      linkConfig.Name = name;
+    }
+  ) host.nics;
+
+  # Note for whoever sets an MTU or a MAC on one of these later: NixOS emits
+  # its own `40-<name>.link` for every entry in `networking.interfaces`, and it
+  # matches on `OriginalName`, which systemd documents as the kernel's name and
+  # explicitly "cannot be used to match on names that have already been changed
+  # from userspace". So `40-wan.link` matches nothing once udev has renamed
+  # enp2s0 to wan. Today it is generated empty and inert, but a per-interface
+  # `mtu` or `macAddress` would land in it and silently never apply. Put such
+  # settings in the `10-` files above, keyed on Path, instead.
+
   # hosts/common sets networking.useDHCP = false fleet-wide, so opt the one
   # cabled interface back in.
   #

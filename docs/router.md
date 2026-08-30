@@ -252,13 +252,28 @@ change in shape rather than a new mechanism.
 
 Small phase, gates everything after it. No firewall rules exist yet.
 
-- [ ] systemd `.link` files matching each NIC by MAC, renaming to `wan`,
-      `lan0`, `lan1`, `lan2`
+- [ ] systemd `.link` files renaming each NIC to `wan`, `lan0`, `lan1`,
+      `lan2`, matched on **PCI path rather than MAC address**. That defends
+      against what actually reorders interfaces, which is systemd's
+      predictable-naming scheme changing between releases, while keeping
+      hardware identifiers out of a public repo. The risk it does not cover is
+      firmware renumbering the PCI buses, which fixed hardware does not do and
+      which the MAC check below catches anyway
 - [ ] Update `lib/net.nix` so `gate.wanIface` is `wan`. Note which attribute
       that is: `iface` is the NIC `hosts/common` binds a static address and the
       default gateway to, so on this host it names a LAN port and arrives in
       Phase 4 with the address, not here
-- [ ] Deploy with `nrb`, reboot, verify, reboot again
+- [ ] Deploy behind `deploy-guard`, since a rename that goes wrong leaves no
+      way in:
+      ```
+      sudo deploy-guard arm 15
+      nrb && sudo reboot
+      sudo deploy-guard confirm
+      ```
+- [ ] Verify the rename landed on the right hardware: `ip -br link` should show
+      `wan` carrying the MAC recorded for ETH0 outside this repo. This is the
+      one check that catches a PCI-path mismatch, and it is worth doing by eye
+      rather than trusting that four sequential paths stayed sequential
 
 `wan` and `lan0` are safe names because the kernel never auto-generates them, so
 there is no rename collision.
