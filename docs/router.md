@@ -21,7 +21,7 @@ Phase 0 fills these in. Several later phases cannot be designed without them.
 | WAN protocol: DHCP or PPPoE? | Expected DHCP. **Confirm in Phase 0 with a laptop on the modem**, not at cutover |
 | Does the WAN need 802.1Q VLAN tagging? (AT&T fiber does) | Not expected on a cable handoff. Same test, same phase |
 | Does the ISP bind the lease to a MAC? | A cable modem caches the CPE MAC for the lease. Power-cycling the modem clears it, which is why Phase 7 starts there |
-| Behind CGNAT? | **Open.** From behind the Nest the internet sees a routable address, so the remaining question is whether the Nest's own WAN address matches it or is in 100.64.0.0/10. Google Home app, gear icon, Advanced networking. Without the app: `ping -c 2 -t 2 1.1.1.1` from gate and read the address in the time-exceeded reply, which is the hop the Nest's WAN faces |
+| Behind CGNAT? | **Open**, and answered by the modem test below rather than from inside the LAN. A TTL-limited ping put the Nest's next hop at 172.20.25.131, which proves nothing either way: ISPs number internal router interfaces out of RFC1918 routinely, and it is not 100.64.0.0/10. What settles it is the address the CPE holds on its own WAN |
 | Service tier actually purchased | |
 | NIC MAC addresses | Recorded outside this repo, see "What stays out of this repo" |
 | Which physical port is which kernel name | `enp2s0`=ETH0, `enp3s0`=ETH1, `enp4s0`=ETH2, `enp5s0`=ETH3, matching PCI order. All four are identical i226, so `wanIface` stays ETH0 |
@@ -125,11 +125,33 @@ which is every host's console and sudo password until someone runs `passwd`.
       `useDHCP = false` with only `wanIface` opted back in, so a cable in any
       other port gets no address and the way back is the console
 
-- [ ] Put a laptop directly on the modem and answer the WAN shape from it:
-      whether an address arrives by plain DHCP or wants PPPoE credentials, and
-      whether anything needs a VLAN tag. Guessing these and finding out at
-      Phase 7 means discovering it with the modem power-cycled and the house
-      offline
+- [ ] The modem test, which closes four open questions at once: CGNAT, DHCP vs
+      PPPoE, VLAN tagging, and what IPv6 the ISP offers. Guessing any of them
+      and finding out at Phase 7 means discovering it with the house offline.
+
+      Use gate rather than a laptop. It is the box that does this for real at
+      cutover, so the NIC and the DHCP client under test are the ones that will
+      be doing the job. ETH0 stays on the LAN throughout, so the SSH session
+      survives and only internet access drops. Do it **before deploying**,
+      while NetworkManager still manages all four NICs and will lease on ETH1
+      without config.
+
+      1. Unplug the modem's cable, then **power-cycle the modem** and wait for
+         steady lights. A cable modem binds its lease to the first CPE MAC it
+         sees and is still holding the Nest's, so skipping this is the usual
+         reason the test appears to fail
+      2. Cable the modem to gate's **ETH1** (enp3s0)
+      3. `ip -br addr show enp3s0`, `ip -6 addr show enp3s0`, `ip route`,
+         `curl --interface enp3s0 -s https://ifconfig.me`, and
+         `journalctl -u NetworkManager -n 30`
+      4. Unplug, **power-cycle the modem again**, reconnect the Nest. It will
+         not get a lease while the modem holds one bound to gate's MAC
+
+      Reading it: enp3s0's address matching what ifconfig.me returns means a
+      bridged modem, a public address, and WireGuard is viable. A private
+      address on enp3s0 with a different public one means CGNAT, and Phase 8
+      becomes Tailscale. An address arriving at all rules out PPPoE and VLAN
+      tagging together
 - [ ] Answer the rest of the Open Questions table
 - [ ] Boot `gate` with a monitor and keyboard, confirm the systemd-boot menu is
       reachable and an older generation can be selected
