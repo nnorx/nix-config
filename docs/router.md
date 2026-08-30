@@ -146,16 +146,29 @@ which is every host's console and sudo password until someone runs `passwd`.
       worth taking the house offline for
 
 - [ ] Answer the rest of the Open Questions table
-- [ ] Build the recovery USB and boot it once, per the README. It is the stock
-      minimal ISO plus the fleet key, so it comes up on DHCP with sshd and
-      recovery is an SSH session rather than a keyboard at the rack.
+- [x] Build the recovery USB and boot it once, per the README. Done
+      2026-08-30, and it took the firmware visit the test was designed to
+      decide. Findings worth keeping:
 
-      The test doubles as the answer to whether a monitor is needed at all.
-      Plug it in, reboot, and SSH to the new lease: a shell means headless
-      recovery works. The host coming back as itself instead means USB sits
-      behind the internal disk in the boot order, which is worth one visit with
-      a monitor to change, and while the firmware is open, confirm video output
-      works and a USB keyboard registers there
+      The image and the reader were never the problem. `lsblk` showed the
+      hybrid layout written correctly, and `efibootmgr -v` already listed the
+      reader as a boot entry. It simply sat third in `BootOrder`, behind two
+      entries on the internal ESP. The firmware timeout was also 1 second,
+      which is not catchable.
+
+      **`sudo` did not work on the box, and that was the real blocker.** The
+      pre-flake `/etc/nixos/configuration.nix` defines `users.users.nick` with
+      no password field, so the account had none and no `sudo` could succeed.
+      That blocks `nixos-rebuild` too, so it blocked all of Phase 2 and was
+      invisible until something needed root. Fixed from the live environment
+      with `nixos-enter` and `passwd`.
+
+      USB now precedes the internal disk in the boot order, which makes
+      recovery headless from here on: plug the stick in, reboot over SSH, and
+      it comes up in the live environment with no firmware interaction. The
+      cost of that is a live SD card left inserted boots the rescue image on
+      every reboot, which during Phases 3 and 4 is indistinguishable from a
+      broken deploy. **Store the card with the box, not in it.**
 
 - [ ] Know what the boot menu is for, whether or not you ever see it: every
       `nixos-rebuild` leaves a generation, systemd-boot lists the previous
