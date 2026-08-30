@@ -48,7 +48,28 @@
     # `allowFrom` before it is addressed fails *that* host's evaluation, not
     # gate's.
     gate = {
-      wanIface = "enp2s0";
+      # Role names, and the PCI path each is pinned to. hosts/gate turns these
+      # into systemd .link files; the kernel never generates names in this
+      # shape, so there is no rename collision.
+      #
+      # Matching on PCI path rather than MAC address is deliberate. It defends
+      # against the thing that actually reorders interfaces, which is systemd's
+      # predictable-naming scheme changing between releases and turning enp2s0
+      # into something else, while keeping hardware identifiers out of a public
+      # repo. See "What stays out of this repo" in docs/router.md. The residual
+      # risk it does not cover is firmware renumbering the PCI buses, which
+      # fixed hardware with no hotplug does not do, and which a MAC check after
+      # the rename catches.
+      #
+      # Physical sockets are labelled ETH0-ETH3 on the chassis and map in
+      # order, so wan is ETH0.
+      nics = {
+        wan = "pci-0000:02:00.0";
+        lan0 = "pci-0000:03:00.0";
+        lan1 = "pci-0000:04:00.0";
+        lan2 = "pci-0000:05:00.0";
+      };
+      wanIface = "wan";
     };
   };
 
