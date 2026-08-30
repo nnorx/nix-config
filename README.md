@@ -179,6 +179,51 @@ The installer image is **host-agnostic** — `core4-installer`, `core5-installer
    ```
    SSH is key-only, so that password is only used for `sudo` and at the console.
 
+### Recovery USB (x86 hosts)
+
+`gate` is the one host that cannot be recovered by pulling a card and reflashing
+it, so it gets a rescue image. It is the stock NixOS minimal ISO plus the fleet
+SSH key, which makes it **headless**: it boots on DHCP with sshd running, so a
+box that will not boot its own generations is still reachable over the network
+rather than needing a monitor and keyboard at the rack.
+
+1. Build it (any machine with Nix, e.g. WSL):
+   ```bash
+   nix build .#packages.x86_64-linux.recovery-iso --accept-flake-config
+   ```
+   The output is `result/iso/*.iso`, roughly 1 GiB.
+
+2. Write it to a USB stick. **Do not `dd` from WSL** — the same warning as the
+   Pi images above: `/dev/sda`-`/dev/sdd` there are WSL's own virtual disks.
+   ```bash
+   cp result/iso/*.iso /mnt/c/Users/<you>/nixos-recovery.iso
+   ```
+   Then Rufus or balenaEtcher on the Windows side. From a Linux host with the
+   stick attached, confirm the device with `lsblk` first:
+   ```bash
+   sudo dd if=result/iso/*.iso of=/dev/sdX bs=4M status=progress conv=fsync
+   ```
+
+3. Test it once, while nothing depends on the box. Plug it in, reboot, and try
+   to SSH to the new DHCP address as root:
+   ```bash
+   ssh -i ~/.ssh/id_ed25519_pis root@<dhcp-address>
+   ```
+   Two outcomes, both useful. If you get a shell, headless recovery works and
+   the monitor stays in the cupboard. If the host comes back as itself instead,
+   USB is behind the internal disk in the boot order, and that is the one thing
+   worth a single visit with a monitor to change in the firmware.
+
+4. To recover a broken host from it:
+   ```bash
+   mount /dev/nvme0n1p2 /mnt && mount /dev/nvme0n1p1 /mnt/boot
+   nixos-enter --root /mnt
+   # then, inside:
+   nix-env --list-generations --profile /nix/var/nix/profiles/system
+   /nix/var/nix/profiles/system-<N>-link/bin/switch-to-configuration boot
+   ```
+   Reboot without the stick. Device names are from `hosts/gate/hardware-configuration.nix`.
+
 ## Repository Structure
 
 ```
@@ -405,6 +450,7 @@ git add .
 | `sudo nixos-rebuild switch --flake github:nnorx/nix-config#<host>` | Deploy config to a host |
 | `sudo nixos-rebuild boot --flake github:nnorx/nix-config#<host>` | Stage for next boot, for changes that reconfigure the live interface |
 | `nix build .#packages.aarch64-linux.<host>-installer` | Build installer SD image (Pis only) |
+| `nix build .#packages.x86_64-linux.recovery-iso` | Build the headless x86 rescue ISO |
 | `nix flake check --no-build` | Validate flake without building |
 
 ## Learning Resources

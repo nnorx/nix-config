@@ -125,9 +125,17 @@ which is every host's console and sudo password until someone runs `passwd`.
       `useDHCP = false` with only `wanIface` opted back in, so a cable in any
       other port gets no address and the way back is the console
 
-- [ ] Check what IPv6 the ISP offers, from where you already are:
-      `ip -6 addr show enp2s0`. A global address, starting 2 or 3, means the
-      ISP does v6 and the Nest passes it through. That is the Phase 8 input
+- [x] Check what IPv6 reaches the LAN. Done 2026-08-30, and the answer is
+      nothing useful: gate holds only a `fd00::/8` ULA that the Nest generated
+      itself, because **the Nest has IPv6 disabled**. So this says nothing
+      about whether the ISP offers v6.
+
+      Turning it on at the Nest was considered and skipped. It would test the
+      Nest's v6 implementation, not gate's, and the thing that matters is
+      whether *gate* can get a DHCPv6-PD prefix delegation, which only Phase 8
+      can answer. Leaving it off is also the state Phase 7 wants: the plan
+      already treats v6-off-on-WAN as a legitimate temporary choice through
+      cutover
 
       There is no standalone modem test. An earlier draft had one, on the
       reasoning that guessing the WAN shape and finding out at cutover is
@@ -138,9 +146,22 @@ which is every host's console and sudo password until someone runs `passwd`.
       worth taking the house offline for
 
 - [ ] Answer the rest of the Open Questions table
-- [ ] Boot `gate` with a monitor and keyboard, confirm the systemd-boot menu is
-      reachable and an older generation can be selected
-- [ ] Build a NixOS recovery USB and boot it once to confirm it works
+- [ ] Build the recovery USB and boot it once, per the README. It is the stock
+      minimal ISO plus the fleet key, so it comes up on DHCP with sshd and
+      recovery is an SSH session rather than a keyboard at the rack.
+
+      The test doubles as the answer to whether a monitor is needed at all.
+      Plug it in, reboot, and SSH to the new lease: a shell means headless
+      recovery works. The host coming back as itself instead means USB sits
+      behind the internal disk in the boot order, which is worth one visit with
+      a monitor to change, and while the firmware is open, confirm video output
+      works and a USB keyboard registers there
+
+- [ ] Know what the boot menu is for, whether or not you ever see it: every
+      `nixos-rebuild` leaves a generation, systemd-boot lists the previous
+      ones, and selecting one is how a deploy that breaks networking gets
+      undone. Phases 3 and 4 are exactly that risk. `configurationLimit = 10`
+      in `hosts/gate` keeps ten of them on the ESP
 - [ ] Note the Nest's WAN MAC before anything is unplugged
 
 **Exit test:** the box is recoverable without the network, and the only
@@ -319,7 +340,9 @@ One at a time, weeks apart, once the house is boring.
       a one-liner: read gate's own WAN address off `wan`. Routable means
       WireGuard, and 100.64.0.0/10 means Tailscale
 - [ ] IPv6: DHCPv6-PD, a /64 per VLAN, `corerad` for advertisements, and an
-      explicit v6 default-deny inbound. There is no NAT hiding anything on v6,
+      explicit v6 default-deny inbound. Genuinely unexplored: the Nest ran with
+      v6 disabled, so whether the ISP delegates a prefix at all is unknown
+      until gate asks for one. There is no NAT hiding anything on v6,
       so every device is globally routable and the forward chain is the only
       thing standing in front of the IoT VLAN
 - [ ] Policy-based routing through a commercial VPN, only if wanted. WireGuard
