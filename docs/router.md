@@ -317,7 +317,12 @@ some games, none of which is being tested here.
 - [ ] nftables: default-drop forward, allow lan to wan with established/related
       return, masquerade on `wan`
 - [ ] Kea on the LAN side, with the static reservations from Phase 1
-- [ ] Plug the Flex switch into `lan0`, move one non-critical client onto it
+- [ ] Cable `lan0` **directly to one test client**, not to the Flex switch.
+      `wan` is plugged into that switch, because the switch is currently just
+      an extension of the Nest's LAN and that is how gate reaches the Nest.
+      Putting `lan0` on the same switch would leave gate's WAN and LAN sides
+      sharing one L2 segment, which does not route. The switch only moves
+      behind `lan0` once the Pis move with it, which is Phase 6
 - [ ] Move management onto `lan0`, then scope SSH to it in
       `modules/firewall.nix` and bind `sshd` to LAN addresses rather than
       relying on firewall rules alone. This is the first point at which that is
@@ -354,7 +359,9 @@ The largest phase. Split it across sessions.
       has just been swapped for Ubiquiti's
 - [ ] Adopt the Flex switch and the U7 Pro
 - [ ] VLAN interfaces on `gate`, one Kea subnet per VLAN
-- [ ] Trunk the VLANs to the switch, tag SSIDs on the AP
+- [ ] Move the Flex switch's uplink from the Nest to `lan0` and trunk the VLANs
+      to it, tag SSIDs on the AP. This is where the Pis renumber into
+      `servers`, so it is also where house DNS starts depending on gate
 - [ ] Inter-VLAN policy: iot isolated, guest internet-only, trusted reaches
       servers
 - [ ] Port-53 DNAT redirect for hardcoded resolvers, which works now that
