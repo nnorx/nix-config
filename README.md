@@ -204,10 +204,18 @@ rather than a monitor and keyboard at the rack.
 2. Write it to a USB stick. **Do not `dd` from WSL** — the same warning as the
    Pi images above: `/dev/sda`-`/dev/sdd` there are WSL's own virtual disks.
    ```bash
-   cp result/iso/*.iso /mnt/c/Users/<you>/nixos-recovery.iso
+   cp result/iso/*.iso /mnt/c/Users/<you>/Downloads/nixos-recovery.iso
    ```
-   Then Rufus or balenaEtcher on the Windows side. From a Linux host with the
-   stick attached, confirm the device with `lsblk` first:
+   Then, on the Windows side, balenaEtcher is the least fiddly: flash from
+   file, pick the stick, go, since it writes in DD mode by default and that is
+   what a hybrid ISO wants. Rufus works too but will ask, on seeing
+   "ISOHybrid image detected" — choose **DD Image mode**, not ISO mode.
+
+   Afterwards Windows sees an unrecognized partition and offers to format the
+   stick. Decline: the stick is fine, Windows just cannot read the filesystem.
+
+   From a Linux host with the stick attached, confirm the device with `lsblk`
+   first:
    ```bash
    sudo dd if=result/iso/*.iso of=/dev/sdX bs=4M status=progress conv=fsync
    ```
