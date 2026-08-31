@@ -63,8 +63,16 @@ in
   '';
 
   systemd.tmpfiles.rules = [
-    "d ${stateDir} 0750 root root -"
-    "d ${stateDir}/db 0750 root root -"
+    # Traversable, so the host user can reach `config` below. It was 0750
+    # root:root, which meant the documented backup command could not enter the
+    # directory at all even though the directory it wanted was owned by that
+    # user. Nothing sensitive lives at this level; the contents carry their own
+    # modes.
+    "d ${stateDir} 0755 root root -"
+
+    # The database is root's. Mongo starts as root and drops privileges itself.
+    "d ${stateDir}/db 0700 root root -"
+
     # Owned by the host user rather than a container-internal id, so the
     # backup in the README can read it without root.
     "d ${stateDir}/config 0750 ${hostname} ${user.group} -"

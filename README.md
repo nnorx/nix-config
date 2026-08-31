@@ -213,6 +213,15 @@ an absolute path.
 filesystems that are indistinguishable to `by-label` and `by-uuid` while both
 are attached. Fresh filesystems with new UUIDs avoid that entirely.
 
+**Two things must be carried across, not just the SSH keys.**
+
+`/var/lib/nixos` holds NixOS's uid and gid allocation state. A fresh install
+re-allocates from 1000 upward, so an account that was 1001 on the old root can
+come back as 1000 on the new one. Declaring a uid does not move an existing
+account, so any `users.users.<n>.uid` pinned to the old value then disagrees
+with the account on disk, and home-manager refuses to activate with
+`UID is "1000", expected "1001"`. That is what happened on core5.
+
 **Copy `/etc/ssh/ssh_host_*` to the new root before rebooting.** Each host's sops
 age recipient is derived from its ed25519 host key, so a fresh install
 regenerates it, `secrets/<host>.yaml` becomes undecryptable by that host, and the
