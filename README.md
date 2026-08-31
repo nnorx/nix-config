@@ -179,6 +179,49 @@ The installer image is **host-agnostic** — `core4-installer`, `core5-installer
    ```
    SSH is key-only, so that password is only used for `sudo` and at the console.
 
+### core5 boots from NVMe
+
+Root and `/boot/firmware` live on the 1TB NVMe, addressed by UUID in
+`hosts/core5/default.nix`. The SD card is still in the slot, still bootable, and
+still holds the pre-migration system. It is the rollback, so leave it there.
+
+**`BOOT_ORDER` is EEPROM state and Nix does not manage it.** A replacement board,
+or an EEPROM reset, needs it set by hand:
+
+```bash
+sudo "$(nix build --no-link --print-out-paths nixpkgs#raspberrypi-eeprom)/bin/rpi-eeprom-config" \
+  | tee ~/eeprom-current.conf
+sed 's/BOOT_ORDER=0xf461/BOOT_ORDER=0xf416/' ~/eeprom-current.conf > ~/eeprom-new.conf
+sudo "$(nix build --no-link --print-out-paths nixpkgs#raspberrypi-eeprom)/bin/rpi-eeprom-config" \
+  --apply ~/eeprom-new.conf
+```
+
+`BOOT_ORDER` reads **right to left**. `0xf416` is NVMe, then SD, then USB, then
+restart. Keeping the SD in the order rather than removing it is what makes a
+failed NVMe boot fall through to a working system instead of to nothing.
+
+Two things worth knowing before running that. `--apply` also flashes the
+bootloader image shipped with the nixpkgs package, so it upgrades the firmware
+as well as the config; that is the same thing `rpi-eeprom-update` does, but it is
+a larger change than the one line in the diff. And `sudo` has no Nix in its PATH,
+which is why the store path is resolved by the `$( )` first and `sudo` is handed
+an absolute path.
+
+**Migrating a Pi to NVMe**, if this is ever done again: use `nixos-install
+--root /mnt`, not a `dd` clone. Every NixOS Pi image ships the same root label
+(`NIXOS_SD`) and the same fixed root UUID, so a block copy leaves two
+filesystems that are indistinguishable to `by-label` and `by-uuid` while both
+are attached. Fresh filesystems with new UUIDs avoid that entirely.
+
+**Copy `/etc/ssh/ssh_host_*` to the new root before rebooting.** Each host's sops
+age recipient is derived from its ed25519 host key, so a fresh install
+regenerates it, `secrets/<host>.yaml` becomes undecryptable by that host, and the
+failure surfaces later as an unrelated-looking deploy error. Verify with:
+
+```bash
+ssh-keyscan -t ed25519 <host> | ssh-to-age   # must match .sops.yaml
+```
+
 ### Recovery USB (x86 hosts)
 
 **This does not install anything.** Unlike the Pi section above, nothing here is
