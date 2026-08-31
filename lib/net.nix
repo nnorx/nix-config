@@ -21,6 +21,10 @@
   # rather than 192.168 so the two schemes can coexist during the transition
   # without colliding with what the Nest hands out.
   #
+  # `subnet` is carried explicitly rather than derived from gateway and prefix:
+  # Kea and nftables both want the network address in CIDR form, and deriving
+  # it in Nix means string arithmetic on octets for no gain.
+  #
   # gate holds .1 in every segment: that is what `gateway` is. Below .100 is
   # reserved for statics and DHCP reservations, .100-.240 is the dynamic pool,
   # and .241+ is left alone.
@@ -28,6 +32,7 @@
     # Laptops and phones. Full access.
     trusted = {
       id = 10;
+      subnet = "10.10.10.0/24";
       gateway = "10.10.10.1";
       prefixLength = 24;
       pool = {
@@ -46,6 +51,7 @@
     # destroys the source address the redirect existed to preserve.
     servers = {
       id = 20;
+      subnet = "10.10.20.0/24";
       gateway = "10.10.20.1";
       prefixLength = 24;
       pool = {
@@ -57,6 +63,7 @@
     # Cameras, plugs, TVs. No LAN access, WAN only.
     iot = {
       id = 30;
+      subnet = "10.10.30.0/24";
       gateway = "10.10.30.1";
       prefixLength = 24;
       pool = {
@@ -68,6 +75,7 @@
     # Visitors. Internet only, client isolation on.
     guest = {
       id = 40;
+      subnet = "10.10.40.0/24";
       gateway = "10.10.40.1";
       prefixLength = 24;
       pool = {
