@@ -429,7 +429,19 @@ and a full reboot of `gate` brings the house back with no manual steps.
 
 One at a time, weeks apart, once the house is boring.
 
-- [ ] `node_exporter` or a pimon agent on `gate`, reporting to core5
+- [ ] Decide the monitoring stack, then instrument `gate`. Deliberately not
+      "wire gate into pimon": pimon does host liveness, and once the house
+      routes through this box the questions are WAN state, conntrack pressure,
+      per-interface throughput, DHCP pool exhaustion and DNS failure ratios,
+      plus *alerting*, since a router fault you learn about by noticing the
+      internet is broken is one monitoring did not catch.
+
+      The conventional answer is Prometheus or VictoriaMetrics with Grafana on
+      core5, scraping `node_exporter` fleet-wide plus exporters for AdGuard,
+      UniFi and nftables. That wants core5 on NVMe first: a TSDB writes harder
+      and more continuously than the UniFi database does. pimon can stay as a
+      liveness check or retire, but that is a choice to make rather than a
+      default to inherit
 - [ ] Inbound remote access. This is the one with clear payoff: SSH into the
       fleet, the AdGuard UI, Home Assistant, and filtered DNS from a hotel.
       Start by answering the CGNAT question deferred from Phase 0, which is now
