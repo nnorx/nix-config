@@ -33,9 +33,23 @@ in
   boot.loader.generic-extlinux-compatible.enable = lib.mkForce false;
   boot.loader.raspberry-pi.bootloader = "kernel";
 
+  # Root on NVMe rather than the SD card. Addressed by UUID, not label: while
+  # both devices are attached there are two firmware partitions and two Linux
+  # roots, and the SD's label and UUID are the fixed ones every NixOS Pi image
+  # ships, so neither identifies this host's card specifically. UUIDs generated
+  # by mkfs are unique by construction.
+  #
+  # The SD stays in the slot and stays behind NVMe in the EEPROM BOOT_ORDER, so
+  # it remains the fallback. BOOT_ORDER is EEPROM state and Nix does not manage
+  # it; see the README.
+  fileSystems."/" = {
+    device = "/dev/disk/by-uuid/cc1735c9-05a6-4cc5-b318-563129ad4efb";
+    fsType = "ext4";
+  };
+
   # Pi 5 firmware partition (managed by nixos-raspberrypi bootloader module)
   fileSystems."/boot/firmware" = {
-    device = "/dev/disk/by-label/FIRMWARE";
+    device = "/dev/disk/by-uuid/7E12-9BFD";
     fsType = "vfat";
     options = [
       "noatime"

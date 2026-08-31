@@ -9,8 +9,17 @@
   boot.loader.grub.enable = lib.mkDefault false;
   boot.loader.generic-extlinux-compatible.enable = lib.mkDefault true;
 
-  # SD card filesystem layout (standard NixOS Pi image partitioning)
-  fileSystems."/" = {
+  # SD card filesystem layout (standard NixOS Pi image partitioning).
+  #
+  # mkDefault so a Pi that has been moved off its SD card can declare its own
+  # root. Unprioritised, this is the same shape of problem gate hit with
+  # stateVersion: the only way past it is mkForce in the host, which reads as
+  # fighting the module rather than overriding a default.
+  #
+  # Note the label is not unique to a card: every NixOS Pi image ships
+  # NIXOS_SD, and the same fixed root UUID. Anything that has to coexist with
+  # an SD card should be addressed by its own UUID.
+  fileSystems."/" = lib.mkDefault {
     device = "/dev/disk/by-label/NIXOS_SD";
     fsType = "ext4";
   };
