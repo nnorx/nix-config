@@ -5,9 +5,93 @@
 # values, which keeps the option open of moving this file into a private flake
 # input later without editing anything that reads it.
 {
+  # The flat network the fleet lives on today, handed out by the Nest. It is
+  # retired at the Phase 7 cutover, when `hosts.*.ip` move into the segments
+  # below and this block goes away. Until then it is the live one.
   lan = {
     prefixLength = 24;
     gateway = "192.168.86.1";
+  };
+
+  # Target topology for the router build. **Not live.** Nothing reads this
+  # yet; it exists so the addressing is settled before anything is wired to
+  # it, which is what keeps renumbering a one-file change rather than a hunt.
+  #
+  # The third octet is the VLAN id, so an address names its own segment.
+  #
+  # 192.168 rather than 10.x, and not for taste: Cloudflare WARP routes
+  # 10.8.0.0/13 into its tunnel on Nick's work profile, which swallows
+  # 10.10.0.0/16 whole. A home LAN numbered there would be unreachable from his
+  # own laptop whenever WARP was connected, and that profile is managed by the
+  # employer, so it could not be excluded locally. Corporate profiles rarely
+  # claim 192.168 space, because employees' home networks live there. Verified
+  # with `route -n get` against the tunnel rather than assumed.
+  #
+  # These do not collide with the 192.168.86.0/24 the Nest hands out today, so
+  # both schemes coexist through the transition.
+  #
+  # `subnet` is carried explicitly rather than derived from gateway and prefix:
+  # Kea and nftables both want the network address in CIDR form, and deriving
+  # it in Nix means string arithmetic on octets for no gain.
+  #
+  # gate holds .1 in every segment: that is what `gateway` is. Below .100 is
+  # reserved for statics and DHCP reservations, .100-.240 is the dynamic pool,
+  # and .241+ is left alone.
+  segments = {
+    # Laptops and phones. Full access.
+    trusted = {
+      id = 10;
+      subnet = "192.168.10.0/24";
+      gateway = "192.168.10.1";
+      prefixLength = 24;
+      pool = {
+        first = "192.168.10.100";
+        last = "192.168.10.240";
+      };
+    };
+
+    # The Pis, the switch, the AP. Reachable from trusted.
+    #
+    # Separate from trusted for a specific mechanical reason, not tidiness:
+    # the port-53 redirect that catches hardcoded resolvers only preserves the
+    # client's source address when the resolver is on a *different* subnet. On
+    # the same subnet the reply comes back from an address the client never
+    # sent to, so it drops it, and masquerading the hairpin to fix that
+    # destroys the source address the redirect existed to preserve.
+    servers = {
+      id = 20;
+      subnet = "192.168.20.0/24";
+      gateway = "192.168.20.1";
+      prefixLength = 24;
+      pool = {
+        first = "192.168.20.100";
+        last = "192.168.20.150";
+      };
+    };
+
+    # Cameras, plugs, TVs. No LAN access, WAN only.
+    iot = {
+      id = 30;
+      subnet = "192.168.30.0/24";
+      gateway = "192.168.30.1";
+      prefixLength = 24;
+      pool = {
+        first = "192.168.30.100";
+        last = "192.168.30.240";
+      };
+    };
+
+    # Visitors. Internet only, client isolation on.
+    guest = {
+      id = 40;
+      subnet = "192.168.40.0/24";
+      gateway = "192.168.40.1";
+      prefixLength = 24;
+      pool = {
+        first = "192.168.40.100";
+        last = "192.168.40.240";
+      };
+    };
   };
 
   # Per-host wired NIC. `iface` is the kernel name — the Pi 4 and 5 enumerate
@@ -16,10 +100,12 @@
     core4 = {
       ip = "192.168.86.32";
       iface = "end0";
+      segment = "servers";
     };
     core5 = {
       ip = "192.168.86.49";
       iface = "end0";
+      segment = "servers";
     };
 
     # Second, independent DNS path. Addressed below the Nest's DHCP pool
@@ -29,6 +115,7 @@
     lifeline = {
       ip = "192.168.86.11";
       iface = "end0";
+      segment = "servers";
     };
 
     # gate (CWWK N100, 4x i226) deliberately has no `ip` yet: it keeps its DHCP
@@ -63,6 +150,17 @@
       #
       # Physical sockets are labelled ETH0-ETH3 on the chassis and map in
       # order, so wan is ETH0.
+      #
+      # Roles, settled in Phase 1:
+      #   wan   ETH0  the modem
+      #   lan0  ETH1  tagged trunk to the Flex switch, every segment on it
+      #   lan1  ETH2  untagged, bridged into trusted: a dedicated 2.5G run to
+      #               one machine that does not contend with the Pis and the
+      #               AP for the switch uplink. Bridged rather than given its
+      #               own subnet so it shares a broadcast domain with the rest
+      #               of trusted, which is what mDNS and friends need to see
+      #               phones and printers
+      #   lan2  ETH3  spare, left down
       nics = {
         wan = "pci-0000:02:00.0";
         lan0 = "pci-0000:03:00.0";

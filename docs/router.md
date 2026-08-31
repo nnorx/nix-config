@@ -185,25 +185,59 @@ picking another evening.
 
 Output is a merged `lib/net.nix`. No hardware changes.
 
-- [ ] Write the VLAN table: id, name, subnet, gateway, DHCP pool range
-- [ ] Assign static reservations for the Pis, the switch, the AP, and `gate`
-- [ ] Decide port allocation across the four NICs: which is WAN, which is the
-      trunk to the Flex switch, whether one gets a dedicated run
-- [ ] Extend `lib/net.nix` with the VLAN schema, without wiring anything to it
+- [x] Write the segment table: id, name, subnet, gateway, DHCP pool range
+- [x] Decide port allocation across the four NICs
+- [x] Extend `lib/net.nix` with the schema, without wiring anything to it
+- [ ] Static reservations for the switch and the AP. Deferred to Phase 6 on
+      purpose: reservations are keyed on MAC addresses, which do not go in this
+      repo, so they arrive with the private input. The Pis need none, since
+      they take static addresses from their own NixOS config
 
-A starting point for the VLAN split:
+Four segments, third octet carrying the VLAN id so an address names its own
+segment. `gate` holds `.1` in each. Below `.100` is reserved for statics and
+reservations, `.100-.240` is the dynamic pool.
 
-| VLAN | Purpose | Policy |
+192.168 rather than 10.x for a concrete reason. Cloudflare WARP, on the work
+profile, routes `10.8.0.0/13` into its tunnel, and that range swallows
+`10.10.0.0/16`. Numbering the house there would have made every device at home
+unreachable from the work laptop whenever WARP connected, and since the profile
+is employer-managed it could not have been excluded locally. Checked with
+`route -n get 10.10.10.1`, which came back on `utun4`. Corporate profiles
+rarely claim 192.168 space, because that is where employees' home networks
+live.
+
+| VLAN | Segment | Subnet | Holds | Policy |
+|---|---|---|---|---|
+| 10 | trusted | 192.168.10.0/24 | Laptops, phones, the wired workstation | Full access |
+| 20 | servers | 192.168.20.0/24 | core4, core5, lifeline, switch, AP | Reachable from trusted |
+| 30 | iot | 192.168.30.0/24 | Cameras, plugs, TVs | WAN only, no LAN |
+| 40 | guest | 192.168.40.0/24 | Visitors | Internet only, client isolation |
+
+No separate mgmt segment: with three managed devices it is more ceremony than
+isolation, so the switch, AP and `gate` sit on servers.
+
+`servers` is the one that is not optional. The port-53 redirect that catches
+hardcoded resolvers only preserves the client's source address when the
+resolver is on a different subnet, which is the whole reason the Pis are not
+simply on trusted.
+
+Port roles:
+
+| Port | Socket | Role |
 |---|---|---|
-| mgmt | `gate`, switch, AP | No inbound from anywhere else |
-| trusted | Laptops, phones | Full access |
-| servers | core4, core5, lifeline | Reachable from trusted; makes the DNS redirect work |
-| iot | Cameras, plugs, TVs | No LAN access, WAN only |
-| guest | Visitors | Internet only, client isolation on |
+| `wan` | ETH0 | The modem |
+| `lan0` | ETH1 | Tagged trunk to the Flex switch, every segment on it |
+| `lan1` | ETH2 | Untagged, bridged into trusted: a dedicated 2.5G run |
+| `lan2` | ETH3 | Spare, left down |
 
-Renumbering the LAN is currently a one-file change. Preserve that: the VLAN
-schema belongs in `lib/net.nix`, and consumers should keep referencing attribute
-names rather than values.
+`lan1` is bridged into trusted rather than given a subnet of its own, so the
+wired machine shares a broadcast domain with the phones and laptops. Put it on
+its own subnet and mDNS stops working between them, which breaks printer and
+cast discovery in a way that is annoying to diagnose later.
+
+Renumbering stays a one-file change. The schema lives in `lib/net.nix` and
+consumers reference attribute names rather than values, so the cutover is
+editing `hosts.*.ip` here and retiring the `lan` block.
 
 **Exit test:** `nix flake check` passes and rebuilding a Pi is a no-op diff.
 
@@ -233,17 +267,16 @@ names rather than values.
       with `initialPassword = "changeme"`, which is public in this repo and, with
       `wheelNeedsPassword = true` in the baseline, is also the sudo password.
       The README says this for a freshly flashed Pi and it applies here too
-- [ ] Make SSH interface-scoped in `modules/firewall.nix`, and bind `sshd` to
-      LAN addresses explicitly rather than relying on firewall rules alone
 - [ ] `system.autoUpgrade` is already `enable = false` fleet-wide in
       `modules/baseline.nix`, so the unattended-3am-reboot problem is already
       handled. Confirm it stays that way for `gate` specifically
 
 `allowedTCPPorts = [ 22 ]` in `modules/firewall.nix` is fleet-wide and
-unscoped. That is correct for a Pi on a trusted LAN. On `gate` it means port 22
-is open on the internet-facing interface the moment the WAN cable moves. The
-per-interface idiom already exists in `hosts/core4/default.nix`, so this is a
-change in shape rather than a new mechanism.
+unscoped, which on `gate` means port 22 is open on the interface that will face
+the internet. It was listed here originally and that was wrong: `wan` **is**
+the management path until `lan0` exists, so scoping SSH off it locks everyone
+out, and scoping it to `wan` protects nothing. It moves with the management
+path, in Phase 4.
 
 **Exit test:** `gate` rebuilds cleanly, SSH still works, and `ss -tlnp` shows
 `sshd` bound where expected.
@@ -293,7 +326,16 @@ some games, none of which is being tested here.
 - [ ] nftables: default-drop forward, allow lan to wan with established/related
       return, masquerade on `wan`
 - [ ] Kea on the LAN side, with the static reservations from Phase 1
-- [ ] Plug the Flex switch into `lan0`, move one non-critical client onto it
+- [ ] Cable `lan0` **directly to one test client**, not to the Flex switch.
+      `wan` is plugged into that switch, because the switch is currently just
+      an extension of the Nest's LAN and that is how gate reaches the Nest.
+      Putting `lan0` on the same switch would leave gate's WAN and LAN sides
+      sharing one L2 segment, which does not route. The switch only moves
+      behind `lan0` once the Pis move with it, which is Phase 6
+- [ ] Move management onto `lan0`, then scope SSH to it in
+      `modules/firewall.nix` and bind `sshd` to LAN addresses rather than
+      relying on firewall rules alone. This is the first point at which that is
+      possible: until `lan0` carries the session, `wan` is the way in
 
 Iterate with `nixos-rebuild test` plus a detached rollback timer, so a bad
 ruleset self-heals in a few minutes instead of a trip to the rack.
@@ -326,7 +368,9 @@ The largest phase. Split it across sessions.
       has just been swapped for Ubiquiti's
 - [ ] Adopt the Flex switch and the U7 Pro
 - [ ] VLAN interfaces on `gate`, one Kea subnet per VLAN
-- [ ] Trunk the VLANs to the switch, tag SSIDs on the AP
+- [ ] Move the Flex switch's uplink from the Nest to `lan0` and trunk the VLANs
+      to it, tag SSIDs on the AP. This is where the Pis renumber into
+      `servers`, so it is also where house DNS starts depending on gate
 - [ ] Inter-VLAN policy: iot isolated, guest internet-only, trusted reaches
       servers
 - [ ] Port-53 DNAT redirect for hardcoded resolvers, which works now that
