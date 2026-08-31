@@ -60,10 +60,25 @@
           p.python
         ]);
         type = "lua";
+        # nvim-treesitter's main branch is a full, deliberately incompatible
+        # rewrite: the `nvim-treesitter.configs` module and its
+        # setup({highlight, indent}) API are gone, so the old call failed on
+        # every launch with "module 'nvim-treesitter.configs' not found".
+        #
+        # Highlighting is Neovim's own now, started per buffer, and indent is
+        # an indentexpr the plugin still provides. Parsers are unaffected:
+        # withPlugins attaches them as runtime dependencies rather than merging
+        # them into the plugin directory, and all 25 are on the runtimepath.
         config = ''
-          require('nvim-treesitter.configs').setup({
-            highlight = { enable = true },
-            indent = { enable = true },
+          vim.api.nvim_create_autocmd('FileType', {
+            callback = function(args)
+              -- Fires for every filetype, including ones with no parser
+              -- installed, where vim.treesitter.start() raises. Falling back
+              -- to regex syntax there is correct, so swallow it.
+              if pcall(vim.treesitter.start, args.buf) then
+                vim.bo[args.buf].indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()"
+              end
+            end,
           })
         '';
       }
