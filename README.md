@@ -286,6 +286,57 @@ rather than a monitor and keyboard at the rack.
    ```
    Reboot without the stick. Device names are from `hosts/gate/hardware-configuration.nix`.
 
+### UniFi controller (core5)
+
+Runs as two pinned containers, the Network Application and its MongoDB, on a
+private Docker network. Only the application publishes ports; the database is
+reachable from nothing but the other container.
+
+**Containers rather than `services.unifi`, deliberately.** Both `unifi` and
+`mongodb` are unfree, so Hydra does not build them and `cache.nixos.org` does
+not carry them. The module path would have core5 compiling MongoDB from source,
+CI attempting the same inside its 350-minute cap, and the result being pushed to
+a public Cachix, which is redistribution of both. It also decouples controller
+upgrades from `nix flake update`: UniFi's database migrations are one-way, so a
+lock bump that moved the controller would leave a generation rollback facing a
+newer schema with an older binary.
+
+**Upgrading** is changing the digest in `modules/unifi.nix`. Get the new one
+with:
+
+```bash
+nix run nixpkgs#skopeo -- inspect --format '{{.Digest}}' \
+  docker://lscr.io/linuxserver/unifi-network-application:<version>
+```
+
+Read Ubiquiti's release notes first. Downgrading needs a restore from backup,
+not a generation rollback.
+
+**Two settings to change on first login**, neither of which is expressible in
+Nix because they live in the controller's own database:
+
+1. Settings > System > Advanced: turn **off** remote access and cloud access.
+   Otherwise this swaps Google's telemetry for Ubiquiti's, which is the opposite
+   of the point.
+2. Settings > System > Backups: set a schedule.
+
+**Backups are the part that matters**, because adoption state, SSIDs, PSKs and
+VLAN assignments live in MongoDB and are not in this repo under any approach.
+The controller writes its own backups to `/var/lib/unifi/config/data/backup/`,
+owned by the `core5` user so they can be copied without root:
+
+```bash
+scp -r core5:/var/lib/unifi/config/data/backup/ ./unifi-backup-$(date +%F)/
+```
+
+Treat those as sensitive: they contain Wi-Fi PSKs and device credentials, so
+they do not belong in this repo or any public location.
+
+**A note on storage.** A UniFi controller writes statistics to MongoDB
+continuously, which is the workload SD cards wear out on fastest. core5 was
+moved to NVMe first for that reason, so the database has never touched the card.
+See the NVMe section above.
+
 ## Repository Structure
 
 ```

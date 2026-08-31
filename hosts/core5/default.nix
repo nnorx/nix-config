@@ -15,6 +15,7 @@ in
 {
   imports = [
     ../../modules/docker.nix
+    ../../modules/unifi.nix
     (import ../../modules/pimon.nix {
       mode = "collector";
       bind = "0.0.0.0";
@@ -26,8 +27,16 @@ in
     })
   ];
 
-  # Docker access for this host's user
-  users.users.${hostname}.extraGroups = [ "docker" ];
+  # Docker access for this host's user.
+  #
+  # The uid is pinned because the UniFi container needs a numeric PUID at
+  # evaluation time, and NixOS otherwise allocates normal-user ids at
+  # activation, leaving `users.users.<n>.uid` null in the config. 1001 is what
+  # this host already assigned, so declaring it changes nothing on disk.
+  users.users.${hostname} = {
+    uid = 1001;
+    extraGroups = [ "docker" ];
+  };
 
   # Pi 5 boot — override the extlinux default from hosts/common
   boot.loader.generic-extlinux-compatible.enable = lib.mkForce false;
@@ -67,6 +76,21 @@ in
     "1.1.1.1" # Cloudflare
     "9.9.9.9" # Quad9
   ];
+
+  # UniFi controller — LAN interface only. The switch and AP need all four:
+  # the UI for us, inform for device state, STUN to stay reachable, and
+  # discovery for adoption. The MongoDB port is deliberately absent, since it
+  # is published to nothing and lives on the container network.
+  networking.firewall.interfaces.${net.hosts.${hostname}.iface} = {
+    allowedTCPPorts = [
+      net.ports.unifiUi
+      net.ports.unifiInform
+    ];
+    allowedUDPPorts = [
+      net.ports.unifiStun
+      net.ports.unifiDiscovery
+    ];
+  };
 
   # pimon collector — allow the collector port only from other Pis
   networking.firewall.extraCommands = lib.concatMapStrings (h: ''

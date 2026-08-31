@@ -378,12 +378,30 @@ distinguishes a working config from one that happened to be started by hand.
 
 ## Phase 6: VLANs and UniFi
 
-The largest phase. Split it across sessions.
+The largest phase. Split it across sessions, and note the steps are not
+equally disruptive:
 
-- [ ] Stand up the UniFi controller on core5 (Docker is the low-friction path;
-      `services.unifi` exists in nixpkgs, but check MongoDB on aarch64 first)
+| Step | Disruption |
+|---|---|
+| Controller on core5 | None |
+| Adopt the U7 Pro | None, nothing depends on it yet |
+| VLAN interfaces and Kea subnets on gate | None until a trunk exists |
+| **Adopt the Flex switch** | **PoE cycles, all three Pis hard-reset** |
+| **Move the switch uplink to `lan0`** | **Pis renumber, house DNS starts depending on gate** |
+| SSIDs, inter-VLAN policy, DNS redirect | Moderate |
+
+The switch adoption is the one that surprises: that switch supplies PoE to
+every Pi, so provisioning it drops power to the whole DNS layer.
+
+- [x] Stand up the UniFi controller on core5. Containers, pinned by digest.
+      `services.unifi` was checked and rejected on evidence rather than taste:
+      `unifi` and `mongodb` are both unfree, so neither is in
+      `cache.nixos.org`, which would mean a Pi compiling MongoDB from source,
+      CI attempting the same inside its 350-minute cap, and pushing the result
+      to a public Cachix. See the README section for the rest
 - [ ] Turn off remote access and cloud in the controller, or Google's telemetry
-      has just been swapped for Ubiquiti's
+      has just been swapped for Ubiquiti's. Not expressible in Nix: it lives in
+      the controller's own database
 - [ ] Adopt the Flex switch and the U7 Pro
 - [ ] VLAN interfaces on `gate`, one Kea subnet per VLAN
 - [ ] Move the Flex switch's uplink from the Nest to `lan0` and trunk the VLANs
@@ -438,8 +456,9 @@ One at a time, weeks apart, once the house is boring.
 
       The conventional answer is Prometheus or VictoriaMetrics with Grafana on
       core5, scraping `node_exporter` fleet-wide plus exporters for AdGuard,
-      UniFi and nftables. That wants core5 on NVMe first: a TSDB writes harder
-      and more continuously than the UniFi database does. pimon can stay as a
+      UniFi and nftables. core5 is on NVMe as of 2026-08-31, which was the
+      blocker: a TSDB writes harder and more continuously than even the UniFi
+      database does, and that is not a workload for an SD card. pimon can stay as a
       liveness check or retire, but that is a choice to make rather than a
       default to inherit
 - [ ] Inbound remote access. This is the one with clear payoff: SSH into the
