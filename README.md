@@ -332,9 +332,10 @@ scp -r core5:/var/lib/unifi/config/data/backup/ ./unifi-backup-$(date +%F)/
 Treat those as sensitive: they contain Wi-Fi PSKs and device credentials, so
 they do not belong in this repo or any public location.
 
-**A note on storage.** core5 still boots from its SD card. A UniFi controller
-writes statistics to MongoDB continuously, which is the workload SD cards wear
-out on fastest. Moving core5 to NVMe is worth doing before this runs for long.
+**A note on storage.** A UniFi controller writes statistics to MongoDB
+continuously, which is the workload SD cards wear out on fastest. core5 was
+moved to NVMe first for that reason, so the database has never touched the card.
+See the NVMe section above.
 
 ## Repository Structure
 

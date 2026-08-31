@@ -456,8 +456,9 @@ One at a time, weeks apart, once the house is boring.
 
       The conventional answer is Prometheus or VictoriaMetrics with Grafana on
       core5, scraping `node_exporter` fleet-wide plus exporters for AdGuard,
-      UniFi and nftables. That wants core5 on NVMe first: a TSDB writes harder
-      and more continuously than the UniFi database does. pimon can stay as a
+      UniFi and nftables. core5 is on NVMe as of 2026-08-31, which was the
+      blocker: a TSDB writes harder and more continuously than even the UniFi
+      database does, and that is not a workload for an SD card. pimon can stay as a
       liveness check or retire, but that is a choice to make rather than a
       default to inherit
 - [ ] Inbound remote access. This is the one with clear payoff: SSH into the
