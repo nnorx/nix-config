@@ -3,6 +3,12 @@
 {
   services.openssh = {
     enable = true;
+
+    # This defaults to true and adds port 22 to the *global* allowedTCPPorts,
+    # which opens it on every interface and would quietly undo the per-interface
+    # scoping in modules/firewall.nix. That module opens 22 on the interfaces
+    # each host names in lib/net.nix instead.
+    openFirewall = false;
     settings = {
       PasswordAuthentication = false;
       KbdInteractiveAuthentication = false;

@@ -340,10 +340,15 @@ some games, none of which is being tested here.
       Putting `lan0` on the same switch would leave gate's WAN and LAN sides
       sharing one L2 segment, which does not route. The switch only moves
       behind `lan0` once the Pis move with it, which is Phase 6
-- [ ] Move management onto `lan0`, then scope SSH to it in
-      `modules/firewall.nix` and bind `sshd` to LAN addresses rather than
-      relying on firewall rules alone. This is the first point at which that is
-      possible: until `lan0` carries the session, `wan` is the way in
+- [x] Scope SSH per interface. `modules/firewall.nix` no longer opens 22
+      globally; each host names its SSH-reachable interfaces in `lib/net.nix`,
+      and `services.openssh.openFirewall` is off so it cannot re-add the global
+      rule behind that. gate lists `wan` and `lan0`, since `wan` is still the
+      management path and faces the Nest's LAN rather than the internet.
+
+      `sshd` is deliberately not given a `ListenAddress`. gate's WAN address
+      comes from DHCP, so pinning the daemon to it makes its start depend on a
+      lease, which trades a firewall problem for a boot-ordering one
 
 Iterate with `nixos-rebuild test` plus a detached rollback timer, so a bad
 ruleset self-heals in a few minutes instead of a trip to the rack.
@@ -407,6 +412,12 @@ Pre-flight:
 Sequence: power off the modem, move the WAN cable, power the modem back on and
 wait for sync, confirm `gate` gets a WAN lease, verify from one client, then
 unplug the Nest. The modem power-cycle is what clears its cached MAC lease.
+
+**Delete `"wan"` from `gate.sshInterfaces` in `lib/net.nix` as part of this.**
+It is one line, and it is the difference between a router and a router with
+sshd listening on the internet. It is listed here rather than left to memory
+because the cable move is the exact moment that interface stops facing a
+trusted LAN.
 
 **Exit test:** an external port scan of the WAN address shows nothing listening,
 and a full reboot of `gate` brings the house back with no manual steps.
