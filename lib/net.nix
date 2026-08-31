@@ -101,11 +101,13 @@
       ip = "192.168.86.32";
       iface = "end0";
       segment = "servers";
+      sshInterfaces = [ "end0" ];
     };
     core5 = {
       ip = "192.168.86.49";
       iface = "end0";
       segment = "servers";
+      sshInterfaces = [ "end0" ];
     };
 
     # Second, independent DNS path. Addressed below the Nest's DHCP pool
@@ -116,6 +118,7 @@
       ip = "192.168.86.11";
       iface = "end0";
       segment = "servers";
+      sshInterfaces = [ "end0" ];
     };
 
     # gate (CWWK N100, 4x i226) deliberately has no `ip` yet: it keeps its DHCP
@@ -161,6 +164,19 @@
       #               of trusted, which is what mDNS and friends need to see
       #               phones and printers
       #   lan2  ETH3  spare, left down
+      # Interfaces sshd is reachable on. Listed rather than derived, because
+      # this is a security control and deriving it would mean a future
+      # interface silently becoming an SSH surface.
+      #
+      # `wan` is here only because it is still the management path: it faces
+      # the Nest's LAN, not the internet. **Remove it at the Phase 7 cutover**,
+      # once management lives on the LAN side. That deletion is the difference
+      # between a router and a router with SSH on its WAN.
+      sshInterfaces = [
+        "wan"
+        "lan0"
+      ];
+
       nics = {
         wan = "pci-0000:02:00.0";
         lan0 = "pci-0000:03:00.0";
