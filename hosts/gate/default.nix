@@ -21,6 +21,7 @@ in
     # a card-pull away from recovery, and gate is the host where an
     # unreachable box means the house has no router.
     ../../modules/deploy-guard.nix
+    ./routing.nix
   ];
 
   # Installed from 26.05, unlike the Pis. hosts/common defaults this to 25.11,

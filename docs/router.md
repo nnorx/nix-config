@@ -319,13 +319,18 @@ port called `wan` is physically the port intended.
 `gate`'s WAN keeps its lease from the Nest. Double NAT breaks inbound, UPnP and
 some games, none of which is being tested here.
 
-- [ ] IPv4 forwarding sysctls; keep `networking.firewall.checkReversePath`
-      strict; raise `net.netfilter.nf_conntrack_max` off its desktop default
-- [ ] Static address on `lan0` from `lib/net.nix`: give gate an `ip` and an
-      `iface` of `lan0`, which is what makes `hosts/common` configure it
-- [ ] nftables: default-drop forward, allow lan to wan with established/related
-      return, masquerade on `wan`
-- [ ] Kea on the LAN side, with the static reservations from Phase 1
+- [x] Raise `net.netfilter.nf_conntrack_max` off its desktop default; keep
+      `checkReversePath` on. IPv4 forwarding comes from the nat module, not by
+      hand
+- [x] Static address on `lan0`: `192.168.10.1`, the trusted gateway. Set on the
+      interface directly rather than through `hosts/common`, which is for
+      hosts with a single address on a flat LAN
+- [x] nftables backend with `filterForward`, so the forward chain defaults to
+      drop, and `networking.nat` for masquerade. The nat module emits the
+      internal-to-external forward rule itself, so there is nothing to write by
+      hand
+- [x] Kea on `lan0`, handing out the trusted pool, both Pi resolvers, and a
+      persistent lease file
 - [ ] Cable `lan0` **directly to one test client**, not to the Flex switch.
       `wan` is plugged into that switch, because the switch is currently just
       an extension of the Nest's LAN and that is how gate reaches the Nest.
