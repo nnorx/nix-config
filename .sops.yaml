@@ -1,0 +1,41 @@
+# sops recipient rules.
+#
+# Host keys are derived from each machine's ed25519 SSH host key:
+#   ssh-keyscan -t ed25519 <ip> | cut -d' ' -f2,3 | ssh-to-age
+#
+# Every rule includes `nick` so secrets stay editable from a dev machine; the
+# private half lives at ~/.config/sops/age/keys.txt and is backed up in
+# Bitwarden. Each host is a recipient only on its OWN file, so compromising one
+# box does not expose another's secrets.
+#
+# Re-imaging a host regenerates its SSH host key. Re-derive the recipient,
+# update it here, then run `sops updatekeys secrets/<host>.yaml`.
+
+keys:
+  - &nick age1cl5fnqpulemu5gnf2ws3y7smjp70xcaa2xlsg8xsv4ss02v0t9dqt9j56c
+  - &core4 age1slqstgy5cm9xc4qun09lvzqnnm3q57ztjllqxfpqvpwr5k40p5ssls5yv8
+  - &core5 age1hzxc26p7yhxyqvse9jngllwmrxd6scvvqdazlmj2w82qan85pcpq6vh686
+  - &lifeline age1xyckqjvll0wrd5alqycvga0k77tpk7utln6qwv2xckjdksqppqvsh0fg80
+  - &gate age18ddpgl5yw9jqp8sy5lj0p7aft7qk49fklthmh9f3zvtznp433cus52x3ja
+
+creation_rules:
+  - path_regex: secrets/core4\.yaml$
+    key_groups:
+      - age:
+          - *nick
+          - *core4
+  - path_regex: secrets/core5\.yaml$
+    key_groups:
+      - age:
+          - *nick
+          - *core5
+  - path_regex: secrets/lifeline\.yaml$
+    key_groups:
+      - age:
+          - *nick
+          - *lifeline
+  - path_regex: secrets/gate\.yaml$
+    key_groups:
+      - age:
+          - *nick
+          - *gate

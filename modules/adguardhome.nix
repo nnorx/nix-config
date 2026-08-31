@@ -1,8 +1,11 @@
 # AdGuard Home — DNS filtering, ad blocking, and web UI
 # Parameterized for use by multiple hosts with different DNS backends
+#
+# The admin password hash is bcrypt, so publishing it exposes it to offline
+# cracking. It lives in secrets/<hostname>.yaml (sops/age) and is spliced into
+# the config at activation, reaching neither git nor the Nix store.
 {
   adminUser,
-  adminPasswordHash,
   upstreamDns,
   fallbackDns ? [ ],
   # Used only to resolve the *names* of DoH/DoT upstreams, before any resolver
@@ -18,8 +21,56 @@
   dnssecEnabled ? false,
   upstreamTimeout ? "2s",
 }:
-{ net, ... }:
 {
+  config,
+  lib,
+  pkgs,
+  hostname,
+  net,
+  ...
+}:
+let
+  cfg = config.services.adguardhome;
+
+  # Reproduces what the upstream module writes to the store, with the real hash
+  # in place of the sentinel. `http.address` mirrors the module's own injection.
+  # JSON is a subset of YAML, so AdGuard parses this.
+  renderedConfig = builtins.toJSON (
+    cfg.settings
+    // {
+      http.address = "${cfg.host}:${toString cfg.port}";
+      users = [
+        {
+          name = adminUser;
+          password = config.sops.placeholder.adguard-admin-hash;
+        }
+      ];
+    }
+  );
+
+  # Runs as root via the "+" prefix on ExecStartPre. The stock preStart runs as
+  # the service's DynamicUser, whose transient UID does not exist when sops
+  # renders secrets at activation, so the template cannot be chowned to it in
+  # advance. Root can always read it; matching StateDirectory's owner afterwards
+  # keeps AdGuard able to write its own config back.
+  installConfig = pkgs.writeShellScript "adguardhome-install-config" ''
+    set -eu
+    install -m 600 "${
+      config.sops.templates."AdGuardHome.yaml".path
+    }" "$STATE_DIRECTORY/AdGuardHome.yaml"
+    chown --reference="$STATE_DIRECTORY" "$STATE_DIRECTORY/AdGuardHome.yaml"
+  '';
+in
+{
+  sops.secrets.adguard-admin-hash.sopsFile = ../secrets/${hostname}.yaml;
+  sops.templates."AdGuardHome.yaml".content = renderedConfig;
+
+  # Appended rather than replacing preStart: the stock preStart installs the
+  # module's generated config, whose derivation runs `AdGuardHome --check-config`
+  # at build time. Keeping it referenced preserves that validation, and this
+  # script then overwrites the result with the sops-rendered copy.
+  systemd.services.adguardhome.serviceConfig.ExecStartPre = lib.mkAfter [ "+${installConfig}" ];
+
   services.adguardhome = {
     enable = true;
     mutableSettings = false;
@@ -31,7 +82,10 @@
       users = [
         {
           name = adminUser;
-          password = adminPasswordHash;
+          # Sentinel only. This is the value that lands in the world-readable
+          # Nix store; the real hash replaces it at activation (renderedConfig
+          # above). Well-formed bcrypt so --check-config still passes.
+          password = "$2b$10$00000000000000000000000000000000000000000000000000000";
         }
       ];
 

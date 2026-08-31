@@ -29,6 +29,11 @@ in
   time.timeZone = "America/New_York";
   i18n.defaultLocale = "en_US.UTF-8";
 
+  # sops-nix — each host decrypts with an age key derived from its own SSH host
+  # key, so there is no key material to distribute. Re-imaging a host changes
+  # that key: re-derive it into .sops.yaml and run `sops updatekeys`.
+  sops.age.sshKeyPaths = [ "/etc/ssh/ssh_host_ed25519_key" ];
+
   # Networking. Addressing is derived from lib/net.nix rather than repeated per
   # host, so that file's promise — renumbering the LAN is a one-file change —
   # holds structurally instead of depending on every host repeating the same

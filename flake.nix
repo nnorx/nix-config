@@ -21,6 +21,12 @@
     # Uses its own pinned nixpkgs fork — do NOT add nixpkgs.follows
     nixos-raspberrypi.url = "github:nvmd/nixos-raspberrypi/main";
 
+    # sops-nix — age-encrypted secrets, decrypted at activation on each host
+    sops-nix = {
+      url = "github:Mic92/sops-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
     # pimon — fleet monitoring agent
     pimon = {
       url = "github:nnorx/pimon";
@@ -69,6 +75,7 @@
       home-manager,
       nixos-hardware,
       nixos-raspberrypi,
+      sops-nix,
       pimon,
       claude-plugins,
       improve,
@@ -138,6 +145,7 @@
           modules = [
             ./hosts/common
             ./hosts/${hostname}
+            sops-nix.nixosModules.sops
             { system.configurationRevision = self.rev or self.dirtyRev or "unknown"; }
             home-manager.nixosModules.home-manager
             {
@@ -346,6 +354,7 @@
             ./hosts/common
             ./hosts/common/pi.nix
             ./hosts/core5
+            sops-nix.nixosModules.sops
             { system.configurationRevision = self.rev or self.dirtyRev or "unknown"; }
             home-manager.nixosModules.home-manager
             {
