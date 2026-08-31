@@ -330,7 +330,10 @@ some games, none of which is being tested here.
       internal-to-external forward rule itself, so there is nothing to write by
       hand
 - [x] Kea on `lan0`, handing out the trusted pool, both Pi resolvers, and a
-      persistent lease file
+      persistent lease file. Retries opening its socket and requires every
+      configured interface, so it cannot end up running deaf: by default it
+      tries once and, on failure, stays up with no listener, which on a router
+      means the house breaks an hour later when leases start renewing
 - [ ] Cable `lan0` **directly to one test client**, not to the Flex switch.
       `wan` is plugged into that switch, because the switch is currently just
       an extension of the Nest's LAN and that is how gate reaches the Nest.
@@ -346,7 +349,9 @@ Iterate with `nixos-rebuild test` plus a detached rollback timer, so a bad
 ruleset self-heals in a few minutes instead of a trip to the rack.
 
 **Exit test:** the test client gets a lease, reaches the internet, and cannot
-reach anything on `gate` it should not.
+reach anything on `gate` it should not. Then reboot `gate` behind the guard and
+confirm all of it returns with no manual steps, which is the part that
+distinguishes a working config from one that happened to be started by hand.
 
 ## Phase 5: wire in DNS
 

@@ -16,6 +16,11 @@
 let
   trusted = net.segments.trusted;
 
+  # The one LAN interface this phase serves. Named once so the Kea listener,
+  # the address, the nat internal interface, the firewall scope and the
+  # systemd ordering below cannot drift apart.
+  lanIface = "lan0";
+
   # Clients are handed both Pi resolvers directly rather than gate proxying to
   # them, which is what keeps AdGuard's per-client attribution meaningful. The
   # Pis are still on the old flat LAN at this point, so queries reach them out
@@ -39,11 +44,11 @@ in
   networking.nat = {
     enable = true;
     externalInterface = net.hosts.gate.wanIface;
-    internalInterfaces = [ "lan0" ];
+    internalInterfaces = [ lanIface ];
   };
 
   networking = {
-    interfaces.lan0.ipv4.addresses = [
+    interfaces.${lanIface}.ipv4.addresses = [
       {
         address = trusted.gateway;
         inherit (trusted) prefixLength;
@@ -67,7 +72,7 @@ in
       # DHCP requests arrive before the client has an address, so they cannot
       # be covered by anything address-based. Scoped to lan0 so this does not
       # open a DHCP server to the WAN side.
-      interfaces.lan0.allowedUDPPorts = [ 67 ];
+      interfaces.${lanIface}.allowedUDPPorts = [ 67 ];
     };
   };
 
@@ -78,10 +83,35 @@ in
   # rather than a tuning problem.
   boot.kernel.sysctl."net.netfilter.nf_conntrack_max" = 262144;
 
+  # Ordering, so the retries above are a safety net rather than the mechanism.
+  # The address unit assigning lan0's address is what makes the interface
+  # bindable, and Kea's stock ordering only reaches network-online.target.
+  systemd.services.kea-dhcp4-server.after = [ "network-addresses-${lanIface}.service" ];
+
   services.kea.dhcp4 = {
     enable = true;
     settings = {
-      interfaces-config.interfaces = [ "lan0" ];
+      interfaces-config = {
+        interfaces = [ lanIface ];
+
+        # Kea tries once by default and, on failure, runs with no listening
+        # socket rather than exiting. Observed on the first deploy: it started
+        # while lan0 was still down, logged "no interface configured to listen
+        # to DHCP traffic", and stayed up and deaf.
+        #
+        # That is the worst shape a DHCP failure can take on a router. Nothing
+        # breaks immediately, because existing leases keep working; the house
+        # falls over an hour later when clients try to renew, with no event
+        # anywhere near the cause.
+        #
+        # Retry instead, and require every configured interface, so a
+        # persistent failure exits non-zero and the unit's Restart=on-failure
+        # keeps trying. Failing loudly and recovering beats running silently
+        # and not.
+        service-sockets-max-retries = 5;
+        service-sockets-retry-wait-time = 5000;
+        service-sockets-require-all = true;
+      };
 
       # Leases survive a restart of the daemon and a reboot of the box. Without
       # persistence every reboot is a fresh pool and clients renumber, which on
