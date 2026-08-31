@@ -4,7 +4,7 @@
   mode, # "agent" or "collector"
   collectorUrl ? null, # Required for agent mode; unused by the collector
   interval ? 10,
-  port ? 8080,
+  port ? 8090, # see net.ports.pimon: 8080 belongs to UniFi's inform port
   bind ? "0.0.0.0",
   staleSecs ? 120,
   maxHosts ? 16,

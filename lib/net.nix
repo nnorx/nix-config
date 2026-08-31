@@ -201,7 +201,21 @@
   # interface.
   ports = {
     unbound = 5335;
-    pimon = 8080;
+
+    # Moved off 8080 for the UniFi controller, whose device-inform port is
+    # 8080 and is baked into UniFi device firmware defaults. pimon is ours and
+    # has no external contract, so it is the one that moves. Every consumer
+    # reads this attribute, so the change lands everywhere at once: the
+    # collector's bind, both agents' collectorUrl, and core5's firewall.
+    pimon = 8090;
+
     adguardWeb = 3000;
+
+    # UniFi controller, in containers on core5. Ports the switch and AP need
+    # to reach, so they are contracts between hosts like the rest of this set.
+    unifiUi = 8443; # HTTPS admin UI
+    unifiInform = 8080; # devices POST their state here
+    unifiStun = 3478; # UDP, keeps devices reachable behind NAT
+    unifiDiscovery = 10001; # UDP, device discovery
   };
 }
