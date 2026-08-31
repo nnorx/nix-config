@@ -66,10 +66,11 @@ enumeration order can shift across a kernel or firmware update. Rules that name
 not, and a silent WAN/LAN swap under a permissive ruleset is the failure that is
 hard to walk back.
 
-**Drop 8.8.8.8.** It is in `fallbackDns` on both Pi hosts and in the
-`bootstrapDns` default in `modules/adguardhome.nix`. Unbound is recursive so
-fallbacks rarely fire, but "get Google out of the path" is a stated goal and
-this is a one-line fix.
+**Drop 8.8.8.8.** Done. It was in `fallbackDns` on both Pi hosts, in the
+`bootstrapDns` default in `modules/adguardhome.nix`, and in core5's
+`networking.nameservers`, which the original survey missed. Replaced with Quad9
+rather than simply removed, so redundancy survives and it comes from a second
+operator rather than a second address belonging to the first.
 
 ## What stays out of this repo
 
@@ -361,9 +362,11 @@ distinguishes a working config from one that happened to be started by hand.
 ## Phase 5: wire in DNS
 
 - [ ] Kea hands out both Pi addresses as DNS servers
-- [ ] `gate` resolves through a path that does not depend on the Pis
-- [ ] Drop 8.8.8.8 from `fallbackDns` on core4 and lifeline, and from the
-      `bootstrapDns` default in `modules/adguardhome.nix`
+- [x] `gate` resolves through a path that does not depend on the Pis: its own
+      Unbound on loopback:53, recursing from the root servers
+- [x] Drop 8.8.8.8 from `fallbackDns` on core4 and lifeline, from the
+      `bootstrapDns` default in `modules/adguardhome.nix`, and from core5's
+      `networking.nameservers`
 - [ ] Confirm AdGuard is logging real client IPs rather than the gateway
 - [ ] Revisit the ratelimit comments in `modules/adguardhome.nix`, which assume
       the proxying design

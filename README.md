@@ -21,7 +21,7 @@ Reproducible system and development configuration managed with Nix Flakes — co
 │  - DNSSEC validation │      │  - DNSSEC validation │
 │                      │      │                      │
 │  Fallback:           │      │  Fallback:           │
-│  1.1.1.1 / 8.8.8.8   │      │  1.1.1.1 / 8.8.8.8   │
+│  1.1.1.1 / 9.9.9.9   │      │  1.1.1.1 / 9.9.9.9   │
 │                      │      │                      │
 │  Web UI :3000        │      │  Web UI :3000        │
 │  Docker              │      └──────────────────────┘

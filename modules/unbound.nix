@@ -2,6 +2,17 @@
 # Listens on localhost and the host's LAN address for queries from AdGuard Home
 {
   allowFrom ? [ ], # Host names (from lib/net.nix) permitted to query over the LAN
+
+  # Listening port. Defaults to net.ports.unbound (5335), which is where the
+  # AdGuard hosts forward and deliberately not 53, since AdGuard owns that.
+  # gate has no AdGuard and has to be its own resolver, and resolv.conf cannot
+  # express a port, so it listens on 53.
+  port ? null,
+
+  # Whether this host's own resolv.conf points at unbound. False on the Pis,
+  # which resolve through their AdGuard on 53. True on gate, which is the
+  # point of running it there.
+  resolveLocalQueries ? false,
 }:
 {
   pkgs,
@@ -12,6 +23,8 @@
   ...
 }:
 let
+  listenPort = if port == null then net.ports.unbound else port;
+
   ctl = "${config.services.unbound.package}/bin/unbound-control";
   cacheFile = "/var/lib/unbound/cache.dump"; # inside unbound's StateDirectory (sandbox-writable)
 
@@ -45,7 +58,7 @@ in
 {
   services.unbound = {
     enable = true;
-    resolveLocalQueries = false; # Pi uses AGH (port 53), not unbound directly
+    inherit resolveLocalQueries;
 
     # Local control socket for cache dump/load across reboots (see systemd units below)
     localControlSocketPath = "/run/unbound/unbound.ctl";
@@ -60,7 +73,7 @@ in
           "127.0.0.1"
         ]
         ++ lib.optional (allowFrom != [ ]) net.hosts.${hostname}.ip;
-        port = net.ports.unbound;
+        port = listenPort;
 
         # Recurse over IPv4 only. This network gets IPv6 via ULA + RA but has no
         # global v6 prefix / default route from the Nest, so AAAA-glue upstreams

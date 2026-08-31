@@ -22,6 +22,23 @@ in
     # unreachable box means the house has no router.
     ../../modules/deploy-guard.nix
     ./routing.nix
+
+    # gate's own resolver, on loopback only.
+    #
+    # A router must not depend on the Pis to resolve. If /etc/resolv.conf
+    # points at them and they are down, `nixos-rebuild` cannot resolve
+    # github.com, so the box cannot be fixed by rebuilding it. That bootstrap
+    # loop is the entire reason this is here, and it is why the resolver is
+    # recursive rather than forwarding somewhere: nothing to be down.
+    #
+    # Port 53 rather than the fleet's 5335, because resolv.conf cannot express
+    # a port and there is no AdGuard on this host competing for it. allowFrom
+    # is empty, so it binds 127.0.0.1 alone and is absent from the network
+    # rather than merely refusing it.
+    (import ../../modules/unbound.nix {
+      port = 53;
+      resolveLocalQueries = true;
+    })
   ];
 
   # Installed from 26.05, unlike the Pis. hosts/common defaults this to 25.11,

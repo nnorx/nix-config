@@ -15,7 +15,7 @@ in
       upstreamDns = [ "127.0.0.1:${toString net.ports.unbound}" ];
       fallbackDns = [
         "1.1.1.1" # Used only if local Unbound is unreachable
-        "8.8.8.8"
+        "9.9.9.9" # Quad9, not Google: different operator, same redundancy
       ];
       cacheEnabled = false; # Unbound handles caching
       dnssecEnabled = false; # Unbound handles DNSSEC
