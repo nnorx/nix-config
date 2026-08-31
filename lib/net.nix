@@ -17,9 +17,18 @@
   # yet; it exists so the addressing is settled before anything is wired to
   # it, which is what keeps renumbering a one-file change rather than a hunt.
   #
-  # The third octet is the VLAN id, so an address names its own segment. 10.10
-  # rather than 192.168 so the two schemes can coexist during the transition
-  # without colliding with what the Nest hands out.
+  # The third octet is the VLAN id, so an address names its own segment.
+  #
+  # 192.168 rather than 10.x, and not for taste: Cloudflare WARP routes
+  # 10.8.0.0/13 into its tunnel on Nick's work profile, which swallows
+  # 10.10.0.0/16 whole. A home LAN numbered there would be unreachable from his
+  # own laptop whenever WARP was connected, and that profile is managed by the
+  # employer, so it could not be excluded locally. Corporate profiles rarely
+  # claim 192.168 space, because employees' home networks live there. Verified
+  # with `route -n get` against the tunnel rather than assumed.
+  #
+  # These do not collide with the 192.168.86.0/24 the Nest hands out today, so
+  # both schemes coexist through the transition.
   #
   # `subnet` is carried explicitly rather than derived from gateway and prefix:
   # Kea and nftables both want the network address in CIDR form, and deriving
@@ -32,12 +41,12 @@
     # Laptops and phones. Full access.
     trusted = {
       id = 10;
-      subnet = "10.10.10.0/24";
-      gateway = "10.10.10.1";
+      subnet = "192.168.10.0/24";
+      gateway = "192.168.10.1";
       prefixLength = 24;
       pool = {
-        first = "10.10.10.100";
-        last = "10.10.10.240";
+        first = "192.168.10.100";
+        last = "192.168.10.240";
       };
     };
 
@@ -51,36 +60,36 @@
     # destroys the source address the redirect existed to preserve.
     servers = {
       id = 20;
-      subnet = "10.10.20.0/24";
-      gateway = "10.10.20.1";
+      subnet = "192.168.20.0/24";
+      gateway = "192.168.20.1";
       prefixLength = 24;
       pool = {
-        first = "10.10.20.100";
-        last = "10.10.20.150";
+        first = "192.168.20.100";
+        last = "192.168.20.150";
       };
     };
 
     # Cameras, plugs, TVs. No LAN access, WAN only.
     iot = {
       id = 30;
-      subnet = "10.10.30.0/24";
-      gateway = "10.10.30.1";
+      subnet = "192.168.30.0/24";
+      gateway = "192.168.30.1";
       prefixLength = 24;
       pool = {
-        first = "10.10.30.100";
-        last = "10.10.30.240";
+        first = "192.168.30.100";
+        last = "192.168.30.240";
       };
     };
 
     # Visitors. Internet only, client isolation on.
     guest = {
       id = 40;
-      subnet = "10.10.40.0/24";
-      gateway = "10.10.40.1";
+      subnet = "192.168.40.0/24";
+      gateway = "192.168.40.1";
       prefixLength = 24;
       pool = {
-        first = "10.10.40.100";
-        last = "10.10.40.240";
+        first = "192.168.40.100";
+        last = "192.168.40.240";
       };
     };
   };

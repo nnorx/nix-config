@@ -197,12 +197,21 @@ Four segments, third octet carrying the VLAN id so an address names its own
 segment. `gate` holds `.1` in each. Below `.100` is reserved for statics and
 reservations, `.100-.240` is the dynamic pool.
 
+192.168 rather than 10.x for a concrete reason. Cloudflare WARP, on the work
+profile, routes `10.8.0.0/13` into its tunnel, and that range swallows
+`10.10.0.0/16`. Numbering the house there would have made every device at home
+unreachable from the work laptop whenever WARP connected, and since the profile
+is employer-managed it could not have been excluded locally. Checked with
+`route -n get 10.10.10.1`, which came back on `utun4`. Corporate profiles
+rarely claim 192.168 space, because that is where employees' home networks
+live.
+
 | VLAN | Segment | Subnet | Holds | Policy |
 |---|---|---|---|---|
-| 10 | trusted | 10.10.10.0/24 | Laptops, phones, the wired workstation | Full access |
-| 20 | servers | 10.10.20.0/24 | core4, core5, lifeline, switch, AP | Reachable from trusted |
-| 30 | iot | 10.10.30.0/24 | Cameras, plugs, TVs | WAN only, no LAN |
-| 40 | guest | 10.10.40.0/24 | Visitors | Internet only, client isolation |
+| 10 | trusted | 192.168.10.0/24 | Laptops, phones, the wired workstation | Full access |
+| 20 | servers | 192.168.20.0/24 | core4, core5, lifeline, switch, AP | Reachable from trusted |
+| 30 | iot | 192.168.30.0/24 | Cameras, plugs, TVs | WAN only, no LAN |
+| 40 | guest | 192.168.40.0/24 | Visitors | Internet only, client isolation |
 
 No separate mgmt segment: with three managed devices it is more ceremony than
 isolation, so the switch, AP and `gate` sit on servers.
