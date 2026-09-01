@@ -31,10 +31,16 @@ in
   #
   # The uid is pinned because the UniFi container needs a numeric PUID at
   # evaluation time, and NixOS otherwise allocates normal-user ids at
-  # activation, leaving `users.users.<n>.uid` null in the config. 1001 is what
-  # this host already assigned, so declaring it changes nothing on disk.
+  # activation, leaving `users.users.<n>.uid` null in the config.
+  #
+  # 1000, not 1001. It was 1001 before the NVMe migration, but that install
+  # allocated ids in a different order and `/var/lib/nixos`, which holds the
+  # allocation state, was not carried across. Declaring a uid does not move an
+  # existing account, so the pin and the account disagreed and home-manager
+  # refused to activate with `UID is "1000", expected "1001"`. The number is
+  # arbitrary; agreeing with the account on disk is the requirement.
   users.users.${hostname} = {
-    uid = 1001;
+    uid = 1000;
     extraGroups = [ "docker" ];
   };
 
