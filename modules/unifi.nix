@@ -31,6 +31,39 @@ let
 
   user = config.users.users.${hostname};
 
+  # The address devices are told to report to.
+  #
+  # Without this the controller advertises its own address, which on a bridge
+  # network is something in 172.16/12 that no device on the LAN can reach. The
+  # symptom is not an error: adoption appears to start and then loops forever,
+  # because the device is adopted, cannot inform, and retries.
+  #
+  # It lives in system.properties inside the config volume, so it is state
+  # rather than configuration, and clearing that volume silently reintroduces
+  # the bug. Seeding it before every start makes it survive a wipe. The address
+  # comes from lib/net.nix, so it follows the host when the Pis renumber.
+  seedInformHost = pkgs.writeShellApplication {
+    name = "unifi-seed-inform-host";
+    runtimeInputs = with pkgs; [
+      coreutils
+      gnugrep
+      gnused
+    ];
+    text = ''
+      props=${stateDir}/config/data/system.properties
+      want="system_ip=${net.hosts.${hostname}.ip}"
+
+      mkdir -p "$(dirname "$props")"
+      touch "$props"
+
+      if grep -q "^system_ip=" "$props"; then
+        sed -i "s|^system_ip=.*|$want|" "$props"
+      else
+        printf '%s\n' "$want" >> "$props"
+      fi
+    '';
+  };
+
   # Runs on first database init only, from the mongo image's
   # /docker-entrypoint-initdb.d hook. Shell rather than the .js the upstream
   # docs suggest, because .sh hooks get the container environment: the password
@@ -151,5 +184,9 @@ in
   systemd.services.docker-unifi = {
     after = [ "docker-network-${dockerNet}.service" ];
     requires = [ "docker-network-${dockerNet}.service" ];
+
+    # `+` so it runs as root: the config volume is owned by the container's
+    # user, not by whatever the unit would otherwise run as.
+    serviceConfig.ExecStartPre = [ "+${lib.getExe seedInformHost}" ];
   };
 }
