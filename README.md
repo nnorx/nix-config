@@ -321,13 +321,26 @@ nix run nixpkgs#skopeo -- inspect --format '{{.Digest}}' \
 Read Ubiquiti's release notes first. Downgrading needs a restore from backup,
 not a generation rollback.
 
-**Two settings to change on first login**, neither of which is expressible in
-Nix because they live in the controller's own database:
+**On first login, take the local admin option, not a Ubiquiti account.** Signing
+in with a UI account ties the controller to their cloud, which is the thing
+moving off Google was meant to avoid. If that happens by accident, the
+association lives in the database, so the fix is to stop both containers, empty
+`/var/lib/unifi/db` and `/var/lib/unifi/config`, and start again. Emptying `db`
+matters as much as `config`: the MongoDB init hook only runs against an empty
+data directory, and that is what recreates the application user.
 
-1. Settings > System > Advanced: turn **off** remote access and cloud access.
-   Otherwise this swaps Google's telemetry for Ubiquiti's, which is the opposite
-   of the point.
+**Two settings to change**, neither expressible in Nix because they live in the
+controller's own database:
+
+1. Settings > System: turn **off** Remote Management and Analytics.
 2. Settings > System > Backups: set a schedule.
+
+The inform host used to be a third. The controller advertises an address for
+devices to report to, and on a bridge network that is its container address in
+172.16/12, which nothing on the LAN can reach. The symptom is not an error:
+adoption appears to begin and then loops forever. `modules/unifi.nix` now seeds
+`system_ip` into `system.properties` before every start, from `lib/net.nix`, so
+it survives a volume wipe and follows the host if it renumbers.
 
 **Backups are the part that matters**, because adoption state, SSIDs, PSKs and
 VLAN assignments live in MongoDB and are not in this repo under any approach.
