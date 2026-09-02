@@ -43,12 +43,27 @@ in
     hostName = hostname;
   }
   // lib.optionalAttrs (host ? ip) {
+    # A host may carry a second address on the segment it is destined for,
+    # while still holding its address on the flat LAN. That is what makes the
+    # cutover survivable: when the switch uplink moves behind gate, the flat
+    # address goes dark and the segment address becomes live, and the host is
+    # reachable throughout rather than stranded at an address that no longer
+    # routes and unfixable because it is unreachable.
+    #
+    # The default gateway is not doubled, because there can only be one. It
+    # keeps pointing at the flat LAN, so after the move a host is reachable
+    # from gate on its own segment but has no route off it until it is
+    # rebuilt. See the cutover section in docs/router.md.
     interfaces.${host.iface}.ipv4.addresses = [
       {
         address = host.ip;
         inherit (net.lan) prefixLength;
       }
-    ];
+    ]
+    ++ lib.optional (host ? segmentIp) {
+      address = host.segmentIp;
+      inherit (net.segments.${host.segment}) prefixLength;
+    };
     defaultGateway = net.lan.gateway;
   };
 
