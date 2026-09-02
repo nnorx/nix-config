@@ -399,10 +399,26 @@ every Pi, so provisioning it drops power to the whole DNS layer.
       `cache.nixos.org`, which would mean a Pi compiling MongoDB from source,
       CI attempting the same inside its 350-minute cap, and pushing the result
       to a public Cachix. See the README section for the rest
-- [ ] Turn off remote access and cloud in the controller, or Google's telemetry
+- [x] Turn off remote access and cloud in the controller, or Google's telemetry
       has just been swapped for Ubiquiti's. Not expressible in Nix: it lives in
-      the controller's own database
-- [ ] Adopt the Flex switch and the U7 Pro
+      the controller's own database. Remote Management and Analytics off, and
+      the admin is local: the `admin` record carries no `ubic_account_id`
+- [x] Adopt the Flex switch and the U7 Pro. Both `adopted: true`.
+
+      The switch adoption was expected to cycle PoE and hard-reset all three
+      Pis, and did not: every uptime went up rather than resetting, and the
+      controller never restarted. Provisioning alone does not require a reboot.
+      **A firmware update does**, and automatic device updates were turned off
+      before adopting, so that reboot is deferred rather than avoided. The
+      switch is on 2.1.8.971. Update it deliberately, on its own evening, with
+      the Nest pointed at a public resolver first, because that is the event
+      that takes PoE away from the entire DNS layer
+- [ ] Point the Nest at `1.1.1.1`/`9.9.9.9` before anything that can interrupt
+      the Pis, and revert immediately afterwards. The Nest proxies rather than
+      handing resolvers to clients, so it takes effect instantly both ways with
+      no lease renewal. The failure mode of forgetting is silent: the house
+      keeps working perfectly while AdGuard quietly stops filtering and stops
+      seeing queries
 - [ ] VLAN interfaces on `gate`, one Kea subnet per VLAN
 - [ ] Move the Flex switch's uplink from the Nest to `lan0` and trunk the VLANs
       to it, tag SSIDs on the AP. This is where the Pis renumber into
