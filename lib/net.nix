@@ -99,12 +99,26 @@
   hosts = {
     core4 = {
       ip = "192.168.86.32";
+
+      # Its address on `segment`, held alongside `ip` through the cutover so
+      # the host stays reachable when the switch uplink moves behind gate.
+      # Same final octet as the flat address, so nothing has to be relearned.
+      # At the cutover this becomes `ip` and this attribute goes away.
+      segmentIp = "192.168.20.32";
+
       iface = "end0";
       segment = "servers";
       sshInterfaces = [ "end0" ];
     };
     core5 = {
       ip = "192.168.86.49";
+
+      # Its address on `segment`, held alongside `ip` through the cutover so
+      # the host stays reachable when the switch uplink moves behind gate.
+      # Same final octet as the flat address, so nothing has to be relearned.
+      # At the cutover this becomes `ip` and this attribute goes away.
+      segmentIp = "192.168.20.49";
+
       iface = "end0";
       segment = "servers";
       sshInterfaces = [ "end0" ];
@@ -116,6 +130,13 @@
     # on to defend their addresses.
     lifeline = {
       ip = "192.168.86.11";
+
+      # Its address on `segment`, held alongside `ip` through the cutover so
+      # the host stays reachable when the switch uplink moves behind gate.
+      # Same final octet as the flat address, so nothing has to be relearned.
+      # At the cutover this becomes `ip` and this attribute goes away.
+      segmentIp = "192.168.20.11";
+
       iface = "end0";
       segment = "servers";
       sshInterfaces = [ "end0" ];

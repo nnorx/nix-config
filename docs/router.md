@@ -420,9 +420,40 @@ every Pi, so provisioning it drops power to the whole DNS layer.
       keeps working perfectly while AdGuard quietly stops filtering and stops
       seeing queries
 - [ ] VLAN interfaces on `gate`, one Kea subnet per VLAN
-- [ ] Move the Flex switch's uplink from the Nest to `lan0` and trunk the VLANs
-      to it, tag SSIDs on the AP. This is where the Pis renumber into
-      `servers`, so it is also where house DNS starts depending on gate
+- [ ] Move the Flex switch's uplink from the Nest to `lan0`. This is where the
+      Pis land on `servers` and where house DNS starts depending on gate.
+
+      The problem this has to solve: the moment the uplink moves, a Pi still
+      configured only for the flat LAN is on a segment where that address does
+      not route, unreachable, and so unfixable. The fix is to give each Pi its
+      segment address *in advance*, alongside the flat one, so it is reachable
+      at some address at every point. That is `segmentIp` in `lib/net.nix`, and
+      it deploys with no disruption because nothing routes to it yet.
+
+      Order, and each step is verifiable before the next:
+
+      1. Point the Nest at `1.1.1.1`/`9.9.9.9`. The Pis are about to stop being
+         reachable from it, and this is what keeps the house resolving while
+         that is true
+      2. Deploy the dual addresses to all three Pis. No disruption: they gain
+         an address nothing routes to yet
+      3. In the controller, define the four networks and set port profiles:
+         the gate uplink as a trunk, the Pi ports untagged on servers
+      4. Move the uplink cable from the Nest to gate's ETH1
+      5. Deploy the trunk config to gate. SSH to it over `wan` still works
+         throughout, because `wan` is still on the Nest's LAN. Do this *after*
+         the cable move rather than before: `service-sockets-require-all`
+         means Kea fails while the trunk has no carrier, and systemd's start
+         rate limit can leave the unit failed rather than retrying
+      6. From gate, SSH to each Pi at its `192.168.20.x` address. It has no
+         route off its segment yet, since the default gateway still points at
+         the Nest, so give it one by hand and then make it permanent:
+         `sudo ip route replace default via 192.168.20.1`, then `nrs`
+      7. Revert the Nest's DNS
+
+      The Pis keep their final octets, so `.32`, `.49` and `.11` mean the same
+      hosts before and after.
+- [ ] Tag SSIDs on the AP, one per segment that needs wireless
 - [ ] Inter-VLAN policy: iot isolated, guest internet-only, trusted reaches
       servers
 - [ ] Port-53 DNAT redirect for hardcoded resolvers, which works now that
