@@ -72,9 +72,16 @@ let
     ${tagged "guest"} = "guest";
   };
 
-  # Bound once rather than recomputed at each of the three call sites, for the
-  # same reason the interface names above are.
+  # Bound once rather than recomputed at each call site, for the same reason
+  # the interface names above are.
   segmentIfaces = builtins.attrNames segmentOn;
+
+  # DHCP is served where a segment declares a pool, and nowhere else. servers
+  # declares none: it is statically addressed, and it is the untagged VLAN on
+  # the trunk, so binding it would put Kea on the trunk parent. See the
+  # comment on `servers` in lib/net.nix.
+  dhcpOn = lib.filterAttrs (_: name: seg.${name} ? pool) segmentOn;
+  dhcpIfaces = builtins.attrNames dhcpOn;
 
   # The fleet's own resolvers. Handing these out directly, rather than gate
   # proxying to them, is what keeps AdGuard's per-client attribution
@@ -196,7 +203,7 @@ in
       # DHCP requests arrive before the client has an address, so nothing
       # address-based can cover them. Scoped per segment interface, so no DHCP
       # server is exposed on the WAN side.
-      interfaces = lib.genAttrs segmentIfaces (_: {
+      interfaces = lib.genAttrs dhcpIfaces (_: {
         allowedUDPPorts = [ 67 ];
       });
     };
@@ -213,13 +220,13 @@ in
   # The address units are what make each interface bindable, and Kea's stock
   # ordering only reaches network-online.target, which implies nothing about
   # any particular interface being configured.
-  systemd.services.kea-dhcp4-server.after = map (i: "network-addresses-${i}.service") segmentIfaces;
+  systemd.services.kea-dhcp4-server.after = map (i: "network-addresses-${i}.service") dhcpIfaces;
 
   services.kea.dhcp4 = {
     enable = true;
     settings = {
       interfaces-config = {
-        interfaces = segmentIfaces;
+        interfaces = dhcpIfaces;
 
         # Kea tries once by default and, on failure, runs with no listening
         # socket rather than exiting. Observed on the first deploy: it started
@@ -239,27 +246,13 @@ in
         service-sockets-retry-wait-time = 5000;
         service-sockets-require-all = true;
 
-        # KNOWN GAP, not yet resolved.
-        #
-        # Kea's default socket type is raw AF_PACKET, and it opens one per
-        # configured interface, including the trunk parent `lan0`. The kernel
-        # delivers a frame to AF_PACKET taps on the receiving device before
-        # VLAN demux moves it to the sub-interface, so a tagged DHCP request
-        # arrives on both `lan0.30` and `lan0`. The `lan0` copy is attributed
-        # to `lan0`, whose only subnet is servers, so an iot device can be
-        # offered a 192.168.20.x lease and land in the infrastructure segment.
-        #
-        # Both fixes cost something. `dhcp-socket-type = "udp"` avoids it but
-        # weakens Kea's ability to answer a client that has no address yet.
-        # Dropping `lan0` from this list avoids it completely, since nothing
-        # would bind the trunk parent, but then the switch and the AP need
-        # static addresses set in the controller before the cable moves,
-        # because there would be no DHCP on servers at all.
-        #
-        # The second is probably right: infrastructure with static addressing
-        # does not depend on DHCP being up, which is a better property for the
-        # devices the rest of the network is reached through. It needs doing
-        # deliberately, with the controller-side addresses in place first.
+        # Kea is deliberately not bound to the trunk parent. Its raw sockets
+        # would receive tagged frames as well as untagged ones, because the
+        # kernel delivers to AF_PACKET taps before VLAN demux, so a request
+        # from an iot device would arrive on `lan0.30` and on `lan0`, and the
+        # `lan0` copy would be answered from the servers pool. Serving DHCP
+        # only where a segment declares a pool, and giving servers none, means
+        # nothing binds `lan0` and the ambiguity cannot arise.
       };
 
       # Leases survive a restart of the daemon and a reboot of the box. Without
@@ -298,7 +291,7 @@ in
             }
           ];
         }
-      ) segmentOn;
+      ) dhcpOn;
     };
   };
 }

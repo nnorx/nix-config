@@ -198,6 +198,13 @@ Four segments, third octet carrying the VLAN id so an address names its own
 segment. `gate` holds `.1` in each. Below `.100` is reserved for statics and
 reservations, `.100-.240` is the dynamic pool.
 
+servers has no pool. Everything on it is statically addressed: the Pis from
+their own NixOS config, the switch and the AP from the UniFi controller.
+Infrastructure that does not depend on DHCP being up is a better property for
+the devices the rest of the network is reached through, and it is also what
+keeps Kea off the trunk parent, since servers is the untagged VLAN there and a
+raw socket on a trunk parent receives tagged frames too.
+
 192.168 rather than 10.x for a concrete reason. Cloudflare WARP, on the work
 profile, routes `10.8.0.0/13` into its tunnel, and that range swallows
 `10.10.0.0/16`. Numbering the house there would have made every device at home
@@ -210,7 +217,7 @@ live.
 | VLAN | Segment | Subnet | Holds | Policy |
 |---|---|---|---|---|
 | 10 | trusted | 192.168.10.0/24 | Laptops, phones, the wired workstation | Full access |
-| 20 | servers | 192.168.20.0/24 | core4, core5, lifeline, switch, AP | Reachable from trusted |
+| 20 | servers | 192.168.20.0/24 | core4, core5, lifeline, switch, AP | Reachable from trusted. **No DHCP pool**: statically addressed |
 | 30 | iot | 192.168.30.0/24 | Cameras, plugs, TVs | WAN only, no LAN |
 | 40 | guest | 192.168.40.0/24 | Visitors | Internet only, client isolation |
 
