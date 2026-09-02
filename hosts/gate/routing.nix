@@ -238,6 +238,28 @@ in
         service-sockets-max-retries = 5;
         service-sockets-retry-wait-time = 5000;
         service-sockets-require-all = true;
+
+        # KNOWN GAP, not yet resolved.
+        #
+        # Kea's default socket type is raw AF_PACKET, and it opens one per
+        # configured interface, including the trunk parent `lan0`. The kernel
+        # delivers a frame to AF_PACKET taps on the receiving device before
+        # VLAN demux moves it to the sub-interface, so a tagged DHCP request
+        # arrives on both `lan0.30` and `lan0`. The `lan0` copy is attributed
+        # to `lan0`, whose only subnet is servers, so an iot device can be
+        # offered a 192.168.20.x lease and land in the infrastructure segment.
+        #
+        # Both fixes cost something. `dhcp-socket-type = "udp"` avoids it but
+        # weakens Kea's ability to answer a client that has no address yet.
+        # Dropping `lan0` from this list avoids it completely, since nothing
+        # would bind the trunk parent, but then the switch and the AP need
+        # static addresses set in the controller before the cable moves,
+        # because there would be no DHCP on servers at all.
+        #
+        # The second is probably right: infrastructure with static addressing
+        # does not depend on DHCP being up, which is a better property for the
+        # devices the rest of the network is reached through. It needs doing
+        # deliberately, with the controller-side addresses in place first.
       };
 
       # Leases survive a restart of the daemon and a reboot of the box. Without
