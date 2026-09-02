@@ -1,31 +1,60 @@
-# Phase 4: gate actually routes.
+# gate routes, for all four segments.
 #
-# Still behind the Nest. `wan` keeps its DHCP lease, so everything here sits
-# behind double NAT, which breaks inbound and UPnP and nothing this phase is
-# testing. The point is to prove the routing path works before anything in the
-# house depends on it.
+# Still behind the Nest: `wan` keeps its DHCP lease, so this is double NAT,
+# which breaks inbound and UPnP and nothing here depends on either.
 #
-# Scope is one segment, trusted, served untagged on lan0 to a single directly
-# cabled client. VLANs, the trunk to the Flex switch, and the other three
-# segments are Phase 6.
+# `lan0` is the tagged trunk to the Flex switch. `servers` is the *untagged*
+# VLAN on it, deliberately: the switch and the AP have to reach the controller
+# to be managed at all, and an infrastructure device that can only be reached
+# over a tag it has not been configured with yet is a chicken-and-egg problem.
+# Untagged also means gate's own management address stays on `lan0`, so
+# `sshInterfaces` in lib/net.nix needs no change.
+#
+# `lan1` is untagged trusted, bridged with the tagged trusted VLAN rather than
+# given a subnet of its own, so a machine cabled directly to gate shares a
+# broadcast domain with the phones and laptops on Wi-Fi. Separate subnets would
+# break mDNS between them, which surfaces later as printer and cast discovery
+# quietly not working.
+#
+# **This is inert until the switch uplink physically moves to lan0.** Nothing
+# is cabled to these interfaces yet.
 {
   lib,
   net,
   ...
 }:
 let
-  trusted = net.segments.trusted;
+  seg = net.segments;
 
-  # The one LAN interface this phase serves. Named once so the Kea listener,
-  # the address, the nat internal interface, the firewall scope and the
-  # systemd ordering below cannot drift apart.
-  lanIface = "lan0";
+  # Interface names, bound once each. They appear in the addresses, the Kea
+  # listeners and subnets, the nat internal list, the firewall scopes and the
+  # forward rules, and those drifting apart is how this class of bug happens.
+  trunk = "lan0"; # tagged trunk to the Flex switch; untagged = servers
+  wired = "lan1"; # untagged trusted, a dedicated run to one machine
+  trustedBr = "br-trusted"; # tagged trusted + `wired`, so they share a domain
+
+  # 802.1q sub-interface for a tagged segment.
+  tagged = name: "${trunk}.${toString seg.${name}.id}";
+
+  # Every interface that carries a segment, and the segment it carries.
+  # Generating the addresses, Kea subnets and firewall scopes from one list is
+  # what stops a fifth segment being added in four places and forgotten in a
+  # fifth.
+  segmentOn = {
+    ${trustedBr} = seg.trusted;
+    ${trunk} = seg.servers; # untagged on the trunk
+    ${tagged "iot"} = seg.iot;
+    ${tagged "guest"} = seg.guest;
+  };
 
   # Clients are handed both Pi resolvers directly rather than gate proxying to
-  # them, which is what keeps AdGuard's per-client attribution meaningful. The
-  # Pis are still on the old flat LAN at this point, so queries reach them out
-  # through wan and arrive masqueraded from gate's lease. That is fine for a
-  # test and stops being true in Phase 6, when they move to `servers`.
+  # them, which is what keeps AdGuard's per-client attribution meaningful.
+  #
+  # These addresses come from lib/net.nix, so they follow the Pis when they
+  # renumber into `servers`. Until that happens the Pis are still on the flat
+  # LAN, queries leave through wan and arrive masqueraded from gate's own
+  # lease, and AdGuard sees gate rather than the client. Attribution only
+  # becomes real once the Pis are on the other side of no NAT at all.
   resolvers = [
     net.hosts.core4.ip
     net.hosts.lifeline.ip
@@ -44,16 +73,43 @@ in
   networking.nat = {
     enable = true;
     externalInterface = net.hosts.gate.wanIface;
-    internalInterfaces = [ lanIface ];
+    internalInterfaces = builtins.attrNames segmentOn;
   };
 
   networking = {
-    interfaces.${lanIface}.ipv4.addresses = [
-      {
-        address = trusted.gateway;
-        inherit (trusted) prefixLength;
-      }
+    # Tagged sub-interfaces on the trunk. servers is absent on purpose: it is
+    # the untagged VLAN, so it is `trunk` itself.
+    vlans = {
+      "${tagged "trusted"}" = {
+        id = seg.trusted.id;
+        interface = trunk;
+      };
+      "${tagged "iot"}" = {
+        id = seg.iot.id;
+        interface = trunk;
+      };
+      "${tagged "guest"}" = {
+        id = seg.guest.id;
+        interface = trunk;
+      };
+    };
+
+    # Wi-Fi clients arrive tagged from the AP, the wired machine arrives
+    # untagged on its own port, and both need to be on one segment for
+    # discovery to work between them.
+    bridges.${trustedBr}.interfaces = [
+      (tagged "trusted")
+      wired
     ];
+
+    interfaces = lib.mapAttrs (_: s: {
+      ipv4.addresses = [
+        {
+          address = s.gateway;
+          inherit (s) prefixLength;
+        }
+      ];
+    }) segmentOn;
 
     firewall = {
       # Default-drop forwarding. Without this the forward chain accepts
@@ -69,10 +125,20 @@ in
       # chain rather than assuming.
       filterForward = true;
 
-      # DHCP requests arrive before the client has an address, so they cannot
-      # be covered by anything address-based. Scoped to lan0 so this does not
-      # open a DHCP server to the WAN side.
-      interfaces.${lanIface}.allowedUDPPorts = [ 67 ];
+      # trusted reaches servers: the Pis for DNS, AdGuard's UI, SSH. Everything
+      # else between segments is refused by the default-drop chain rather than
+      # by a rule, so iot and guest are isolated by not being mentioned. The
+      # nat module supplies the segment-to-wan rules from internalInterfaces.
+      extraForwardRules = ''
+        iifname "${trustedBr}" oifname "${trunk}" accept comment "trusted reaches servers"
+      '';
+
+      # DHCP requests arrive before the client has an address, so nothing
+      # address-based can cover them. Scoped per segment interface, so no DHCP
+      # server is exposed on the WAN side.
+      interfaces = lib.mapAttrs (_: _: {
+        allowedUDPPorts = [ 67 ];
+      }) segmentOn;
     };
   };
 
@@ -86,13 +152,15 @@ in
   # Ordering, so the retries above are a safety net rather than the mechanism.
   # The address unit assigning lan0's address is what makes the interface
   # bindable, and Kea's stock ordering only reaches network-online.target.
-  systemd.services.kea-dhcp4-server.after = [ "network-addresses-${lanIface}.service" ];
+  systemd.services.kea-dhcp4-server.after = map (i: "network-addresses-${i}.service") (
+    builtins.attrNames segmentOn
+  );
 
   services.kea.dhcp4 = {
     enable = true;
     settings = {
       interfaces-config = {
-        interfaces = [ lanIface ];
+        interfaces = builtins.attrNames segmentOn;
 
         # Kea tries once by default and, on failure, runs with no listening
         # socket rather than exiting. Observed on the first deploy: it started
@@ -126,23 +194,24 @@ in
       renew-timer = 900;
       rebind-timer = 1800;
 
-      subnet4 = [
-        {
-          id = trusted.id;
-          inherit (trusted) subnet;
-          pools = [ { pool = "${trusted.pool.first} - ${trusted.pool.last}"; } ];
-          option-data = [
-            {
-              name = "routers";
-              data = trusted.gateway;
-            }
-            {
-              name = "domain-name-servers";
-              data = lib.concatStringsSep ", " resolvers;
-            }
-          ];
-        }
-      ];
+      # One subnet per segment, each pinned to the interface that carries it,
+      # so a request arriving on the iot VLAN cannot be answered from the
+      # trusted pool.
+      subnet4 = lib.mapAttrsToList (iface: s: {
+        inherit (s) id subnet;
+        interface = iface;
+        pools = [ { pool = "${s.pool.first} - ${s.pool.last}"; } ];
+        option-data = [
+          {
+            name = "routers";
+            data = s.gateway;
+          }
+          {
+            name = "domain-name-servers";
+            data = lib.concatStringsSep ", " resolvers;
+          }
+        ];
+      }) segmentOn;
     };
   };
 }
