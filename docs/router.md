@@ -323,15 +323,18 @@ some games, none of which is being tested here.
 - [x] Raise `net.netfilter.nf_conntrack_max` off its desktop default; keep
       `checkReversePath` on. IPv4 forwarding comes from the nat module, not by
       hand
-- [x] Static address on `lan0`: `192.168.10.1`, the trusted gateway. Set on the
-      interface directly rather than through `hosts/common`, which is for
-      hosts with a single address on a flat LAN
+- [x] Static address on `lan0`. Was `192.168.10.1` when it served trusted
+      untagged; `lan0` is now the trunk and carries `192.168.20.1`, the servers
+      gateway, with trusted moved to `br-trusted`. Set on the interface
+      directly rather than through `hosts/common`, which is for hosts with a
+      single address on a flat LAN
 - [x] nftables backend with `filterForward`, so the forward chain defaults to
       drop, and `networking.nat` for masquerade. The nat module emits the
-      internal-to-external forward rule itself, so there is nothing to write by
-      hand
-- [x] Kea on `lan0`, handing out the trusted pool, both Pi resolvers, and a
-      persistent lease file. Retries opening its socket and requires every
+      internal-to-external forward rules itself from `internalInterfaces`, so
+      those are never written by hand. Segment-to-segment rules are a separate
+      matter and are written by hand, since nat says nothing about them
+- [x] Kea, handing out one pool per segment, resolvers, and a persistent lease
+      file. Retries opening its socket and requires every
       configured interface, so it cannot end up running deaf: by default it
       tries once and, on failure, stays up with no listener, which on a router
       means the house breaks an hour later when leases start renewing
@@ -419,7 +422,11 @@ every Pi, so provisioning it drops power to the whole DNS layer.
       no lease renewal. The failure mode of forgetting is silent: the house
       keeps working perfectly while AdGuard quietly stops filtering and stops
       seeing queries
-- [ ] VLAN interfaces on `gate`, one Kea subnet per VLAN
+- [x] VLAN interfaces on `gate`, one Kea subnet per VLAN, each subnet pinned to
+      its interface so a request on one VLAN cannot be answered from another's
+      pool. `servers` is untagged on the trunk, because the switch and AP have
+      to reach the controller to be managed at all, and carries no DHCP at all,
+      because a raw socket on a trunk parent also receives tagged frames
 - [ ] Move the Flex switch's uplink from the Nest to `lan0`. This is where the
       Pis land on `servers` and where house DNS starts depending on gate.
 
@@ -437,8 +444,12 @@ every Pi, so provisioning it drops power to the whole DNS layer.
          that is true
       2. Deploy the dual addresses to all three Pis. No disruption: they gain
          an address nothing routes to yet
-      3. In the controller, define the four networks and set port profiles:
-         the gate uplink as a trunk, the Pi ports untagged on servers
+      3. In the controller, define the four networks and set port profiles: the
+         gate uplink as a trunk, the Pi ports untagged on servers. **Give the
+         switch and the AP static addresses on servers while you are there**,
+         because servers carries no DHCP pool: everything on it is statically
+         addressed, which is both a better property for infrastructure and what
+         keeps Kea off the trunk parent
       4. Move the uplink cable from the Nest to gate's ETH1
       5. Deploy the trunk config to gate. SSH to it over `wan` still works
          throughout, because `wan` is still on the Nest's LAN. Do this *after*
@@ -454,8 +465,12 @@ every Pi, so provisioning it drops power to the whole DNS layer.
       The Pis keep their final octets, so `.32`, `.49` and `.11` mean the same
       hosts before and after.
 - [ ] Tag SSIDs on the AP, one per segment that needs wireless
-- [ ] Inter-VLAN policy: iot isolated, guest internet-only, trusted reaches
-      servers
+- [x] Inter-VLAN policy: trusted reaches servers; iot reaches servers on port
+      53 only, so its lookups are filtered and visible in AdGuard without it
+      being able to reach anything else; guest is internet-only and gets public
+      resolvers rather than the fleet's, which is what makes "internet only"
+      true rather than aspirational. Everything else is refused by the
+      default-drop chain rather than by a deny rule
 - [ ] Port-53 DNAT redirect for hardcoded resolvers, which works now that
       clients and Pis are on separate subnets
 - [ ] Document the controller backup procedure in `README.md`

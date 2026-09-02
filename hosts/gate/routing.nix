@@ -7,8 +7,12 @@
 # VLAN on it, deliberately: the switch and the AP have to reach the controller
 # to be managed at all, and an infrastructure device that can only be reached
 # over a tag it has not been configured with yet is a chicken-and-egg problem.
-# Untagged also means gate's own management address stays on `lan0`, so
-# `sshInterfaces` in lib/net.nix needs no change.
+#
+# That choice moved the meaning of `lan0` from trusted to servers without
+# changing its name, which silently repointed `sshInterfaces` in lib/net.nix at
+# the segment holding vendor firmware and away from the one holding laptops.
+# `br-trusted` is listed there now. An interface name is not a stable
+# description of what is behind it.
 #
 # `lan1` is untagged trusted, bridged with the tagged trusted VLAN rather than
 # given a subnet of its own, so a machine cabled directly to gate shares a
@@ -16,8 +20,20 @@
 # break mDNS between them, which surfaces later as printer and cast discovery
 # quietly not working.
 #
-# **This is inert until the switch uplink physically moves to lan0.** Nothing
-# is cabled to these interfaces yet.
+# One caveat on that bridge: bridged frames bypass the forward chain, which is
+# why `filterForward` does not break it. If `br_netfilter` is ever loaded, and
+# container runtimes load it automatically, bridged frames start traversing the
+# forward chain as `iifname lan1 oifname lan0.10`, match nothing, and are
+# dropped by the default policy. The symptom is exactly the discovery failure
+# this bridge exists to prevent, and it is invisible in `nft list ruleset`.
+# gate runs no containers today; if that changes, this needs revisiting.
+#
+# **Do not deploy this before the switch uplink physically moves to lan0.**
+# An earlier version of this comment claimed the change was inert until then.
+# It is not: `service-sockets-require-all` spans four interfaces, none of which
+# has carrier until the trunk is cabled, so Kea fails its retries, exits, and
+# `Restart=on-failure` loops it indefinitely. Merging is safe; deploying is
+# part of the cable move, not a step before it.
 {
   lib,
   net,
@@ -36,63 +52,105 @@ let
   # 802.1q sub-interface for a tagged segment.
   tagged = name: "${trunk}.${toString seg.${name}.id}";
 
-  # Every interface that carries a segment, and the segment it carries.
-  # Generating the addresses, Kea subnets and firewall scopes from one list is
-  # what stops a fifth segment being added in four places and forgotten in a
-  # fifth.
+  # Everything except servers, which is the untagged VLAN on the trunk and so
+  # has no sub-interface. The `vlans` block is derived from this rather than
+  # written out, so a new tagged segment cannot be added to the topology and
+  # forgotten here, which would leave it with an address, a subnet, a firewall
+  # scope and a nat entry for an interface that is never created.
+  taggedSegments = [
+    "trusted"
+    "iot"
+    "guest"
+  ];
+
+  # Which segment each routed interface carries, by name. Addresses, Kea
+  # subnets, nat internals and firewall scopes are all generated from this.
   segmentOn = {
-    ${trustedBr} = seg.trusted;
-    ${trunk} = seg.servers; # untagged on the trunk
-    ${tagged "iot"} = seg.iot;
-    ${tagged "guest"} = seg.guest;
+    ${trustedBr} = "trusted";
+    ${trunk} = "servers"; # untagged on the trunk
+    ${tagged "iot"} = "iot";
+    ${tagged "guest"} = "guest";
   };
 
-  # Clients are handed both Pi resolvers directly rather than gate proxying to
-  # them, which is what keeps AdGuard's per-client attribution meaningful.
+  # Bound once rather than recomputed at each of the three call sites, for the
+  # same reason the interface names above are.
+  segmentIfaces = builtins.attrNames segmentOn;
+
+  # The fleet's own resolvers. Handing these out directly, rather than gate
+  # proxying to them, is what keeps AdGuard's per-client attribution
+  # meaningful.
   #
-  # These addresses come from lib/net.nix, so they follow the Pis when they
-  # renumber into `servers`. Until that happens the Pis are still on the flat
-  # LAN, queries leave through wan and arrive masqueraded from gate's own
-  # lease, and AdGuard sees gate rather than the client. Attribution only
-  # becomes real once the Pis are on the other side of no NAT at all.
-  resolvers = [
+  # The addresses come from lib/net.nix, so they follow the Pis when they
+  # renumber into `servers`. Until then the Pis are on the flat LAN, queries
+  # leave through wan masqueraded from gate's own lease, and AdGuard sees gate
+  # rather than the client. Attribution only becomes real once there is no NAT
+  # between them.
+  fleetResolvers = [
     net.hosts.core4.ip
     net.hosts.lifeline.ip
   ];
+
+  # guest gets public resolvers instead. lib/net.nix calls that segment
+  # internet-only, and pointing it at the fleet's resolvers would contradict
+  # that and require a forward rule into servers to work at all.
+  resolversFor =
+    name:
+    if name == "guest" then
+      [
+        "1.1.1.1"
+        "9.9.9.9"
+      ]
+    else
+      fleetResolvers;
 in
 {
+  # A segment declared in lib/net.nix but not carried by an interface here
+  # would have a subnet, a gateway and a pool and yet never be addressed,
+  # routed, firewalled or served, and nothing would fail at evaluation. It
+  # would surface as devices on that VLAN silently getting no lease.
+  # modules/firewall.nix guards its own list the same way.
+  assertions = [
+    {
+      assertion =
+        lib.sort (a: b: a < b) (builtins.attrValues segmentOn)
+        == lib.sort (a: b: a < b) (builtins.attrNames seg);
+      message = ''
+        hosts/gate/routing.nix carries segments ${
+          lib.concatStringsSep ", " (lib.sort (a: b: a < b) (builtins.attrValues segmentOn))
+        }, but lib/net.nix declares ${
+          lib.concatStringsSep ", " (lib.sort (a: b: a < b) (builtins.attrNames seg))
+        }. Every declared segment needs an interface here, or devices on it get
+        no address and no route.
+      '';
+    }
+  ];
+
   # nftables backend rather than iptables. The reason is filterForward below:
   # NixOS only offers a filtered forward chain on this backend, and a router
   # whose forward chain defaults to accept is not a firewall.
   networking.nftables.enable = true;
 
-  # Masquerade lan0 out of wan, and enable IPv4 forwarding. Using the nat
-  # module rather than a hand-written ruleset on purpose: it is the
+  # Masquerade every segment out of wan, and enable IPv4 forwarding. Using the
+  # nat module rather than a hand-written ruleset on purpose: it is the
   # well-trodden path, and hand-rolled NAT on a box that is becoming the house
   # router is a poor place to be original.
   networking.nat = {
     enable = true;
     externalInterface = net.hosts.gate.wanIface;
-    internalInterfaces = builtins.attrNames segmentOn;
+    internalInterfaces = segmentIfaces;
   };
 
   networking = {
-    # Tagged sub-interfaces on the trunk. servers is absent on purpose: it is
-    # the untagged VLAN, so it is `trunk` itself.
-    vlans = {
-      "${tagged "trusted"}" = {
-        id = seg.trusted.id;
-        interface = trunk;
-      };
-      "${tagged "iot"}" = {
-        id = seg.iot.id;
-        interface = trunk;
-      };
-      "${tagged "guest"}" = {
-        id = seg.guest.id;
-        interface = trunk;
-      };
-    };
+    # Tagged sub-interfaces on the trunk, derived from taggedSegments above.
+    vlans = builtins.listToAttrs (
+      map (name: {
+        name = tagged name;
+        value = {
+          id = seg.${name}.id;
+          interface = trunk;
+        };
+      }) taggedSegments
+    );
 
     # Wi-Fi clients arrive tagged from the AP, the wired machine arrives
     # untagged on its own port, and both need to be on one segment for
@@ -102,11 +160,11 @@ in
       wired
     ];
 
-    interfaces = lib.mapAttrs (_: s: {
+    interfaces = lib.mapAttrs (_: name: {
       ipv4.addresses = [
         {
-          address = s.gateway;
-          inherit (s) prefixLength;
+          address = seg.${name}.gateway;
+          inherit (seg.${name}) prefixLength;
         }
       ];
     }) segmentOn;
@@ -115,30 +173,32 @@ in
       # Default-drop forwarding. Without this the forward chain accepts
       # everything, and a router whose forward chain defaults to accept is not
       # a firewall.
-      #
-      # No extraForwardRules: the nat module already emits
-      # `iifname { "lan0" } oifname "wan" accept` from `internalInterfaces`
-      # above, and the base ruleset accepts established and related. Adding the
-      # same rule by hand duplicates it and, worse, decouples it from
-      # `internalInterfaces`, so a later port added there would be silently
-      # unmatched by the hand-written copy. Verified by reading the rendered
-      # chain rather than assuming.
       filterForward = true;
 
-      # trusted reaches servers: the Pis for DNS, AdGuard's UI, SSH. Everything
-      # else between segments is refused by the default-drop chain rather than
-      # by a rule, so iot and guest are isolated by not being mentioned. The
-      # nat module supplies the segment-to-wan rules from internalInterfaces.
+      # Inter-segment policy. Everything not named here is refused by the
+      # default-drop chain rather than by a deny rule, so guest is isolated by
+      # not appearing at all.
+      #
+      # These do not duplicate the nat module's rules and must not be confused
+      # with them: nat emits segment-to-wan accepts derived from
+      # `internalInterfaces`, and hand-copying those would decouple them from
+      # that list. These are segment-to-segment, which nat says nothing about.
+      #
+      # iot gets DNS to the Pis and nothing else. It is on the fleet resolvers
+      # so its lookups are filtered and visible in AdGuard, which is most of
+      # the point of having an iot segment, but it has no business reaching
+      # anything else in servers.
       extraForwardRules = ''
         iifname "${trustedBr}" oifname "${trunk}" accept comment "trusted reaches servers"
+        iifname "${tagged "iot"}" oifname "${trunk}" meta l4proto { tcp, udp } th dport 53 accept comment "iot resolves via the Pis, nothing else"
       '';
 
       # DHCP requests arrive before the client has an address, so nothing
       # address-based can cover them. Scoped per segment interface, so no DHCP
       # server is exposed on the WAN side.
-      interfaces = lib.mapAttrs (_: _: {
+      interfaces = lib.genAttrs segmentIfaces (_: {
         allowedUDPPorts = [ 67 ];
-      }) segmentOn;
+      });
     };
   };
 
@@ -149,18 +209,17 @@ in
   # rather than a tuning problem.
   boot.kernel.sysctl."net.netfilter.nf_conntrack_max" = 262144;
 
-  # Ordering, so the retries above are a safety net rather than the mechanism.
-  # The address unit assigning lan0's address is what makes the interface
-  # bindable, and Kea's stock ordering only reaches network-online.target.
-  systemd.services.kea-dhcp4-server.after = map (i: "network-addresses-${i}.service") (
-    builtins.attrNames segmentOn
-  );
+  # Ordering, so the retries below are a safety net rather than the mechanism.
+  # The address units are what make each interface bindable, and Kea's stock
+  # ordering only reaches network-online.target, which implies nothing about
+  # any particular interface being configured.
+  systemd.services.kea-dhcp4-server.after = map (i: "network-addresses-${i}.service") segmentIfaces;
 
   services.kea.dhcp4 = {
     enable = true;
     settings = {
       interfaces-config = {
-        interfaces = builtins.attrNames segmentOn;
+        interfaces = segmentIfaces;
 
         # Kea tries once by default and, on failure, runs with no listening
         # socket rather than exiting. Observed on the first deploy: it started
@@ -174,8 +233,8 @@ in
         #
         # Retry instead, and require every configured interface, so a
         # persistent failure exits non-zero and the unit's Restart=on-failure
-        # keeps trying. Failing loudly and recovering beats running silently
-        # and not.
+        # keeps trying. The cost is that deploying before the trunk is cabled
+        # loops the unit, which is why the header says not to.
         service-sockets-max-retries = 5;
         service-sockets-retry-wait-time = 5000;
         service-sockets-require-all = true;
@@ -197,21 +256,27 @@ in
       # One subnet per segment, each pinned to the interface that carries it,
       # so a request arriving on the iot VLAN cannot be answered from the
       # trusted pool.
-      subnet4 = lib.mapAttrsToList (iface: s: {
-        inherit (s) id subnet;
-        interface = iface;
-        pools = [ { pool = "${s.pool.first} - ${s.pool.last}"; } ];
-        option-data = [
-          {
-            name = "routers";
-            data = s.gateway;
-          }
-          {
-            name = "domain-name-servers";
-            data = lib.concatStringsSep ", " resolvers;
-          }
-        ];
-      }) segmentOn;
+      subnet4 = lib.mapAttrsToList (
+        iface: name:
+        let
+          s = seg.${name};
+        in
+        {
+          inherit (s) id subnet;
+          interface = iface;
+          pools = [ { pool = "${s.pool.first} - ${s.pool.last}"; } ];
+          option-data = [
+            {
+              name = "routers";
+              data = s.gateway;
+            }
+            {
+              name = "domain-name-servers";
+              data = lib.concatStringsSep ", " (resolversFor name);
+            }
+          ];
+        }
+      ) segmentOn;
     };
   };
 }

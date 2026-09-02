@@ -193,9 +193,18 @@
       # the Nest's LAN, not the internet. **Remove it at the Phase 7 cutover**,
       # once management lives on the LAN side. That deletion is the difference
       # between a router and a router with SSH on its WAN.
+      #
+      # `br-trusted` is where admin machines live. `lan0` is the trunk, whose
+      # untagged VLAN is `servers`, so it is how the switch and AP reach the
+      # controller. Both are listed, because this list is read literally: when
+      # lan0 stopped meaning trusted and started meaning servers, the value
+      # here did not change but its meaning did, and SSH silently became
+      # reachable from vendor firmware and unreachable from a laptop. An
+      # interface name is not a stable description of what is behind it.
       sshInterfaces = [
         "wan"
         "lan0"
+        "br-trusted"
       ];
 
       nics = {
