@@ -58,15 +58,27 @@
     # the same subnet the reply comes back from an address the client never
     # sent to, so it drops it, and masquerading the hairpin to fix that
     # destroys the source address the redirect existed to preserve.
+    # No `pool`, deliberately, and that absence is load-bearing in two ways.
+    #
+    # Everything here is statically addressed: the Pis from their own NixOS
+    # config, the switch and the AP from the UniFi controller. Infrastructure
+    # that does not depend on DHCP being up is a better property for the
+    # devices the rest of the network is reached through.
+    #
+    # It is also what keeps Kea off the trunk parent. servers is the untagged
+    # VLAN on `lan0`, and Kea's raw sockets on a trunk parent also receive
+    # tagged frames, because the kernel delivers to AF_PACKET taps before VLAN
+    # demux. A DHCP request from an iot device would arrive on `lan0.30` *and*
+    # on `lan0`, and the `lan0` copy would be answered from this pool. The
+    # device would end up with a servers address while physically on VLAN 30,
+    # which does not work at all: gate would ARP for it untagged and never find
+    # it. hosts/gate/routing.nix serves DHCP only where a pool exists, so no
+    # pool here means nothing binds `lan0`.
     servers = {
       id = 20;
       subnet = "192.168.20.0/24";
       gateway = "192.168.20.1";
       prefixLength = 24;
-      pool = {
-        first = "192.168.20.100";
-        last = "192.168.20.150";
-      };
     };
 
     # Cameras, plugs, TVs. No LAN access, WAN only.
@@ -193,9 +205,18 @@
       # the Nest's LAN, not the internet. **Remove it at the Phase 7 cutover**,
       # once management lives on the LAN side. That deletion is the difference
       # between a router and a router with SSH on its WAN.
+      #
+      # `br-trusted` is where admin machines live. `lan0` is the trunk, whose
+      # untagged VLAN is `servers`, so it is how the switch and AP reach the
+      # controller. Both are listed, because this list is read literally: when
+      # lan0 stopped meaning trusted and started meaning servers, the value
+      # here did not change but its meaning did, and SSH silently became
+      # reachable from vendor firmware and unreachable from a laptop. An
+      # interface name is not a stable description of what is behind it.
       sshInterfaces = [
         "wan"
         "lan0"
+        "br-trusted"
       ];
 
       nics = {

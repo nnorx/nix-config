@@ -1,9 +1,10 @@
 # CWWK N100 (4x Intel i226) — the router.
 #
-# Not routing yet. This stage only brings the box under nix-config with the
-# fleet baseline (SSH hardening, firewall, fail2ban) while keeping its existing
-# DHCP lease so it stays reachable. Interface renaming, nftables NAT, and Kea
-# land in follow-ups; see docs/router.md for the sequence.
+# Routes, NATs and serves DHCP for four segments; see ./routing.nix. Still
+# behind the Nest, so `wan` holds a DHCP lease rather than facing the modem,
+# and everything is under double NAT until the Phase 7 cutover.
+#
+# See docs/router.md for the sequence and what remains.
 {
   pkgs,
   lib,
