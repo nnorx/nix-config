@@ -79,6 +79,25 @@
       subnet = "192.168.20.0/24";
       gateway = "192.168.20.1";
       prefixLength = 24;
+
+      # TRANSITIONAL POOL, to be removed once the switch and AP hold static
+      # addresses. See the comment above about why servers has none normally.
+      #
+      # Both devices came from the pre-trunk config holding leases in
+      # 192.168.10.0/24, which is now the *trusted* subnet on a VLAN they are
+      # not on. So they are unreachable, and they cannot be given static
+      # addresses because that needs the controller, which needs core5, which
+      # needs gate to be answering on servers. A pool breaks that loop: they
+      # pick up 192.168.20.x by themselves and the controller can renumber them
+      # deliberately afterwards.
+      #
+      # The trunk-parent hazard this reintroduces is real but currently inert:
+      # it misdirects DHCP requests arriving tagged from iot or guest, and
+      # nothing is on either segment yet.
+      pool = {
+        first = "192.168.20.100";
+        last = "192.168.20.150";
+      };
     };
 
     # Cameras, plugs, TVs. No LAN access, WAN only.
