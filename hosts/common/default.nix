@@ -34,6 +34,16 @@ in
   # that key: re-derive it into .sops.yaml and run `sops updatekeys`.
   sops.age.sshKeyPaths = [ "/etc/ssh/ssh_host_ed25519_key" ];
 
+  # A host with an address must name the segment it sits on, since the prefix
+  # and the default gateway are both read from it. Catching this here beats an
+  # "attribute 'segment' missing" trace from inside the networking block.
+  assertions = [
+    {
+      assertion = (host ? ip) -> (host ? segment);
+      message = "net.hosts.${hostname} sets `ip` but no `segment`.";
+    }
+  ];
+
   # Networking. Addressing is derived from lib/net.nix rather than repeated per
   # host, so that file's promise — renumbering the LAN is a one-file change —
   # holds structurally instead of depending on every host repeating the same
@@ -43,38 +53,21 @@ in
     hostName = hostname;
   }
   // lib.optionalAttrs (host ? ip) {
-    # A host may carry a second address on the segment it is destined for,
-    # while still holding its address on the flat LAN. That is what makes the
-    # cutover survivable: when the switch uplink moves behind gate, the flat
-    # address goes dark and the segment address becomes live, and the host is
-    # reachable throughout rather than stranded at an address that no longer
-    # routes and unfixable because it is unreachable.
-    #
-    # The default gateway is not doubled, because there can only be one. It
-    # keeps pointing at the flat LAN, so after the move a host is reachable
-    # from gate on its own segment but has no route off it until it is
-    # rebuilt. See the cutover section in docs/router.md.
+    # Address, prefix and default gateway all come from the one segment the
+    # host names. During the cutover a host also held an address on the flat
+    # LAN, so it stayed reachable while the switch uplink moved behind gate.
+    # That second address is gone, and deliberately: once end0 was carrying
+    # the servers VLAN, the flat address was configured on an interface that
+    # no longer reached that network, so the host answered nothing there and
+    # silently blackholed everything it sent to 192.168.86.0/24 — including,
+    # on core5, the controller's traffic to the switch.
     interfaces.${host.iface}.ipv4.addresses = [
       {
         address = host.ip;
-        inherit (net.lan) prefixLength;
+        inherit (net.segments.${host.segment}) prefixLength;
       }
-    ]
-    ++ lib.optional (host ? segmentIp) {
-      address = host.segmentIp;
-      inherit (net.segments.${host.segment}) prefixLength;
-    };
-    # A host that has moved onto a segment routes through that segment's
-    # gateway, not the flat LAN's. This is the second half of the cutover: the
-    # segment address alone makes a host reachable *on* its segment, and this
-    # is what gives it a route *off* it.
-    #
-    # Deliberately keyed on `segmentIp` rather than `segment`, so a host is
-    # only pointed at gate once it actually holds an address there. Reversing
-    # that order would send a host's default route to an address it cannot
-    # reach and cut its internet before the move rather than after.
-    defaultGateway =
-      if (host ? segmentIp) then net.segments.${host.segment}.gateway else net.lan.gateway;
+    ];
+    defaultGateway = net.segments.${host.segment}.gateway;
   };
 
   # User account — hostname doubles as username (core4, core5, lifeline, gate)
