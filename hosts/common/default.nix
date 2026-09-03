@@ -64,7 +64,17 @@ in
       address = host.segmentIp;
       inherit (net.segments.${host.segment}) prefixLength;
     };
-    defaultGateway = net.lan.gateway;
+    # A host that has moved onto a segment routes through that segment's
+    # gateway, not the flat LAN's. This is the second half of the cutover: the
+    # segment address alone makes a host reachable *on* its segment, and this
+    # is what gives it a route *off* it.
+    #
+    # Deliberately keyed on `segmentIp` rather than `segment`, so a host is
+    # only pointed at gate once it actually holds an address there. Reversing
+    # that order would send a host's default route to an address it cannot
+    # reach and cut its internet before the move rather than after.
+    defaultGateway =
+      if (host ? segmentIp) then net.segments.${host.segment}.gateway else net.lan.gateway;
   };
 
   # User account — hostname doubles as username (core4, core5, lifeline, gate)
