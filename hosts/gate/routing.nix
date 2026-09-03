@@ -214,7 +214,31 @@ in
   # failure mode when the table fills is dropped connections with
   # "nf_conntrack: table full" in dmesg, which reads like a network fault
   # rather than a tuning problem.
-  boot.kernel.sysctl."net.netfilter.nf_conntrack_max" = 262144;
+  boot.kernel.sysctl = {
+    "net.netfilter.nf_conntrack_max" = 262144;
+
+    # Answer ARP only for addresses configured on the interface the request
+    # arrived on, and source ARP requests from an address in the target's
+    # subnet.
+    #
+    # Linux defaults to answering for *any* local address on *any* interface,
+    # which is reasonable on a host and wrong on a router holding a different
+    # subnet on each of four segments. It caused a real failure during the
+    # cutover: the AP, sitting on servers, ARPed for 192.168.10.1, which lives
+    # on br-trusted. gate answered on lan0 anyway, so the AP unicast a DHCP
+    # renewal for its old address to a gateway that was not on its segment,
+    # Kea matched the subnet from the client address rather than the interface,
+    # and renewed a lease from the wrong segment. It then repeated that
+    # indefinitely, because a successful renewal never triggers a rebind. Only
+    # a power cycle broke the loop.
+    #
+    # arp_ignore=1 makes gate stop volunteering addresses that belong to other
+    # segments. arp_announce=2 keeps its own requests from advertising one.
+    "net.ipv4.conf.all.arp_ignore" = 1;
+    "net.ipv4.conf.default.arp_ignore" = 1;
+    "net.ipv4.conf.all.arp_announce" = 2;
+    "net.ipv4.conf.default.arp_announce" = 2;
+  };
 
   # Ordering, so the retries below are a safety net rather than the mechanism.
   # The address units are what make each interface bindable, and Kea's stock
