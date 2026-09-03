@@ -3,12 +3,22 @@
 # Still behind the Nest: `wan` keeps its DHCP lease, so this is double NAT,
 # which breaks inbound and UPnP and nothing here depends on either.
 #
-# `lan0` is the tagged trunk to the Flex switch. `servers` is the *untagged*
-# VLAN on it, deliberately: the switch and the AP have to reach the controller
-# to be managed at all, and an infrastructure device that can only be reached
-# over a tag it has not been configured with yet is a chicken-and-egg problem.
+# `lan0` is the tagged trunk to the Flex switch, and every segment on it is
+# tagged, servers included.
 #
-# That choice moved the meaning of `lan0` from trusted to servers without
+# servers was originally the untagged VLAN, so infrastructure could reach the
+# controller without first being configured for a tag. The reasoning was sound
+# and the assumption still failed. The controller provisions servers as VLAN
+# 20 and the switch tags it on the trunk, so the AP and all three Pis arrived
+# tagged while only the switch stayed untagged. gate had no `lan0.20`, so those
+# frames reached the wire, stayed visible to tcpdump, and were dropped by the
+# IP stack with nothing logged anywhere. Four devices were stranded to keep one
+# reachable. Matching the tag the controller actually assigns is the fix.
+#
+# The cost is the original rationale inverted: a device whose management VLAN
+# is untagged cannot reach gate here. See the recovery note in docs/router.md.
+#
+# Choosing `lan0` for servers also moved the meaning of `lan0` from trusted to servers without
 # changing its name, which silently repointed `sshInterfaces` in lib/net.nix at
 # the segment holding vendor firmware and away from the one holding laptops.
 # `br-trusted` is listed there now. An interface name is not a stable
@@ -45,20 +55,20 @@ let
   # Interface names, bound once each. They appear in the addresses, the Kea
   # listeners and subnets, the nat internal list, the firewall scopes and the
   # forward rules, and those drifting apart is how this class of bug happens.
-  trunk = "lan0"; # tagged trunk to the Flex switch; untagged = servers
+  trunk = "lan0"; # tagged trunk to the Flex switch; every segment tagged
   wired = "lan1"; # untagged trusted, a dedicated run to one machine
   trustedBr = "br-trusted"; # tagged trusted + `wired`, so they share a domain
 
   # 802.1q sub-interface for a tagged segment.
   tagged = name: "${trunk}.${toString seg.${name}.id}";
 
-  # Everything except servers, which is the untagged VLAN on the trunk and so
-  # has no sub-interface. The `vlans` block is derived from this rather than
-  # written out, so a new tagged segment cannot be added to the topology and
-  # forgotten here, which would leave it with an address, a subnet, a firewall
-  # scope and a nat entry for an interface that is never created.
+  # Every segment on the trunk. The `vlans` block is derived from this rather
+  # than written out, so a new tagged segment cannot be added to the topology
+  # and forgotten here, which would leave it with an address, a subnet, a
+  # firewall scope and a nat entry for an interface that is never created.
   taggedSegments = [
     "trusted"
+    "servers"
     "iot"
     "guest"
   ];
@@ -67,7 +77,7 @@ let
   # subnets, nat internals and firewall scopes are all generated from this.
   segmentOn = {
     ${trustedBr} = "trusted";
-    ${trunk} = "servers"; # untagged on the trunk
+    ${tagged "servers"} = "servers";
     ${tagged "iot"} = "iot";
     ${tagged "guest"} = "guest";
   };
@@ -77,9 +87,10 @@ let
   segmentIfaces = builtins.attrNames segmentOn;
 
   # DHCP is served where a segment declares a pool, and nowhere else. servers
-  # declares none: it is statically addressed, and it is the untagged VLAN on
-  # the trunk, so binding it would put Kea on the trunk parent. See the
-  # comment on `servers` in lib/net.nix.
+  # carries only the transitional pool for the switch and the AP, until they
+  # hold static addresses; see the comment on `servers` in lib/net.nix. Now
+  # that it is tagged, serving it binds `lan0.20` rather than the trunk parent,
+  # which retires the ambiguity described at the bottom of this file.
   dhcpOn = lib.filterAttrs (_: name: seg.${name} ? pool) segmentOn;
   dhcpIfaces = builtins.attrNames dhcpOn;
 
@@ -196,8 +207,8 @@ in
       # the point of having an iot segment, but it has no business reaching
       # anything else in servers.
       extraForwardRules = ''
-        iifname "${trustedBr}" oifname "${trunk}" accept comment "trusted reaches servers"
-        iifname "${tagged "iot"}" oifname "${trunk}" meta l4proto { tcp, udp } th dport 53 accept comment "iot resolves via the Pis, nothing else"
+        iifname "${trustedBr}" oifname "${tagged "servers"}" accept comment "trusted reaches servers"
+        iifname "${tagged "iot"}" oifname "${tagged "servers"}" meta l4proto { tcp, udp } th dport 53 accept comment "iot resolves via the Pis, nothing else"
       '';
 
       # DHCP requests arrive before the client has an address, so nothing
@@ -274,9 +285,9 @@ in
         # would receive tagged frames as well as untagged ones, because the
         # kernel delivers to AF_PACKET taps before VLAN demux, so a request
         # from an iot device would arrive on `lan0.30` and on `lan0`, and the
-        # `lan0` copy would be answered from the servers pool. Serving DHCP
-        # only where a segment declares a pool, and giving servers none, means
-        # nothing binds `lan0` and the ambiguity cannot arise.
+        # `lan0` copy would be answered from whichever subnet `lan0` carried.
+        # Every segment is tagged now, so `lan0` carries none, appears in no
+        # interface list here, and the ambiguity cannot arise.
       };
 
       # Leases survive a restart of the daemon and a reboot of the box. Without

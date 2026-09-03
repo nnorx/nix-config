@@ -590,6 +590,24 @@ worth having is the simplest answer, and keeps the topology in one file.
 
 **UniFi config is not in the flake.** Backups are a manual, scheduled step.
 
+**A device whose management VLAN is untagged cannot reach gate.** Every segment
+on the trunk is tagged, servers included, so the trunk parent `lan0` carries no
+address at all. The Flex switch's own management rides the untagged native VLAN
+and is therefore unreachable from gate by default. To reach it without the
+controller, put gate temporarily on both:
+
+```
+sudo ip route replace <switch-address>/32 dev lan0
+sudo sh -c 'echo 1 > /proc/sys/net/ipv4/conf/lan0/proxy_arp'
+sudo sh -c 'echo 1 > /proc/sys/net/ipv4/conf/lan0.20/proxy_arp'
+```
+
+Both revert on reboot. The durable fix is to set the switch's management VLAN
+to servers in the controller, so nothing depends on the native VLAN. Note that
+proxy ARP bridges at L3 only: UniFi's L2 discovery broadcasts do not cross it,
+so a switch that needs re-adoption rather than just reaching still needs to be
+on the same VLAN as the controller.
+
 **An address on the wrong wire fails silently, and in one direction.** Through
 the Phase 6 cutover each Pi held its flat-LAN address alongside its segment
 address, which is what kept it reachable while the switch uplink moved. Once
