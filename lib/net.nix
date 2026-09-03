@@ -5,17 +5,8 @@
 # values, which keeps the option open of moving this file into a private flake
 # input later without editing anything that reads it.
 {
-  # The flat network the fleet lives on today, handed out by the Nest. It is
-  # retired at the Phase 7 cutover, when `hosts.*.ip` move into the segments
-  # below and this block goes away. Until then it is the live one.
-  lan = {
-    prefixLength = 24;
-    gateway = "192.168.86.1";
-  };
-
-  # Target topology for the router build. **Not live.** Nothing reads this
-  # yet; it exists so the addressing is settled before anything is wired to
-  # it, which is what keeps renumbering a one-file change rather than a hunt.
+  # The live topology. Every host and every DHCP client is addressed from
+  # here; the flat network the fleet grew up on is gone.
   #
   # The third octet is the VLAN id, so an address names its own segment.
   #
@@ -129,44 +120,25 @@
   # their onboard NIC as end0.
   hosts = {
     core4 = {
-      ip = "192.168.86.32";
-
-      # Its address on `segment`, held alongside `ip` through the cutover so
-      # the host stays reachable when the switch uplink moves behind gate.
-      # Same final octet as the flat address, so nothing has to be relearned.
-      # At the cutover this becomes `ip` and this attribute goes away.
-      segmentIp = "192.168.20.32";
+      ip = "192.168.20.32";
 
       iface = "end0";
       segment = "servers";
       sshInterfaces = [ "end0" ];
     };
     core5 = {
-      ip = "192.168.86.49";
-
-      # Its address on `segment`, held alongside `ip` through the cutover so
-      # the host stays reachable when the switch uplink moves behind gate.
-      # Same final octet as the flat address, so nothing has to be relearned.
-      # At the cutover this becomes `ip` and this attribute goes away.
-      segmentIp = "192.168.20.49";
+      ip = "192.168.20.49";
 
       iface = "end0";
       segment = "servers";
       sshInterfaces = [ "end0" ];
     };
 
-    # Second, independent DNS path. Addressed below the Nest's DHCP pool
-    # (.20-.250) so the router can never lease this address to anything else,
-    # unlike the core* hosts which sit inside the pool and rely on being powered
-    # on to defend their addresses.
+    # Second, independent DNS path. Static, like the other servers-segment
+    # hosts: that segment carries no DHCP pool at all, so nothing can be
+    # leased an address that collides with one of these.
     lifeline = {
-      ip = "192.168.86.11";
-
-      # Its address on `segment`, held alongside `ip` through the cutover so
-      # the host stays reachable when the switch uplink moves behind gate.
-      # Same final octet as the flat address, so nothing has to be relearned.
-      # At the cutover this becomes `ip` and this attribute goes away.
-      segmentIp = "192.168.20.11";
+      ip = "192.168.20.11";
 
       iface = "end0";
       segment = "servers";

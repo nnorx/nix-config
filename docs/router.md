@@ -509,6 +509,12 @@ sshd listening on the internet. It is listed here rather than left to memory
 because the cable move is the exact moment that interface stops facing a
 trusted LAN.
 
+**The fleet renumber is already done.** `hosts.*.ip` moved into the servers
+segment on 2026-09-02, ahead of this phase, because holding both the flat and
+the segment address had stopped being free and started causing the failure
+described under "Known gotchas". Nothing about the fleet's addressing changes
+here, so this phase is now the cable move and the `sshInterfaces` edit alone.
+
 **Exit test:** an external port scan of the WAN address shows nothing listening,
 and a full reboot of `gate` brings the house back with no manual steps.
 
@@ -583,3 +589,15 @@ reservations in `lib/net.nix` plus AdGuard rewrites for the handful of names
 worth having is the simplest answer, and keeps the topology in one file.
 
 **UniFi config is not in the flake.** Backups are a manual, scheduled step.
+
+**An address on the wrong wire fails silently, and in one direction.** Through
+the Phase 6 cutover each Pi held its flat-LAN address alongside its segment
+address, which is what kept it reachable while the switch uplink moved. Once
+`end0` was carrying the servers VLAN, the flat address was unreachable from
+everywhere, but it kept its directly-connected route: core5 both answered
+nothing on `192.168.86.49` and sent everything bound for `192.168.86.0/24`
+onto the servers VLAN rather than via gate. The visible symptom was the UniFi
+controller reporting the switch as unreachable while gate could ping the same
+switch fine. Dual addressing is the right tool during a cutover and a liability
+the moment it finishes, so retire the old address in the same session that
+completes the move rather than leaving it for a later phase.
