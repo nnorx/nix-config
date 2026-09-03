@@ -608,6 +608,45 @@ proxy ARP bridges at L3 only: UniFi's L2 discovery broadcasts do not cross it,
 so a switch that needs re-adoption rather than just reaching still needs to be
 on the same VLAN as the controller.
 
+## Re-adopting the Flex switch
+
+The switch became unadoptable on 2026-09-02 and stayed that way. Three
+independent blockers, each of which has to be cleared:
+
+1. Its stored inform URL points at `192.168.86.49`, core5's retired flat-LAN
+   address, which no longer exists anywhere
+2. Device SSH is disabled on it, so `set-inform` cannot be used to repair that
+   in place, and enabling device SSH is itself a setting pushed over inform
+3. Its management rides the untagged native VLAN, which gate no longer
+   addresses, so L2 discovery has no path to the controller
+
+Each blocker's obvious fix needs one of the others already cleared, which is
+why this needs a deliberate order rather than an attempt. **gate stays
+reachable over `wan` throughout, and that is what makes the sequence safe: it
+is the one path that does not depend on the switch.** That also means this has
+to be done *before* Phase 7 moves `wan` to the modem.
+
+1. Factory reset the switch, holding reset until the LEDs cycle. This clears
+   the dead inform URL, which nothing else can reach
+2. On gate, temporarily put servers back on the untagged trunk: drop `servers`
+   from `taggedSegments` and map `${trunk} = "servers"` in `segmentOn`, then
+   deploy. A factory-default switch tags nothing, so this is what puts gate,
+   the Pis and the switch on one broadcast domain
+3. Adopt the switch in the controller. Discovery is L2 and everything now
+   shares a VLAN, so it should appear on its own
+4. Still in the controller, set **both** at once: the switch's management VLAN
+   to servers, and port 9 to tag the servers network. The fleet goes dark from
+   gate the moment this applies, which is expected and is why step 5 follows
+   immediately
+5. Re-apply the tagged-servers config on gate and deploy, over `wan`. The
+   fleet returns
+6. Set the statics that were the point of all this: switch `.2`, AP `.3`. Then
+   PR #54 can drop the transitional pool
+
+The reset in step 1 is not optional and not conservatism. Port profiles live in
+the controller and come back on adoption, so the loss is smaller than it looks,
+and no lesser action clears blocker 1.
+
 **An address on the wrong wire fails silently, and in one direction.** Through
 the Phase 6 cutover each Pi held its flat-LAN address alongside its segment
 address, which is what kept it reachable while the switch uplink moved. Once
