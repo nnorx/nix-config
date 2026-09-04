@@ -597,23 +597,23 @@ worth having is the simplest answer, and keeps the topology in one file.
 
 **UniFi config is not in the flake.** Backups are a manual, scheduled step.
 
-**A device whose management VLAN is untagged cannot reach gate.** Every segment
-on the trunk is tagged, servers included, so the trunk parent `lan0` carries no
-address at all. The Flex switch's own management rides the untagged native VLAN
-and is therefore unreachable from gate by default. To reach it without the
-controller, put gate temporarily on both:
+**servers is the untagged native VLAN on the trunk, and that is load-bearing.**
+A UniFi switch's own management interface rides the untagged native VLAN, and a
+factory reset returns it there no matter what it was set to before. If gate
+carries no untagged address, a reset switch has no path to the controller and
+cannot be adopted, which is a deadlock that takes physical intervention to
+escape.
 
-```
-sudo ip route replace <switch-address>/32 dev lan0
-sudo sh -c 'echo 1 > /proc/sys/net/ipv4/conf/lan0/proxy_arp'
-sudo sh -c 'echo 1 > /proc/sys/net/ipv4/conf/lan0.20/proxy_arp'
-```
+This was learned the hard way on 2026-09-04. Making every segment tagged looked
+tidier and cost two hours: the switch reset, came back on the native VLAN, and
+could neither be reached nor adopted, while forwarding traffic perfectly the
+whole time. Its own port profiles were the only reason servers had ever
+appeared tagged, and those are ours to set.
 
-Both revert on reboot. The durable fix is to set the switch's management VLAN
-to servers in the controller, so nothing depends on the native VLAN. Note that
-proxy ARP bridges at L3 only: UniFi's L2 discovery broadcasts do not cross it,
-so a switch that needs re-adoption rather than just reaching still needs to be
-on the same VLAN as the controller.
+So the trunk port on the switch must carry servers as its **native** network
+with trusted, iot and guest tagged, matching `segmentOn` here. The property
+worth preserving is that infrastructure is reachable in its default state,
+without first being configured for a tag it does not yet know about.
 
 ## Re-adopting the Flex switch
 
@@ -633,26 +633,44 @@ reachable over `wan` throughout, and that is what makes the sequence safe: it
 is the one path that does not depend on the switch.** That also means this has
 to be done *before* Phase 7 moves `wan` to the modem.
 
-1. Factory reset the switch, holding reset until the LEDs cycle. This clears
-   the dead inform URL, which nothing else can reach
-2. On gate, temporarily put servers back on the untagged trunk: drop `servers`
-   from `taggedSegments` and map `${trunk} = "servers"` in `segmentOn`, then
-   deploy. A factory-default switch tags nothing, so this is what puts gate,
-   the Pis and the switch on one broadcast domain
+1. **Forget the device in the controller first**, then factory reset the
+   switch. Order matters and this is the step that was missed on 2026-09-04:
+   two resets in a row appeared to fail because the controller still held the
+   device record and auto-re-adopted within seconds, pushing the same broken
+   saved config back onto it every time. The switch went straight from white
+   to blue, never beaconed for adoption, and its management landed on a VLAN
+   its own uplink did not carry, leaving it silent. Forgetting deletes the
+   saved config so the reset has something to stick to.
+
+   Hold reset until the LED changes, roughly ten seconds. **Watch the LED, not
+   the clock: white means it worked, blue means it did not.** A short press
+   only reboots, and the two are easy to confuse because both make the device
+   drop and return
+2. Nothing to do on gate. servers is the untagged native VLAN, and a
+   factory-default switch tags nothing, so the two already agree. This step
+   existed only while servers was tagged, and removing the need for it is why
+   that was reverted
 3. Adopt the switch in the controller. Discovery is L2 and everything now
    shares a VLAN, so it should appear on its own
-4. Still in the controller, set **both** at once: the switch's management VLAN
-   to servers, and port 9 to tag the servers network. The fleet goes dark from
-   gate the moment this applies, which is expected and is why step 5 follows
-   immediately
-5. Re-apply the tagged-servers config on gate and deploy, over `wan`. The
-   fleet returns
-6. Set the statics that were the point of all this: switch `.2`, AP `.3`. Then
-   PR #54 can drop the transitional pool
+4. Set port 9's **native** network to servers, with trusted, iot and guest
+   tagged. Leave the management VLAN alone: it follows the native VLAN, which
+   is the whole point
+5. Set the statics that were the point of all this: switch `.2`, AP `.3`. Then
+   PR #54 can drop the transitional pool, which also takes Kea back off the
+   trunk parent
 
-The reset in step 1 is not optional and not conservatism. Port profiles live in
-the controller and come back on adoption, so the loss is smaller than it looks,
-and no lesser action clears blocker 1.
+The reset in step 1 is not optional and no lesser action clears blocker 1.
+
+Do not reassure yourself that port profiles live in the controller and come
+back on adoption. They do, and on 2026-09-04 that was the problem rather than
+the consolation: the saved profiles were what kept stranding the switch, and
+discarding them via Forget is what finally broke the loop.
+
+Useful signal while working: a factory-default UniFi device beacons for a
+controller on UDP 10001 every few seconds. A switch sending only STP and LLDP,
+with no DHCP and no beacon, is not waiting for adoption however default it
+looks. `tcpdump -i lan0 -nn -e ether host <switch-mac>` on gate answers that in
+twenty seconds and is worth reaching for before trying another reset.
 
 **An address on the wrong wire fails silently, and in one direction.** Through
 the Phase 6 cutover each Pi held its flat-LAN address alongside its segment
