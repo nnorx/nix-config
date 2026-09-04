@@ -200,6 +200,27 @@ sudo "$(nix build --no-link --print-out-paths nixpkgs#raspberrypi-eeprom)/bin/rp
 restart. Keeping the SD in the order rather than removing it is what makes a
 failed NVMe boot fall through to a working system instead of to nothing.
 
+**The fallback works, and that is the problem.** On 2026-09-04 the PCIe ribbon
+to the NVMe worked loose. The drive stopped enumerating, the firmware fell
+through to the SD exactly as designed, and core5 booted the pre-migration
+system: healthy LEDs, link up, sshd running, zero failed units. Nothing
+anywhere said "this is the wrong system". It was only caught because that
+generation predated the VLAN cutover, so the box came back at `192.168.86.49`,
+an address retired days earlier, and a packet capture caught it ARPing for a
+gateway that no longer exists.
+
+Had the ribbon come loose before the renumber, core5 would have returned at the
+right address running a two-week-old generation, serving stale config to the
+fleet, and every external signal would have read normal.
+
+Do not remove the SD to fix this. It is the only reason the box was reachable
+and diagnosable with the drive gone, and every diagnostic that identified the
+fault was run over SSH from the SD system. The defect is not that the fallback
+exists, it is that falling back is **silent**. What is missing is detection:
+something that notices a host's booted root device or running generation is not
+the expected one and says so. That is a monitoring requirement, tracked in
+Phase 8 of docs/router.md.
+
 Two things worth knowing before running that. `--apply` also flashes the
 bootloader image shipped with the nixpkgs package, so it upgrades the firmware
 as well as the config; that is the same thing `rpi-eeprom-update` does, but it is
