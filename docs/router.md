@@ -522,6 +522,13 @@ and a full reboot of `gate` brings the house back with no manual steps.
 
 One at a time, weeks apart, once the house is boring.
 
+- [ ] Alert when a host boots the wrong system. core5 fell back to its SD card
+      on 2026-09-04 with a loose NVMe ribbon and ran a two-week-old generation
+      for hours, looking healthy from every angle. Whatever the stack ends up
+      being, it needs to compare each host's booted root device and running
+      system generation against what the flake says it should be, because a
+      host that is up, answering and wrong is invisible to liveness checks.
+      See the NVMe section in README.md
 - [ ] Decide the monitoring stack, then instrument `gate`. Deliberately not
       "wire gate into pimon": pimon does host liveness, and once the house
       routes through this box the questions are WAN state, conntrack pressure,
