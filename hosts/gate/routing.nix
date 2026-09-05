@@ -77,6 +77,7 @@ let
   # subnets, nat internals and firewall scopes are all generated from this.
   segmentOn = {
     ${trustedBr} = "trusted";
+    ${trunk} = "mgmt"; # untagged native VLAN, where reset infrastructure lands
     ${tagged "servers"} = "servers";
     ${tagged "iot"} = "iot";
     ${tagged "guest"} = "guest";
@@ -208,6 +209,8 @@ in
       # anything else in servers.
       extraForwardRules = ''
         iifname "${trustedBr}" oifname "${tagged "servers"}" accept comment "trusted reaches servers"
+        iifname "${tagged "servers"}" oifname "${trunk}" accept comment "the controller manages infrastructure"
+        iifname "${trunk}" oifname "${tagged "servers"}" accept comment "infrastructure informs the controller"
         iifname "${tagged "iot"}" oifname "${tagged "servers"}" meta l4proto { tcp, udp } th dport 53 accept comment "iot resolves via the Pis, nothing else"
       '';
 

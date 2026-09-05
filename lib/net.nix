@@ -103,6 +103,32 @@
       };
     };
 
+    # The trunk's untagged native VLAN, and the only segment that exists for
+    # infrastructure rather than for hosts. UniFi switches and APs put their
+    # own management on the native VLAN, and a factory reset returns them there
+    # regardless of what they were configured with. Giving that VLAN a real
+    # subnet is what makes a reset device reachable, and therefore adoptable,
+    # without a cable move or a console.
+    #
+    # 192.168.1.0/24 is not an accident and not the convention's third-octet
+    # rule either, though it happens to satisfy it. Ubiquiti devices in their
+    # factory state fall back to a static 192.168.1.20 when no DHCP answers, so
+    # numbering this VLAN here means a defaulted device is reachable from gate
+    # even with no lease to give it.
+    #
+    # Deliberately no pool. Kea binds only where a segment declares one, and
+    # binding the trunk parent is what the comment at the bottom of
+    # hosts/gate/routing.nix warns against: raw sockets there see tagged frames
+    # too, so an iot client would be offered an address from this subnet as
+    # well as its own. Infrastructure gets static addresses from the
+    # controller instead, which is where the rest of its config lives anyway.
+    mgmt = {
+      id = 1;
+      subnet = "192.168.1.0/24";
+      gateway = "192.168.1.1";
+      prefixLength = 24;
+    };
+
     # Visitors. Internet only, client isolation on.
     guest = {
       id = 40;
