@@ -1,0 +1,14 @@
+# Actions are pinned to commit SHAs, which is what stops a moved tag or branch
+# from handing a third party the Cachix push token in cache.yml. That token
+# signs into a cache every host trusts as root, so the blast radius of a
+# compromised action is the whole fleet.
+#
+# Pinning trades a supply-chain risk for a staleness one, so dependabot exists
+# to close the second. It understands SHA pins and rewrites both the SHA and
+# the trailing version comment.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
