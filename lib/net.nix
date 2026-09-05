@@ -173,10 +173,12 @@
       # this is a security control and deriving it would mean a future
       # interface silently becoming an SSH surface.
       #
-      # `wan` is here only because it is still the management path: it faces
-      # the Nest's LAN, not the internet. **Remove it at the Phase 7 cutover**,
-      # once management lives on the LAN side. That deletion is the difference
-      # between a router and a router with SSH on its WAN.
+      # `wan` was here while it was the management path, facing the Nest's LAN
+      # rather than the internet. It was removed at the Phase 7 cutover on
+      # 2026-09-04, once a trusted-segment path was proven: SSH from
+      # 192.168.10.101 over `br-trusted`, verified before this line changed and
+      # not after. Deleting it is the difference between a router and a router
+      # with SSH on its WAN.
       #
       # `br-trusted` is where admin machines live. `lan0` is the trunk, whose
       # untagged VLAN is `servers`, so it is how the switch and AP reach the
@@ -186,7 +188,6 @@
       # reachable from vendor firmware and unreachable from a laptop. An
       # interface name is not a stable description of what is behind it.
       sshInterfaces = [
-        "wan"
         "lan0"
         "br-trusted"
       ];
