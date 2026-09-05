@@ -60,6 +60,7 @@ let
   taggedSegments = [
     "trusted"
     "iot"
+    "work"
     "guest"
   ];
 
@@ -69,6 +70,7 @@ let
     ${trustedBr} = "trusted";
     ${trunk} = "servers"; # untagged on the trunk
     ${tagged "iot"} = "iot";
+    ${tagged "work"} = "work";
     ${tagged "guest"} = "guest";
   };
 
@@ -198,6 +200,7 @@ in
       extraForwardRules = ''
         iifname "${trustedBr}" oifname "${trunk}" accept comment "trusted reaches servers"
         iifname "${tagged "iot"}" oifname "${trunk}" meta l4proto { tcp, udp } th dport 53 accept comment "iot resolves via the Pis, nothing else"
+        iifname "${tagged "work"}" oifname "${trunk}" meta l4proto { tcp, udp } th dport 53 accept comment "work resolves via the Pis, nothing else"
       '';
 
       # DHCP requests arrive before the client has an address, so nothing
