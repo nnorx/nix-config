@@ -693,6 +693,28 @@ to be done *before* Phase 7 moves `wan` to the modem.
 
 The reset in step 1 is not optional and no lesser action clears blocker 1.
 
+**A reset device needs a pool to come back on, and there isn't one by default.**
+servers deliberately carries no DHCP pool: a pool there binds Kea to the trunk
+parent, whose raw sockets also see tagged frames, so trusted, iot and guest
+clients get offered servers addresses alongside their own. That is why the pool
+that bootstrapped the switch and AP was removed once both held statics.
+
+So step 1 of a re-adoption is to put it back, temporarily. Add to the servers
+segment in `lib/net.nix`, deploy gate, and remove it again afterwards:
+
+```nix
+      pool = {
+        first = "192.168.20.100";
+        last = "192.168.20.150";
+      };
+```
+
+Without it a factory-defaulted UniFi device gets no lease and falls back to its
+built-in `192.168.1.20`, which gate does not address. With it, the device picks
+up an address by itself and the controller can adopt and renumber it. Leaving
+the pool in place permanently trades a rare bootstrap problem for a constant
+one on every client VLAN, which is the wrong way round.
+
 **A config change made while the controller cannot reach a device is queued,
 not lost.** It applies whenever contact resumes, which may be much later and
 during something unrelated. On 2026-09-04 a port profile set while core5 was
