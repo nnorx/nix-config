@@ -84,6 +84,34 @@
       };
     };
 
+    # The work laptop, and nothing else. Segmented for the same reason guest is,
+    # but the threat model runs both ways: it is a corporate-managed machine
+    # running MDM, EDR and a VPN client that cannot be audited from here, and
+    # on trusted it could enumerate every device in the house. Equally, the
+    # house's iot chatter has no business reaching a machine subject to someone
+    # else's security policy.
+    #
+    # This is not hypothetical. The 192.168 note above exists because Cloudflare
+    # WARP on that profile routes 10.8.0.0/13 into a corporate tunnel: the
+    # machine already makes routing decisions on its owner's behalf, not ours.
+    # 192.168.50.0/24 is clear of that range.
+    #
+    # It reaches the internet and the fleet resolvers on port 53, and nothing
+    # else. Filtering is kept deliberately, but AdGuard's per-client settings
+    # are where to disable query logging for it: a timestamped per-client record
+    # of a work laptop's lookups is an awkward thing to hold, in both
+    # directions, and filtering does not require retaining it.
+    work = {
+      id = 50;
+      subnet = "192.168.50.0/24";
+      gateway = "192.168.50.1";
+      prefixLength = 24;
+      pool = {
+        first = "192.168.50.100";
+        last = "192.168.50.240";
+      };
+    };
+
     # Visitors. Internet only, client isolation on.
     guest = {
       id = 40;
