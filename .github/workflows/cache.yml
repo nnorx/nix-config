@@ -34,11 +34,11 @@ jobs:
     # GitHub's 360-minute hard limit for hosted runners.
     timeout-minutes: 350
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
-      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/nix-installer-action@b67ad2f0e8376a0bc947db191e4484285b6f5b56 # main @ 2026-09-02
 
-      - uses: cachix/cachix-action@v17
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
         with:
           name: nnorx-nix-config
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
