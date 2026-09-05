@@ -488,6 +488,30 @@ reproducible from Nix. Treat backing it up as a documented manual step.
 **Exit test:** a device on iot cannot ping anything on trusted, and a client
 with DNS hardcoded to 8.8.8.8 still shows up in AdGuard's logs.
 
+## Settled switch topology
+
+As of 2026-09-04, after the re-adoption above:
+
+| port | contents |
+|---|---|
+| 5, 6, 7 | core4, lifeline, core5. Factory default, untagged |
+| 8 | U7 Pro. Default native, **tagged** trusted, iot, guest |
+| 9 | gate `lan0`. Default native, **tagged** trusted, iot, guest |
+
+Switch management is static at `192.168.20.2`, the AP at `192.168.20.3`.
+
+The invariant that keeps this working: **the untagged VLAN carries servers, and
+nothing that has to be reachable in its default state lives on a tag.** gate
+maps untagged to `192.168.20.0/24`, so any factory-defaulted device that
+appears on any port is immediately addressable. Segments that exist for clients
+rather than infrastructure, trusted and iot and guest, are tagged and reach
+gate as `lan0.10`, `lan0.30` and `lan0.40`.
+
+Both attempts to tidy this into "every segment is tagged" produced a deadlock
+where a reset device could be neither reached nor adopted, and both needed
+physical intervention to escape. The asymmetry is not untidiness, it is the
+bootstrap path.
+
 ## Phase 7: cutover
 
 A weeknight, not a Friday.
@@ -652,14 +676,31 @@ to be done *before* Phase 7 moves `wan` to the modem.
    that was reverted
 3. Adopt the switch in the controller. Discovery is L2 and everything now
    shares a VLAN, so it should appear on its own
-4. Set port 9's **native** network to servers, with trusted, iot and guest
-   tagged. Leave the management VLAN alone: it follows the native VLAN, which
-   is the whole point
-5. Set the statics that were the point of all this: switch `.2`, AP `.3`. Then
-   PR #54 can drop the transitional pool, which also takes Kea back off the
-   trunk parent
+4. **Change no native network on any port.** Add only tagged trusted, iot and
+   guest to gate's uplink port and the AP's port, which is what SSIDs need.
+   Everything else stays on the factory default.
+
+   This is the step that cost hours on 2026-09-04 by being wrong. Setting a
+   port's native network to the servers *network object* puts its traffic on
+   VLAN 20, which splits it from the switch's own management on VLAN 1 and
+   from every port still on the default. gate does not care what the switch
+   calls the untagged VLAN: anything arriving untagged on `lan0` is
+   `192.168.20.0/24` to it. So leaving every port on the default network
+   already puts the Pis, the switch's management and gate on one segment, and
+   a factory-defaulted device lands there too, reachable with no intervention
+5. Set the statics: switch `.2`, AP `.3`. Then PR #54 can drop the
+   transitional pool
 
 The reset in step 1 is not optional and no lesser action clears blocker 1.
+
+**A config change made while the controller cannot reach a device is queued,
+not lost.** It applies whenever contact resumes, which may be much later and
+during something unrelated. On 2026-09-04 a port profile set while core5 was
+down landed minutes afterwards, mid-way through an unrelated gate deploy, and
+flipped that port from tagged to untagged between two packet captures. It
+looked exactly like the deploy had broken the network. If a change appears not
+to have applied, assume it is pending rather than lost, and do not stack
+another change on top of it.
 
 Do not reassure yourself that port profiles live in the controller and come
 back on adoption. They do, and on 2026-09-04 that was the problem rather than
