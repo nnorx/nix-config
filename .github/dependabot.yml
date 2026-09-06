@@ -12,3 +12,22 @@ updates:
     directory: /
     schedule:
       interval: weekly
+
+    # One PR for all four actions rather than one each. Reviewing an action
+    # bump is a provenance question, not a behavioural one: does the SHA
+    # resolve in the real upstream repo, and does it match the tag the trailing
+    # comment claims. That judgement is the same for every action in a batch,
+    # so splitting it across four PRs multiplies the ceremony without adding
+    # any safety, and a queue of stale bumps is the failure pinning invites.
+    #
+    # Version updates only, which is the default and is wanted here: a security
+    # update should arrive on its own and merge on its own rather than waiting
+    # behind a routine bump.
+    #
+    # `cooldown` would be the other half of this, holding a release for a few
+    # days so a compromised one has time to be caught. It does not support the
+    # github-actions ecosystem, so there is nothing to set.
+    groups:
+      actions:
+        patterns:
+          - "*"
