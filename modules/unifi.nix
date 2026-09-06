@@ -14,8 +14,8 @@
 # does not start. Here the version moves only when the digest below changes.
 #
 # What is NOT declarative either way: adoption state, SSIDs, VLAN assignments.
-# Those live in MongoDB under both approaches. See the backup section in the
-# README, which is the part that actually protects them.
+# Those live in MongoDB under both approaches. See the backup section in
+# docs/unifi.md, which is the part that actually protects them.
 {
   config,
   pkgs,
@@ -107,7 +107,7 @@ in
     "d ${stateDir}/db 0700 root root -"
 
     # Owned by the host user rather than a container-internal id, so the
-    # backup in the README can read it without root.
+    # backup in docs/unifi.md can read it without root.
     "d ${stateDir}/config 0750 ${hostname} ${user.group} -"
   ];
 

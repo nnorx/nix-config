@@ -1,621 +1,248 @@
-# Nix Configuration
+# nix-config
 
-Reproducible system and development configuration managed with Nix Flakes — covering NixOS on a Raspberry Pi fleet and an x86 router, Home Manager for dev environments, and shared modules for DNS, firewalls, and security.
+Reproducible configuration for a small homelab: a NixOS fleet of three
+Raspberry Pis and an x86 router, plus Home Manager for the machines I develop
+on. One flake, shared modules, and a single source of truth for network
+addressing.
 
-## Network Architecture
+## The fleet
+
+| Host | Hardware | Address | Role |
+|---|---|---|---|
+| **gate** | CWWK N100, 4x Intel i226 | `.1` in every segment | The router. nftables, NAT, Kea DHCP across five VLANs, and its own recursive Unbound |
+| **core4** | Raspberry Pi 4 (8GB) | 192.168.20.32 | AdGuard Home + Unbound, Docker, pimon agent |
+| **lifeline** | Raspberry Pi 4 | 192.168.20.11 | AdGuard Home + Unbound, pimon agent. An independent second DNS path |
+| **core5** | Raspberry Pi 5, NVMe | 192.168.20.49 | UniFi controller, pimon collector, Docker |
 
 ```
-                          LAN clients
-                    /                     \
-                   v                       v
-┌──────────────────────┐      ┌──────────────────────┐
-│  core4 (Pi 4)        │      │  lifeline (Pi 4)     │
-│                      │      │                      │
-│  AdGuard Home (:53)  │      │  AdGuard Home (:53)  │
-│  - Ad/tracker block  │      │  - Ad/tracker block  │
-│         |            │      │         |            │
-│         v            │      │         v            │
-│  Unbound (127.0.0.1) │      │  Unbound (127.0.0.1) │
-│  - Recursive resolver│      │  - Recursive resolver│
-│  - DNS caching       │      │  - DNS caching       │
-│  - DNSSEC validation │      │  - DNSSEC validation │
-│                      │      │                      │
-│  Fallback:           │      │  Fallback:           │
-│  1.1.1.1 / 9.9.9.9   │      │  1.1.1.1 / 9.9.9.9   │
-│                      │      │                      │
-│  Web UI :3000        │      │  Web UI :3000        │
-│  Docker              │      └──────────────────────┘
-└──────────────────────┘
-┌──────────────────────┐
-│  core5 (Pi 5)        │
-│  pimon collector     │
-│  Docker              │
-└──────────────────────┘
+   internet ── modem ── gate ─┬─ lan1 ── wired machine        (untagged trusted)
+                              │
+                              └─ lan0 ── Flex switch ─┬─ core4, lifeline, core5
+                                  802.1Q trunk        └─ U7 Pro ── tagged SSIDs
+                                  untagged = servers
 ```
 
-**DNS flow:** core4 and lifeline are each self-contained. AdGuard Home filters on `:53` and forwards to that same host's Unbound, which listens on loopback only and resolves recursively from the root servers with DNSSEC. They share no state and neither depends on the other, so either can serve the LAN alone.
+Five segments: trusted (10), servers (20), iot (30), guest (40), work (50).
+core4 and lifeline share no state, so either can serve DNS alone. gate resolves
+through its own Unbound so it can be rebuilt while both are down.
 
-The router is configured with both as upstreams and proxies client DNS to them, so queries reach AdGuard from the gateway address rather than from individual clients.
+**[docs/network.md](docs/network.md) is the real description**: segments, port
+roles, the switch topology and the invariant that keeps it bootstrappable, how
+DNS flows, and what deliberately stays out of this public repo.
 
-### Hosts
+Addressing lives in [`lib/net.nix`](lib/net.nix) and reaches every host through
+`specialArgs`. Nothing else in the tree hardcodes an address, so renumbering is
+a one-file change, and [`modules/net-assertions.nix`](modules/net-assertions.nix)
+fails the build if that file stops agreeing with itself.
 
-| Host | Hardware | Role |
-|------|----------|------|
-| **core4** | Raspberry Pi 4 (8GB) | AdGuard Home + Unbound recursive resolver + Docker |
-| **lifeline** | Raspberry Pi 4 | AdGuard Home + Unbound recursive resolver — independent second DNS path |
-| **core5** | Raspberry Pi 5 | pimon collector, Docker, general purpose |
-| **gate** | CWWK N100 (4x Intel i226) | The future router. Under config, not routing yet — see [docs/router.md](docs/router.md) |
+## Layout
 
-Addressing (static IPs, interface names, cross-host ports) lives in `lib/net.nix` and is threaded to every host through `specialArgs`. Nothing else in the tree hardcodes an address, so renumbering the LAN is a one-file change.
+```
+flake.nix              Inputs, hosts, installer images, dev shells
+lib/net.nix            Network topology: segments, addresses, NICs, ports
+.sops.yaml             Which age keys can decrypt which secrets
+secrets/               Per-host encrypted secrets
 
-## Prerequisites
+hosts/
+  common/              Fleet-wide: locale, users, addressing, deploy aliases
+    pi.nix             Pi-only boot and SD-card layout
+  core4/ lifeline/     AdGuard + Unbound
+  core5/               UniFi controller, pimon collector, NVMe root
+  gate/                The router
+    routing.nix        VLANs, NAT, firewall policy, Kea
 
-- Linux (tested on Debian WSL and Raspberry Pi OS) or macOS (Apple Silicon)
-- [Nix package manager](https://nixos.org/) with flakes enabled
+modules/
+  adguardhome.nix      Parameterised AGH: upstreams, caching, DNSSEC, blocklists
+  unbound.nix          Recursive resolver, DNSSEC, cache persistence
+  unifi.nix            Controller as two pinned containers
+  pimon.nix            Monitoring agent or collector
+  firewall.nix         Default-deny. SSH scoped per interface, never globally
+  ssh.nix              Key-only auth, modern crypto
+  fail2ban.nix         Brute-force protection
+  deploy-guard.nix     Automatic rollback for reboots that go wrong (gate only)
+  net-assertions.nix   Consistency checks for lib/net.nix
+  baseline.nix         Nix settings, caches, sysctl hardening, gc, journald
+  docker.nix           Docker daemon
 
-## Install Nix
+home/                  Home Manager. common.nix everywhere, default.nix on dev
+                       hosts (adds dev-tools, ssh agent, Claude Code)
+docs/                  Runbooks, see below
+.github/workflows/     Evaluation gate, binary cache builds, weekly lock bumps
+```
 
-If you haven't installed Nix yet:
+## Runbooks
+
+| | |
+|---|---|
+| [network.md](docs/network.md) | The network as it is: segments, trunk, DNS, policy |
+| [router.md](docs/router.md) | How gate was built, and what is still open |
+| [pi-install.md](docs/pi-install.md) | Flashing a Pi, NVMe migration, EEPROM boot order |
+| [recovery.md](docs/recovery.md) | deploy-guard, generation rollback, the rescue USB |
+| [unifi.md](docs/unifi.md) | Controller, backups, adopting and re-adopting devices |
+
+## Deploying
+
+Every host has two aliases, from `hosts/common`:
 
 ```bash
-curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install
-exec $SHELL -l
+nrs    # nixos-rebuild switch --flake github:nnorx/nix-config --accept-flake-config --refresh
+nrb    # nixos-rebuild boot, same flags
 ```
 
-Verify installation:
-```bash
-nix --version
-```
+`nixos-rebuild` resolves the flake attribute from the hostname, so one literal
+string is correct everywhere. `--refresh` matters: `github:` refs are cached for
+an hour, so without it you can silently deploy a stale `main`.
 
-## First-Time Setup
+**Use `nrb` plus a reboot, not `nrs`, for anything that reconfigures the
+interface you are connected over.** A static address moving, an interface
+rename, or gate's routing. `switch` would pull the network out from under the
+session mid-activation.
 
-1. Clone this repository:
-   ```bash
-   git clone https://github.com/nnorx/nix-config.git ~/projects/nix-config
-   cd ~/projects/nix-config
-   ```
-
-2. Apply the configuration:
-   ```bash
-   nix run home-manager -- switch --flake .
-   ```
-   
-   This detects the right configuration based on your username.
-
-3. Restart your shell:
-   ```bash
-   exec $SHELL -l
-   ```
-
-## Updating
-
-After making changes to your configuration:
+On gate, put risky reboots behind the guard, because there is no fallback
+router:
 
 ```bash
-hms
+sudo deploy-guard arm 15
+nrb && sudo reboot
+sudo deploy-guard confirm    # or it rolls itself back
 ```
 
-To update all packages to latest versions:
-
-```bash
-cd ~/projects/nix-config
-nfu && hms
-```
-
-## NixOS Deployment
-
-### Rebuilding a host
-
-From the Pi itself (or over SSH):
+To deploy from a workstation, or to target a host explicitly:
 
 ```bash
 sudo nixos-rebuild switch --flake github:nnorx/nix-config#core4 --accept-flake-config --refresh
 ```
 
-Replace `core4` with the target hostname (`core4`, `core5`, `lifeline`, `gate`).
-
-`gate` is not a Pi, and its first deploy from a fresh install differs: the
-attribute has to be named explicitly, because `nixos-rebuild` otherwise resolves
-it from a hostname that is not yet `gate`. Use `boot` and a reboot rather than
-`switch`, since the rebuild reconfigures the interface the session runs over.
-See [docs/router.md](docs/router.md).
-
-If the Pi resolves DNS through itself and can't reach GitHub, temporarily override DNS first:
+If a Pi resolves through itself and cannot reach GitHub, override DNS first:
 
 ```bash
 sudo bash -c 'echo "nameserver 1.1.1.1" > /etc/resolv.conf'
 ```
 
-### First-time setup (flashing a new Pi)
+Automatic upgrades are **off** fleet-wide in `modules/baseline.nix`. Unattended
+3am reboots are hard to tell apart from a fault while hardware is being moved
+around.
 
-The installer image is **host-agnostic** — `core4-installer`, `core5-installer` and `lifeline-installer` are the same derivation. It boots as user `nixos` on DHCP with the fleet SSH key; the host identity is applied by `nixos-rebuild` afterwards.
+## Secrets
 
-1. Build the image (any machine with Nix, e.g. WSL):
-   ```bash
-   nix build .#packages.aarch64-linux.lifeline-installer --accept-flake-config
-   ```
-   The output is **zstd-compressed** — `result/sd-image/*.img.zst`, about 1.3 GiB compressed and 3.1 GiB expanded.
+`sops-nix`, with age keys derived from each machine's SSH host key, so there is
+no key material to distribute. Secrets are decrypted at activation and never
+reach the Nix store in plaintext: `modules/adguardhome.nix`, for instance, puts
+a well-formed sentinel hash in the store and splices the real one in at start.
 
-2. Flash it. **Do not `dd` from WSL.** WSL2 cannot see USB card readers, and `/dev/sda`–`/dev/sdd` there are WSL's own virtual disks — one of which is its root filesystem. Flash from whichever OS owns the reader.
-
-   **From Windows** — decompress somewhere Windows can read, then use Raspberry Pi Imager or balenaEtcher ("Use custom" → pick the image):
-   ```bash
-   nix run nixpkgs#zstd -- -d result/sd-image/*.img.zst -o /mnt/c/Users/<you>/nixos-sd.img
-   ```
-   Current Raspberry Pi Imager reads `.img.zst` directly if you would rather skip the decompress step.
-
-   **From a Linux host with the reader attached** — confirm the device with `lsblk` first, since `dd` asks nothing and cannot be undone:
-   ```bash
-   zstd -d result/sd-image/*.img.zst -o nixos-sd.img
-   sudo dd if=nixos-sd.img of=/dev/sdX bs=4M status=progress conv=fsync
-   ```
-
-   Use 16 GB or larger. The image is ~3 GiB and NixOS expands the root partition on first boot, but `nix.gc` keeps 14 days of generations and a rebuild needs room for the old and new one simultaneously.
-
-3. Boot the Pi and find its DHCP address (the router's device list, or a ping sweep). Pass the key explicitly — a bare IP matches no `Host` block in `~/.ssh/config`:
-   ```bash
-   ssh -i ~/.ssh/id_ed25519_pis nixos@<dhcp-address>
-   ```
-   Do not go looking for a password: the `nixos` account has none, so the key is the only way in.
-
-4. Low-RAM boards only (1 GB Pi 3B and similar) — add temporary swap:
-   ```bash
-   sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
-   ```
-
-5. Build, stage, reboot. **Run these one at a time.** Pasted as a block, interrupting one leaves the shell to run the rest — including the reboot:
-   ```bash
-   sudo bash -c 'echo "nameserver 1.1.1.1" > /etc/resolv.conf'
-   sudo nixos-rebuild build --flake github:nnorx/nix-config#lifeline --accept-flake-config --refresh
-   sudo nixos-rebuild boot  --flake github:nnorx/nix-config#lifeline --accept-flake-config --refresh
-   sudo reboot
-   ```
-   `boot` rather than `switch`: activation moves the host onto its static address from `lib/net.nix`, reconfiguring the very interface you are connected over. `boot` stages the generation and the reboot brings it up cleanly, and a failed boot leaves the previous generation selectable.
-
-6. Reconnect at the static address and set a password:
-   ```bash
-   ssh <hostname>@<static-ip>   # address from lib/net.nix
-   passwd                       # initialPassword is "changeme"
-   ```
-   SSH is key-only, so that password is only used for `sudo` and at the console.
-
-### core5 boots from NVMe
-
-Root and `/boot/firmware` live on the 1TB NVMe, addressed by UUID in
-`hosts/core5/default.nix`. The SD card is still in the slot, still bootable, and
-still holds the pre-migration system. It is the rollback, so leave it there.
-
-**`BOOT_ORDER` is EEPROM state and Nix does not manage it.** A replacement board,
-or an EEPROM reset, needs it set by hand:
+Each host is a recipient only on its own file, so compromising one box does not
+expose another's. Every rule also includes the `nick` key, so secrets stay
+editable from a dev machine; the private half lives at
+`~/.config/sops/age/keys.txt` and is backed up offline.
 
 ```bash
-sudo "$(nix build --no-link --print-out-paths nixpkgs#raspberrypi-eeprom)/bin/rpi-eeprom-config" \
-  | tee ~/eeprom-current.conf
-sed 's/BOOT_ORDER=0xf461/BOOT_ORDER=0xf416/' ~/eeprom-current.conf > ~/eeprom-new.conf
-sudo "$(nix build --no-link --print-out-paths nixpkgs#raspberrypi-eeprom)/bin/rpi-eeprom-config" \
-  --apply ~/eeprom-new.conf
+sops secrets/core4.yaml      # edit
 ```
 
-`BOOT_ORDER` reads **right to left**. `0xf416` is NVMe, then SD, then USB, then
-restart. Keeping the SD in the order rather than removing it is what makes a
-failed NVMe boot fall through to a working system instead of to nothing.
-
-**The fallback works, and that is the problem.** On 2026-09-04 the PCIe ribbon
-to the NVMe worked loose. The drive stopped enumerating, the firmware fell
-through to the SD exactly as designed, and core5 booted the pre-migration
-system: healthy LEDs, link up, sshd running, zero failed units. Nothing
-anywhere said "this is the wrong system". It was only caught because that
-generation predated the VLAN cutover, so the box came back at `192.168.86.49`,
-an address retired days earlier, and a packet capture caught it ARPing for a
-gateway that no longer exists.
-
-Had the ribbon come loose before the renumber, core5 would have returned at the
-right address running a two-week-old generation, serving stale config to the
-fleet, and every external signal would have read normal.
-
-Do not remove the SD to fix this. It is the only reason the box was reachable
-and diagnosable with the drive gone, and every diagnostic that identified the
-fault was run over SSH from the SD system. The defect is not that the fallback
-exists, it is that falling back is **silent**. What is missing is detection:
-something that notices a host's booted root device or running generation is not
-the expected one and says so. That is a monitoring requirement, tracked in
-Phase 8 of docs/router.md.
-
-Two things worth knowing before running that. `--apply` also flashes the
-bootloader image shipped with the nixpkgs package, so it upgrades the firmware
-as well as the config; that is the same thing `rpi-eeprom-update` does, but it is
-a larger change than the one line in the diff. And `sudo` has no Nix in its PATH,
-which is why the store path is resolved by the `$( )` first and `sudo` is handed
-an absolute path.
-
-**Migrating a Pi to NVMe**, if this is ever done again: use `nixos-install
---root /mnt`, not a `dd` clone. Every NixOS Pi image ships the same root label
-(`NIXOS_SD`) and the same fixed root UUID, so a block copy leaves two
-filesystems that are indistinguishable to `by-label` and `by-uuid` while both
-are attached. Fresh filesystems with new UUIDs avoid that entirely.
-
-**Two things must be carried across, not just the SSH keys.**
-
-`/var/lib/nixos` holds NixOS's uid and gid allocation state. A fresh install
-re-allocates from 1000 upward, so an account that was 1001 on the old root can
-come back as 1000 on the new one. Declaring a uid does not move an existing
-account, so any `users.users.<n>.uid` pinned to the old value then disagrees
-with the account on disk, and home-manager refuses to activate with
-`UID is "1000", expected "1001"`. That is what happened on core5.
-
-**Copy `/etc/ssh/ssh_host_*` to the new root before rebooting.** Each host's sops
-age recipient is derived from its ed25519 host key, so a fresh install
-regenerates it, `secrets/<host>.yaml` becomes undecryptable by that host, and the
-failure surfaces later as an unrelated-looking deploy error. Verify with:
+**Re-imaging a host regenerates its host key**, which changes its age recipient
+and makes its secrets undecryptable by it. Re-derive, update `.sops.yaml`, and
+rekey:
 
 ```bash
-ssh-keyscan -t ed25519 <host> | ssh-to-age   # must match .sops.yaml
+ssh-keyscan -t ed25519 <host> | cut -d' ' -f2,3 | ssh-to-age
+sops updatekeys secrets/<host>.yaml
 ```
 
-### Recovery USB (x86 hosts)
+The failure mode if you skip this is an unrelated-looking deploy error much
+later, not a clear message at the point of the mistake.
 
-**This does not install anything.** Unlike the Pi section above, nothing here is
-written to the host: the USB stick is the only thing flashed, `gate`'s NVMe is
-untouched, and pulling the stick and rebooting returns it exactly as it was. It
-is a rescue disk, in the sense of a live USB.
+## CI and the binary cache
 
-It exists because `gate` is the one host whose recovery is otherwise physical. A
-Pi that will not boot gets its card pulled and reflashed. `gate` boots from an
-internal NVMe, so a generation that comes up without networking leaves no way
-in. The stick is that way in.
+| Workflow | Trigger | What it does |
+|---|---|---|
+| `check.yml` | every push and PR | `nix flake check --all-systems --no-build`, then `nix fmt -- --ci .` |
+| `cache.yml` | push to `main` | Builds every Pi's system closure on native aarch64 runners, pushes to Cachix |
+| `update-flake.yml` | Mondays 12:00 UTC | Opens a PR bumping `flake.lock` |
 
-The image is the stock NixOS minimal ISO plus the fleet SSH key, which makes it
-**headless**: it boots on DHCP with sshd running, so recovery is an SSH session
-rather than a monitor and keyboard at the rack.
+**Run `nix fmt` before pushing.** The check gate fails on formatting and says so
+nowhere else.
 
-1. Build it (any machine with Nix, e.g. WSL):
-   ```bash
-   nix build .#packages.x86_64-linux.recovery-iso --accept-flake-config
-   ```
-   The output is `result/iso/*.iso`, 1.4 GiB. Any USB stick will do.
+`cache.yml` exists because `linux_rpi4` is in no public cache. Without it a
+kernel bump costs each Pi 4 roughly 9 to 15 hours of compiling, separately, with
+no shared output between them. The caches are declared twice, in `flake.nix`'s
+`nixConfig` and in `modules/baseline.nix`, and both are needed: the flake copy
+is client-supplied, so Nix ignores it for anyone outside `trusted-users`, while
+the baseline copy is what actually lands in each host's `nix.conf`.
 
-2. Write it to a USB stick. **Do not `dd` from WSL** — the same warning as the
-   Pi images above: `/dev/sda`-`/dev/sdd` there are WSL's own virtual disks.
-   ```bash
-   cp result/iso/*.iso /mnt/c/Users/<you>/Downloads/nixos-recovery.iso
-   ```
-   Then, on the Windows side, balenaEtcher is the least fiddly: flash from
-   file, pick the stick, go, since it writes in DD mode by default and that is
-   what a hybrid ISO wants. Rufus works too but will ask, on seeing
-   "ISOHybrid image detected" — choose **DD Image mode**, not ISO mode.
+GitHub Actions are pinned to commit SHAs. That token signs into a cache every
+host trusts as root, so the blast radius of a compromised action is the whole
+fleet. Dependabot closes the staleness side of that trade.
 
-   Afterwards Windows sees an unrecognized partition and offers to format the
-   stick. Decline: the stick is fine, Windows just cannot read the filesystem.
+## Dev environment
 
-   From a Linux host with the stick attached, confirm the device with `lsblk`
-   first:
-   ```bash
-   sudo dd if=result/iso/*.iso of=/dev/sdX bs=4M status=progress conv=fsync
-   ```
+Three Home Manager profiles:
 
-3. Test it once, while nothing depends on the box. This changes nothing on
-   `gate`: it boots the stick instead of its own install, and pulling the stick
-   and rebooting puts it back. Plug it in, reboot, and try to SSH to the new
-   DHCP address as root:
-   ```bash
-   ssh -i ~/.ssh/id_ed25519_pis root@<dhcp-address>
-   ```
-   Two outcomes, both useful. If you get a shell, headless recovery works and
-   the monitor stays in the cupboard. If the host comes back as itself instead,
-   USB is behind the internal disk in the boot order, and that is the one thing
-   worth a single visit with a monitor to change in the firmware.
+| Profile | Used by | Contents |
+|---|---|---|
+| `home/common.nix` | every host, including the Pis and gate | zsh/bash + starship, git, neovim, tmux, CLI tools, vulnix |
+| `home/default.nix` | WSL (`nick`), macOS (`nicknorcross`) | common, plus Node, Rust, kubectl, LSPs, direnv, keychain ssh-agent, Claude Code |
+| `home/darwin.nix` | macOS only | GNU coreutils |
 
-4. To recover a broken host from it. **These are the only steps here that
-   write to the host**, and they are for when something is already wrong:
-   ```bash
-   mount /dev/nvme0n1p2 /mnt && mount /dev/nvme0n1p1 /mnt/boot
-   nixos-enter --root /mnt
-   # then, inside:
-   nix-env --list-generations --profile /nix/var/nix/profiles/system
-   /nix/var/nix/profiles/system-<N>-link/bin/switch-to-configuration boot
-   ```
-   Reboot without the stick. Device names are from `hosts/gate/hardware-configuration.nix`.
-
-### UniFi controller (core5)
-
-Runs as two pinned containers, the Network Application and its MongoDB, on a
-private Docker network. Only the application publishes ports; the database is
-reachable from nothing but the other container.
-
-**Containers rather than `services.unifi`, deliberately.** Both `unifi` and
-`mongodb` are unfree, so Hydra does not build them and `cache.nixos.org` does
-not carry them. The module path would have core5 compiling MongoDB from source,
-CI attempting the same inside its 350-minute cap, and the result being pushed to
-a public Cachix, which is redistribution of both. It also decouples controller
-upgrades from `nix flake update`: UniFi's database migrations are one-way, so a
-lock bump that moved the controller would leave a generation rollback facing a
-newer schema with an older binary.
-
-**Upgrading** is changing the digest in `modules/unifi.nix`. Get the new one
-with:
+First run on a new machine:
 
 ```bash
-nix run nixpkgs#skopeo -- inspect --format '{{.Digest}}' \
-  docker://lscr.io/linuxserver/unifi-network-application:<version>
-```
-
-Read Ubiquiti's release notes first. Downgrading needs a restore from backup,
-not a generation rollback.
-
-**On first login, take the local admin option, not a Ubiquiti account.** Signing
-in with a UI account ties the controller to their cloud, which is the thing
-moving off Google was meant to avoid. If that happens by accident, the
-association lives in the database, so the fix is to stop both containers, empty
-`/var/lib/unifi/db` and `/var/lib/unifi/config`, and start again. Emptying `db`
-matters as much as `config`: the MongoDB init hook only runs against an empty
-data directory, and that is what recreates the application user.
-
-**Two settings to change**, neither expressible in Nix because they live in the
-controller's own database:
-
-1. Settings > System: turn **off** Remote Management and Analytics.
-2. Settings > System > Backups: set a schedule.
-
-The inform host used to be a third. The controller advertises an address for
-devices to report to, and on a bridge network that is its container address in
-172.16/12, which nothing on the LAN can reach. The symptom is not an error:
-adoption appears to begin and then loops forever. `modules/unifi.nix` now seeds
-`system_ip` into `system.properties` before every start, from `lib/net.nix`, so
-it survives a volume wipe and follows the host if it renumbers.
-
-**Backups are the part that matters**, because adoption state, SSIDs, PSKs and
-VLAN assignments live in MongoDB and are not in this repo under any approach.
-The controller writes its own backups to `/var/lib/unifi/config/data/backup/`,
-owned by the `core5` user so they can be copied without root:
-
-```bash
-scp -r core5:/var/lib/unifi/config/data/backup/ ./unifi-backup-$(date +%F)/
-```
-
-Treat those as sensitive: they contain Wi-Fi PSKs and device credentials, so
-they do not belong in this repo or any public location.
-
-**A note on storage.** A UniFi controller writes statistics to MongoDB
-continuously, which is the workload SD cards wear out on fastest. core5 was
-moved to NVMe first for that reason, so the database has never touched the card.
-See the NVMe section above.
-
-## Repository Structure
-
-```
-nix-config/
-├── flake.nix              # Entry point - defines inputs, outputs, installer images, and NixOS configs
-├── flake.lock             # Locked dependency versions
-├── lib/
-│   └── net.nix            # LAN topology — static IPs, interface names, cross-host ports
-├── hosts/
-│   ├── common/            # Fleet-wide NixOS config (locale, user accounts, baseline)
-│   │   └── pi.nix         # Pi-only boot and SD-card storage layout
-│   ├── core4/             # Pi 4 — AdGuard Home + Unbound + Docker
-│   ├── core5/             # Pi 5 — pimon collector, Docker
-│   ├── lifeline/          # Pi 4 — AdGuard Home + Unbound, independent DNS path
-│   └── gate/              # CWWK N100 — the router, not routing yet
-├── modules/
-│   ├── adguardhome.nix    # Parameterized AGH module (upstream/fallback DNS, caching, DNSSEC)
-│   ├── unbound.nix        # Recursive DNS resolver with DNSSEC
-│   ├── docker.nix         # Docker daemon
-│   ├── ssh.nix            # SSH server hardening (key-only, modern crypto)
-│   ├── firewall.nix       # Default-deny firewall (SSH always allowed)
-│   ├── fail2ban.nix       # Brute-force protection
-│   └── baseline.nix       # Nix settings (flakes, substituters)
-├── home/
-│   ├── default.nix        # Dev profile entry point (imports common + dev-tools)
-│   ├── common.nix         # Common profile entry point (shell, editor, CLI tools)
-│   ├── common-tools.nix   # CLI essentials (ripgrep, fd, bat, fzf, etc.)
-│   ├── security.nix       # vulnix CVE scanner + whitelist wiring
-│   ├── vulnix-whitelist.toml # Suppressed false positives (Haskell name collisions, bootstrap-only)
-│   ├── dev-tools.nix      # Dev-only packages (Node, Rust, Docker, LSPs)
-│   ├── shell-common.nix   # Shared aliases and PATH setup for bash/zsh
-│   ├── starship.nix       # Starship prompt configuration
-│   ├── bash.nix           # Bash-specific shell configuration
-│   ├── zsh.nix            # Zsh-specific shell configuration
-│   ├── git.nix            # Git configuration + aliases + GitHub CLI
-│   ├── tmux.nix           # tmux terminal multiplexer
-│   ├── neovim.nix         # Neovim editor configuration
-│   └── darwin.nix         # macOS-specific configuration
-├── docs/
-│   └── router.md          # Phased build plan for gate
-└── README.md
-```
-
-### Profiles
-
-| Profile | Hosts | What's included |
-|---------|-------|-----------------|
-| **Dev** (`default.nix`) | WSL (`nick`), macOS (`nicknorcross`) | Common + Node, Rust, Docker, kubectl, LSPs, direnv |
-| **Common** (`common.nix`) | Pi 5 (`core5`), Pi 4 (`core4`, `lifeline`), N100 (`gate`) | Shell, git, CLI tools, tmux, neovim |
-| **Darwin** (`darwin.nix`) | macOS only | GNU coreutils |
-
-## What's Included
-
-### Common Profile (all hosts)
-
-#### Shell (shell-common.nix, bash.nix, zsh.nix, starship.nix)
-- Bash and Zsh with shared aliases and PATH setup
-- Starship prompt (shows git status, language versions, etc.)
-- Better history search with arrow keys
-- Zsh autosuggestions and syntax highlighting
-
-#### Git (git.nix)
-- Pre-configured aliases (e.g., `git lg` for pretty log)
-- Sensible defaults (rebase on pull, push current branch)
-- GitHub CLI (`gh`)
-
-#### CLI Tools (common-tools.nix)
-- **Search**: ripgrep, fd, fzf
-- **Viewing**: bat, eza, tree, jq, yq
-- **System**: htop, ncdu, curl, wget, unzip, tldr
-- **Navigation**: zoxide (smarter cd)
-
-#### Security (security.nix)
-- **vulnix** — scans the Nix store against the NVD CVE feed
-- Shared whitelist (`vulnix-whitelist.toml`) suppresses known false positives: Haskell library name collisions (e.g. Haskell `vault` ≠ HashiCorp Vault), bootstrap-only build inputs, and specific NVD misattributions
-- Aliases: `vulnix-scan` (home-manager closure), `vulnix-scan-system` (NixOS hosts)
-
-#### tmux (tmux.nix)
-- Prefix changed to `Ctrl+a`
-- Vim-style pane navigation
-- Mouse support
-- Session persistence (survives restarts)
-
-#### Neovim (neovim.nix)
-- Catppuccin theme
-- Treesitter syntax highlighting
-- Telescope fuzzy finder with native FZF sorter (`<leader>ff` to find files)
-- LSP support for TypeScript, Rust, Nix
-- Autocompletion with nvim-cmp and snippet support (luasnip)
-- File explorer with nvim-tree (`<leader>e`)
-- Git signs in gutter with keybindings (`<leader>g`)
-
-### Dev Profile (WSL, macOS only)
-
-#### Development Tools (dev-tools.nix)
-- **Node.js 24** with npm, pnpm, TypeScript
-- **Rust** with cargo, rustfmt, clippy, rust-analyzer
-- **DevOps**: docker-compose, kubectl, k9s
-- **LSPs**: nil (Nix), typescript-language-server, rust-analyzer
-- **Build**: gnumake, gcc
-- **direnv** for per-project environments
-
-## Dev Shells
-
-The flake provides reusable dev shells for project-specific tooling via `nix develop` or direnv.
-
-### Playwright E2E Testing
-
-Provides Chromium with Nix-patched binaries — no system-level browser installs needed. Works across Debian, WSL, and other Linux environments.
-
-**Per-project setup:**
-
-1. Add an `.envrc` to your project:
-   ```bash
-   echo 'use flake ~/projects/nix-config#playwright' > .envrc
-   direnv allow
-   ```
-
-2. Pin the matching `@playwright/test` version shown in the shell output:
-   ```bash
-   pnpm add -D @playwright/test@<version>
-   ```
-
-3. Run tests:
-   ```bash
-   pwt          # npx playwright test
-   pwth         # --headed
-   pwtd         # --debug
-   pwui         # --ui mode
-   pwshow       # show report
-   pwgen        # codegen
-   ```
-
-**Or enter the shell directly:**
-```bash
-nix develop ~/projects/nix-config#playwright
-```
-
-## Customization
-
-### Change Git Identity
-
-Edit `home/git.nix` and update:
-```nix
-userName = "Your Name";
-userEmail = "your@email.com";
-```
-
-### Add New Packages
-
-Add to `home/common-tools.nix` for all hosts, or `home/dev-tools.nix` for dev hosts only:
-```nix
-home.packages = with pkgs; [
-  # ... existing packages ...
-  your-new-package
-];
-```
-
-Find packages at: https://search.nixos.org/packages
-
-### Add Shell Aliases
-
-Edit `home/shell-common.nix` for common aliases, or `home/dev-tools.nix` for dev-only aliases:
-```nix
-shell-common.aliases = {
-  # ... existing aliases ...
-  myalias = "my-command --with-flags";
-};
-```
-
-## Troubleshooting
-
-### WSL: Nix daemon not running
-
-If you see "cannot connect to socket" errors after installing Nix in WSL:
-
-```bash
-# Start the Nix daemon manually
-sudo /nix/var/nix/profiles/default/bin/nix-daemon &
-
-# Or enable systemd in WSL (recommended)
-# Add to /etc/wsl.conf:
-# [boot]
-# systemd=true
-# Then restart WSL: wsl --shutdown
-```
-
-### Command not found after switch
-
-Restart your shell or run:
-```bash
+git clone https://github.com/nnorx/nix-config.git ~/projects/nix-config
+cd ~/projects/nix-config
+nix run home-manager -- switch --flake .   # picks the config matching your username
 exec $SHELL -l
 ```
 
-### Flake not found
+After that, `hms` applies changes and `nfu && hms` updates everything first.
 
-Make sure you're in the nix-config directory and it's a git repo:
+Package lists live in `home/common-tools.nix` and `home/dev-tools.nix` rather
+than being mirrored here, where they would rot.
+
+### Dev shells
+
 ```bash
-cd ~/projects/nix-config
-git init
-git add .
+nix develop ~/projects/nix-config#playwright   # Chromium with Nix-patched binaries
+nix develop ~/projects/nix-config#fullstack    # Node, pnpm, Railway
 ```
 
-## Useful Commands
+Per project, via direnv:
 
-### Home Manager (dev environments)
+```bash
+echo 'use flake ~/projects/nix-config#playwright' > .envrc && direnv allow
+```
 
-| Command | Description |
-|---------|-------------|
-| `hms` | Apply configuration (alias for home-manager switch) |
-| `nfu` | Update flake inputs (`nix flake update`) |
-| `ngc` | Garbage collect Nix store (30+ days old) |
-| `vulnix-scan` | Scan active home-manager closure for CVEs |
-| `vulnix-scan-system` | Scan the running NixOS system for CVEs (Pi hosts) |
-| `nix flake show` | Show flake outputs |
-| `nix search nixpkgs <package>` | Search for packages |
-| `nix shell nixpkgs#<package>` | Temporarily use a package |
-| `nix develop` | Enter development shell (if defined) |
+The Playwright shell prints the `@playwright/test` version to pin, and provides
+`pwt`, `pwth`, `pwtd`, `pwui`, `pwshow` and `pwgen`.
 
-### NixOS
+## Commands
 
 | Command | Description |
-|---------|-------------|
-| `sudo nixos-rebuild switch --flake github:nnorx/nix-config#<host>` | Deploy config to a host |
-| `sudo nixos-rebuild boot --flake github:nnorx/nix-config#<host>` | Stage for next boot, for changes that reconfigure the live interface |
-| `nix build .#packages.aarch64-linux.<host>-installer` | Build installer SD image (Pis only) |
-| `nix build .#packages.x86_64-linux.recovery-iso` | Build the headless x86 rescue ISO |
-| `nix flake check --no-build` | Validate flake without building |
+|---|---|
+| `nrs` / `nrb` | Rebuild a NixOS host, switch or boot (on the host) |
+| `hms` | Apply Home Manager config |
+| `nfu` | `nix flake update` |
+| `ngc` | Garbage collect, 30+ days |
+| `nix flake check --all-systems --no-build` | What CI runs |
+| `nix fmt` | Format, also a CI gate |
+| `vulnix-scan` / `vulnix-scan-system` | CVE scan the HM closure or the running system |
+| `nix build .#packages.aarch64-linux.<host>-installer` | Pi SD image |
+| `nix build .#packages.x86_64-linux.recovery-iso` | Headless x86 rescue ISO |
 
-## Learning Resources
+## Troubleshooting
 
-- [Zero to Nix](https://zero-to-nix.com/) - Interactive tutorial
-- [Nix Pills](https://nixos.org/guides/nix-pills/) - In-depth Nix language guide
-- [Home Manager Options](https://nix-community.github.io/home-manager/options.xhtml) - All configuration options
-- [NixOS Package Search](https://search.nixos.org/packages) - Find packages
+**WSL: "cannot connect to socket" after installing Nix.** The daemon is not
+running. Enable systemd in `/etc/wsl.conf` with `[boot]` / `systemd=true` and
+`wsl --shutdown`, or start it by hand:
+
+```bash
+sudo /nix/var/nix/profiles/default/bin/nix-daemon &
+```
+
+**Command not found after a switch.** `exec $SHELL -l`.
+
+**A host compiles instead of substituting.** It is missing the caches. On a
+freshly flashed host `modules/baseline.nix` has not landed yet, so pass
+`--accept-flake-config`, which is already in the `nrs`/`nrb` aliases.
 
 ---
 
-Inspired by [clvx/nix-files](https://github.com/clvx/nix-files)
+Inspired by [clvx/nix-files](https://github.com/clvx/nix-files).

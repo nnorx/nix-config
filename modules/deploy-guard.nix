@@ -13,7 +13,7 @@
 #
 # It covers "boots, but is unreachable", which is the likely failure for
 # networking changes. It cannot help if the system does not boot far enough to
-# start services — that is what the recovery USB in the README is for.
+# start services — that is what the recovery USB in docs/recovery.md is for.
 { pkgs, lib, ... }:
 let
   stateDir = "/var/lib/deploy-guard";
