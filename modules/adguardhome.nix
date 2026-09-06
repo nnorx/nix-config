@@ -110,18 +110,24 @@ in
         # or a hung resolver, both of which drop packets rather than reset.
         upstream_timeout = upstreamTimeout;
 
-        # Queries/sec ceiling. This is a *whole-LAN* limit, not per device, for
-        # two independent reasons: AdGuard buckets clients by subnet
-        # (ratelimit_subnet_len_ipv4 defaults to 24, and the LAN is a /24), and
-        # the router proxies all client DNS so every query arrives from the
-        # gateway anyway. No setting makes it per-device while that is true.
+        # Queries/sec ceiling, and it is per *segment*: AdGuard buckets clients
+        # by subnet (ratelimit_subnet_len_ipv4 defaults to 24, and every segment
+        # is a /24), so all of trusted shares one bucket and all of iot shares
+        # another. No setting makes it per-device.
         #
-        # 300 was chosen when it read as per-device. As a household ceiling it
-        # is tight: one page load is 20-50 lookups, so a handful of devices
-        # waking together can clip it, and exceeded queries are dropped rather
-        # than refused — the symptom is intermittent partial resolution, which
-        # looks like a network fault. Kept as a runaway-abuse ceiling only;
-        # port 53 is already restricted to the LAN interface by the firewall.
+        # It used to be a whole-LAN ceiling, because a second reason applied:
+        # the router proxied client DNS, so every query arrived from the gateway
+        # address. That stopped being true as clients moved onto gate's Kea,
+        # which hands out the Pi addresses directly, so queries now arrive with
+        # the client's own source address. That is what makes AdGuard's
+        # per-client logging and per-client rules work at all.
+        #
+        # So the number has outlived both readings it was picked under: 300 was
+        # chosen as per-device, 3000 as whole-LAN (#16), and it is now neither.
+        # It wants a deliberate look rather than another guess. Exceeded queries
+        # are dropped rather than refused, so the symptom of setting it too low
+        # is intermittent partial resolution, which reads as a network fault.
+        # Port 53 is restricted to the LAN interface by the firewall either way.
         ratelimit = 3000;
       };
 

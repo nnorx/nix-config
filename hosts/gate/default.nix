@@ -1,10 +1,10 @@
 # CWWK N100 (4x Intel i226) — the router.
 #
-# Routes, NATs and serves DHCP for four segments; see ./routing.nix. Still
-# behind the Nest, so `wan` holds a DHCP lease rather than facing the modem,
-# and everything is under double NAT until the Phase 7 cutover.
+# Routes, NATs and serves DHCP for five segments; see ./routing.nix. `wan`
+# faces the modem as of the Phase 7 cutover on 2026-09-05, so this is the
+# house's only path to the internet and the Nest is out of the network entirely.
 #
-# See docs/router.md for the sequence and what remains.
+# See docs/router.md for what remains.
 {
   pkgs,
   lib,
@@ -91,15 +91,14 @@ in
   # `mtu` or `macAddress` would land in it and silently never apply. Put such
   # settings in the `10-` files above, keyed on Path, instead.
 
-  # hosts/common sets networking.useDHCP = false fleet-wide, so opt the one
-  # cabled interface back in.
+  # hosts/common sets networking.useDHCP = false fleet-wide. `wan` is the one
+  # interface that opts back in, because it is the one whose address is not
+  # ours to choose: it comes from the ISP, along with the default route. Every
+  # LAN-side address is static and generated from lib/net.nix in ./routing.nix.
   #
-  # This does not guarantee the same address. The switch replaces
-  # NetworkManager with dhcpcd, which presents a different client identifier,
-  # and hosts/common changes the hostname from `router` to `gate` at the same
-  # time, so the Nest may treat it as a new client and lease a different
-  # address on the interface the SSH session is running over. Deploy with
-  # `boot` and a reboot, with a console at the box.
+  # A cable modem caches the CPE MAC for the lease, so swapping the box on this
+  # port needs the modem power-cycled before it will hand out a new one. That
+  # is why the Phase 7 sequence started there rather than with the cable.
   networking.interfaces.${host.wanIface}.useDHCP = true;
 
   # The fleet cap is 200M, sized for SD-card wear. gate has NVMe with 218G

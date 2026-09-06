@@ -18,9 +18,6 @@
   # claim 192.168 space, because employees' home networks live there. Verified
   # with `route -n get` against the tunnel rather than assumed.
   #
-  # These do not collide with the 192.168.86.0/24 the Nest hands out today, so
-  # both schemes coexist through the transition.
-  #
   # `subnet` is carried explicitly rather than derived from gateway and prefix:
   # Kea and nftables both want the network address in CIDR form, and deriving
   # it in Nix means string arithmetic on octets for no gain.
@@ -154,22 +151,29 @@
       sshInterfaces = [ "end0" ];
     };
 
-    # gate (CWWK N100, 4x i226) deliberately has no `ip` yet: it keeps its DHCP
-    # lease from the Nest until the router subnets are settled, so pinning one
-    # here would be fiction.
+    # gate (CWWK N100, 4x i226) has no `ip` and no `iface`. Both exist for the
+    # hosts/common model of one host, one address, one default gateway, and
+    # gate fits none of it: it holds `.1` in every segment and takes its default
+    # route from the ISP over `wan`. There is no single address to name here and
+    # nothing for hosts/common to configure, so its addresses are generated from
+    # `segments` in hosts/gate/routing.nix instead.
     #
-    # The WAN port is `wanIface`, deliberately not `iface`. `iface` means "the
-    # NIC hosts/common binds this host's static address and default gateway to",
-    # and on a router that is a LAN port. Naming the WAN port `iface` would mean
-    # that the moment gate gains an `ip`, hosts/common silently configures the
-    # LAN address and the LAN default gateway on the interface facing the
-    # internet. gate gets an `iface` of its own when the LAN side exists.
+    # The WAN port is therefore `wanIface`, deliberately not `iface`. `iface`
+    # means "the NIC hosts/common binds this host's static address and default
+    # gateway to", and on a router that is a LAN port. Under the other name,
+    # adding an `ip` here would silently configure a LAN address and a LAN
+    # default gateway on the interface facing the internet.
     #
-    # Until then it has no `ip`, and nothing may assume otherwise: hosts/core5's
-    # pimon firewall and modules/unbound's allowFrom both dereference
-    # `net.hosts.<h>.ip` unguarded, so adding gate to `pimonAgents` or to an
-    # `allowFrom` before it is addressed fails *that* host's evaluation, not
-    # gate's.
+    # Nothing may assume gate has an `ip`: hosts/core5's pimon firewall and
+    # modules/unbound's `allowFrom` both dereference `net.hosts.<h>.ip`
+    # unguarded, so naming gate in either fails *that* host's evaluation rather
+    # than gate's. modules/net-assertions.nix catches the `pimonAgents` half
+    # with a message that names the cause; `allowFrom` is still bare.
+    #
+    # That is also the one thing likely to force an address here, when Phase 8
+    # instruments gate. Decide what it would mean first: the honest answer is a
+    # segment gateway, which is not what `ip` denotes for any other host in this
+    # file.
     gate = {
       # Role names, and the PCI path each is pinned to. hosts/gate turns these
       # into systemd .link files; the kernel never generates names in this
@@ -203,7 +207,7 @@
       #
       # `wan` was here while it was the management path, facing the Nest's LAN
       # rather than the internet. It was removed at the Phase 7 cutover on
-      # 2026-09-04, once a trusted-segment path was proven: SSH from
+      # 2026-09-05, once a trusted-segment path was proven: SSH from
       # 192.168.10.101 over `br-trusted`, verified before this line changed and
       # not after. Deleting it is the difference between a router and a router
       # with SSH on its WAN.
