@@ -10,13 +10,13 @@
   #
   # The third octet is the VLAN id, so an address names its own segment.
   #
-  # 192.168 rather than 10.x, and not for taste: Cloudflare WARP routes
-  # 10.8.0.0/13 into its tunnel on Nick's work profile, which swallows
-  # 10.10.0.0/16 whole. A home LAN numbered there would be unreachable from his
-  # own laptop whenever WARP was connected, and that profile is managed by the
-  # employer, so it could not be excluded locally. Corporate profiles rarely
-  # claim 192.168 space, because employees' home networks live there. Verified
-  # with `route -n get` against the tunnel rather than assumed.
+  # 192.168 rather than 10.x, and not for taste: a centrally managed VPN client
+  # on one of the laptops here routes a wide slice of 10/8 into its tunnel, wide
+  # enough to swallow a /16 picked anywhere in that space. A home LAN numbered
+  # there would be unreachable from that machine whenever the tunnel was up, and
+  # the policy is not ours to change locally. Managed profiles rarely claim
+  # 192.168, because that is where home networks live. Verified with
+  # `route -n get` against the tunnel rather than assumed.
   #
   # `subnet` is carried explicitly rather than derived from gateway and prefix:
   # Kea and nftables both want the network address in CIDR form, and deriving
@@ -81,23 +81,23 @@
       };
     };
 
-    # The work laptop, and nothing else. Segmented for the same reason guest is,
-    # but the threat model runs both ways: it is a corporate-managed machine
-    # running MDM, EDR and a VPN client that cannot be audited from here, and
-    # on trusted it could enumerate every device in the house. Equally, the
-    # house's iot chatter has no business reaching a machine subject to someone
-    # else's security policy.
+    # One centrally managed laptop, and nothing else. Segmented for the same
+    # reason guest is, but the threat model runs both ways: its software is
+    # administered by someone else and cannot be audited from here, so on
+    # trusted it could enumerate every device in the house. Equally, the house's
+    # iot chatter has no business reaching a machine held to a security policy
+    # that is not ours.
     #
-    # This is not hypothetical. The 192.168 note above exists because Cloudflare
-    # WARP on that profile routes 10.8.0.0/13 into a corporate tunnel: the
-    # machine already makes routing decisions on its owner's behalf, not ours.
-    # 192.168.50.0/24 is clear of that range.
+    # This is not hypothetical. The 192.168 note above exists because that
+    # machine's VPN client claims a wide slice of 10/8: it already makes routing
+    # decisions on its administrator's behalf, not ours. This subnet is clear of
+    # that range.
     #
     # It reaches the internet and the fleet resolvers on port 53, and nothing
     # else. Filtering is kept deliberately, but AdGuard's per-client settings
-    # are where to disable query logging for it: a timestamped per-client record
-    # of a work laptop's lookups is an awkward thing to hold, in both
-    # directions, and filtering does not require retaining it.
+    # are where to disable query logging for it: a timestamped record of that
+    # machine's lookups is an awkward thing to hold, in both directions, and
+    # filtering does not require retaining it.
     work = {
       id = 50;
       subnet = "192.168.50.0/24";

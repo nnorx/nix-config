@@ -4,9 +4,9 @@
 #   ssh-keyscan -t ed25519 <ip> | cut -d' ' -f2,3 | ssh-to-age
 #
 # Every rule includes `nick` so secrets stay editable from a dev machine; the
-# private half lives at ~/.config/sops/age/keys.txt and is backed up in
-# Bitwarden. Each host is a recipient only on its OWN file, so compromising one
-# box does not expose another's secrets.
+# private half lives at ~/.config/sops/age/keys.txt and is backed up offline.
+# Each host is a recipient only on its OWN file, so compromising one box does
+# not expose another's secrets.
 #
 # Re-imaging a host regenerates its SSH host key. Re-derive the recipient,
 # update it here, then run `sops updatekeys secrets/<host>.yaml`.
