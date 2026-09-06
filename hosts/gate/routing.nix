@@ -49,6 +49,7 @@ let
   trunk = "lan0"; # tagged trunk to the Flex switch; untagged = servers
   wired = "lan1"; # untagged trusted, a dedicated run to one machine
   trustedBr = "br-trusted"; # tagged trusted + `wired`, so they share a domain
+  wan = net.hosts.gate.wanIface; # bound here too, since a forward rule names it
 
   # 802.1q sub-interface for a tagged segment.
   tagged = name: "${trunk}.${toString seg.${name}.id}";
@@ -85,6 +86,38 @@ let
   # comment on `servers` in lib/net.nix.
   dhcpOn = lib.filterAttrs (_: name: seg.${name} ? pool) segmentOn;
   dhcpIfaces = builtins.attrNames dhcpOn;
+
+  # Everything upstream of gate that is not the internet. The only RFC1918
+  # destination reachable out `wan` is the ISP device's own management
+  # interface, and every segment can reach it today: `networking.nat` emits a
+  # single blanket `iifname { all segments } oifname wan accept`, which does not
+  # care what the destination is.
+  #
+  # "A guest's phone can reach the box that terminates the house's internet" is
+  # not a property worth having, and less so while that box's credentials may be
+  # whatever is printed on its label. The same goes for a compromised camera on
+  # iot, or a corporate laptop on work. servers is denied too, and has the
+  # strongest case of any of them: it carries the switch and the AP, whose
+  # unaudited firmware is the same reason `sshInterfaces` had to name
+  # `br-trusted` rather than `lan0`.
+  #
+  # Derived by exclusion rather than listed, so a segment added later is denied
+  # by default instead of quietly inheriting the exception. If the ISP device is
+  # ever bridged, this keeps matching rather than going inert: private space is
+  # never a legitimate destination out `wan`, so it stays correct instead of
+  # becoming vestigial.
+  upstreamPrivate = [
+    "10.0.0.0/8"
+    "172.16.0.0/12"
+    "192.168.0.0/16"
+    "169.254.0.0/16"
+    "100.64.0.0/10" # CGNAT: docs/router.md leaves this open, so cover it
+  ];
+  managesUpstream = [ trustedBr ];
+  deniedUpstream = lib.filter (i: !(builtins.elem i managesUpstream)) segmentIfaces;
+
+  nftSet = xs: "{ ${lib.concatStringsSep ", " xs} }";
+  quoted = map (x: "\"${x}\"");
 
   # The fleet's own resolvers. Handing these out directly, rather than gate
   # proxying to them, is what keeps AdGuard's per-client attribution
@@ -185,20 +218,26 @@ in
       # a firewall.
       filterForward = true;
 
-      # Inter-segment policy. Everything not named here is refused by the
-      # default-drop chain rather than by a deny rule, so guest is isolated by
-      # not appearing at all.
+      # Inter-segment policy, plus one deny. The accepts below are
+      # segment-to-segment, which the nat module says nothing about, and
+      # everything not named is refused by the default-drop chain rather than
+      # by a rule.
       #
-      # These do not duplicate the nat module's rules and must not be confused
-      # with them: nat emits segment-to-wan accepts derived from
-      # `internalInterfaces`, and hand-copying those would decouple them from
-      # that list. These are segment-to-segment, which nat says nothing about.
+      # The deny is the exception to all of that, and deliberately so. It is
+      # segment-to-wan, the same direction nat covers, and it exists precisely
+      # to take precedence over nat's blanket
+      # `iifname { internalInterfaces } oifname wan accept`. `mkBefore` pins
+      # that ordering: nixpkgs documents both definitions as appended to
+      # `forward-allow` and declares no priority between them, so relying on
+      # the observed merge order would make this silently dead code the day it
+      # changed.
       #
       # iot gets DNS to the Pis and nothing else. It is on the fleet resolvers
       # so its lookups are filtered and visible in AdGuard, which is most of
       # the point of having an iot segment, but it has no business reaching
       # anything else in servers.
-      extraForwardRules = ''
+      extraForwardRules = lib.mkBefore ''
+        iifname ${nftSet (quoted deniedUpstream)} oifname "${wan}" ip daddr ${nftSet upstreamPrivate} drop comment "only trusted reaches upstream management"
         iifname "${trustedBr}" oifname "${trunk}" accept comment "trusted reaches servers"
         iifname "${tagged "iot"}" oifname "${trunk}" meta l4proto { tcp, udp } th dport 53 accept comment "iot resolves via the Pis, nothing else"
         iifname "${tagged "work"}" oifname "${trunk}" meta l4proto { tcp, udp } th dport 53 accept comment "work resolves via the Pis, nothing else"
