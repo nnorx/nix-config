@@ -18,6 +18,7 @@ in
     ../../modules/ssh.nix
     ../../modules/firewall.nix
     ../../modules/fail2ban.nix
+    ../../modules/net-assertions.nix
   ];
 
   # mkDefault so a host installed from a later release can keep its own. This
@@ -33,16 +34,6 @@ in
   # key, so there is no key material to distribute. Re-imaging a host changes
   # that key: re-derive it into .sops.yaml and run `sops updatekeys`.
   sops.age.sshKeyPaths = [ "/etc/ssh/ssh_host_ed25519_key" ];
-
-  # A host with an address must name the segment it sits on, since the prefix
-  # and the default gateway are both read from it. Catching this here beats an
-  # "attribute 'segment' missing" trace from inside the networking block.
-  assertions = [
-    {
-      assertion = (host ? ip) -> (host ? segment);
-      message = "net.hosts.${hostname} sets `ip` but no `segment`.";
-    }
-  ];
 
   # Networking. Addressing is derived from lib/net.nix rather than repeated per
   # host, so that file's promise — renumbering the LAN is a one-file change —
