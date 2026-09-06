@@ -6,5 +6,13 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: DeterminateSystems/nix-installer-action@b67ad2f0e8376a0bc947db191e4484285b6f5b56 # main @ 2026-09-02
-      - run: nix flake check
+
+      # --all-systems, because the runner is x86_64 and nix silently skips
+      # aarch64 outputs without it: core4, core5 and lifeline were never
+      # evaluated here, and a broken Pi config surfaced only in cache.yml,
+      # after merge. Evaluation needs no aarch64 builder.
+      #
+      # --no-build keeps this an evaluation gate, so adding a `checks` output
+      # later cannot turn it into a multi-hour aarch64 build.
+      - run: nix flake check --all-systems --no-build
       - run: nix fmt -- --ci .
