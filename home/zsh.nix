@@ -1,4 +1,7 @@
-# Zsh shell configuration (macOS default shell)
+# Zsh shell configuration.
+#
+# The login shell everywhere, not just on macOS: hosts/common sets it for every
+# host user in the fleet.
 
 { config, pkgs, ... }:
 {

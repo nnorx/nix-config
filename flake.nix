@@ -344,8 +344,12 @@
         }).config.system.build.isoImage;
 
       # Installer images for Pi 3/4 — includes SSH key for headless access.
-      # The image is host-agnostic: these three outputs are the same derivation,
-      # and the host config is applied by nixos-rebuild after first boot.
+      # The image is host-agnostic: both outputs are the same derivation, and
+      # the host config is applied by nixos-rebuild after first boot. It said
+      # three until core3 was retired.
+      #
+      # core5 is not among them. The Pi 5 needs nixos-raspberrypi's own
+      # installer, which is a separate derivation built above.
       # Build with: nix build .#packages.aarch64-linux.{core4,lifeline}-installer --accept-flake-config
       packages.aarch64-linux.core4-installer = mkPiInstaller "core4";
       packages.aarch64-linux.lifeline-installer = mkPiInstaller "lifeline";

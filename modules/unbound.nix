@@ -1,5 +1,10 @@
-# Unbound — recursive DNS resolver with DNSSEC
-# Listens on localhost and the host's LAN address for queries from AdGuard Home
+# Unbound — recursive DNS resolver with DNSSEC.
+#
+# Binds loopback only, which is what every current caller gets: `allowFrom` is
+# empty on core4, lifeline and gate alike, so the resolver is absent from the
+# network rather than merely refusing it. Passing `allowFrom` adds the host's
+# LAN address and the matching access-control entries, for a host that resolves
+# on another's behalf. Nothing does today; core3 was the last.
 {
   allowFrom ? [ ], # Host names (from lib/net.nix) permitted to query over the LAN
 
@@ -75,10 +80,12 @@ in
         ++ lib.optional (allowFrom != [ ]) net.hosts.${hostname}.ip;
         port = listenPort;
 
-        # Recurse over IPv4 only. This network gets IPv6 via ULA + RA but has no
-        # global v6 prefix / default route from the Nest, so AAAA-glue upstreams
-        # are unreachable and every query would dead-end in SERVFAIL. Pinning to
-        # IPv4 makes the resolver immune to the v6 uplink flapping.
+        # Recurse over IPv4 only. The LAN has no global IPv6: gate asks for no
+        # DHCPv6-PD delegation and sends no router advertisements, so there is
+        # no v6 prefix and no v6 default route. AAAA-glue upstreams would be
+        # unreachable and any query reaching one would dead-end in SERVFAIL.
+        # Revisit alongside the IPv6 work in Phase 8 of docs/router.md, which is
+        # what would give this network a prefix in the first place.
         do-ip6 = false;
 
         access-control = [
@@ -116,7 +123,7 @@ in
         hide-identity = true;
         hide-version = true;
 
-        # Performance tuning for Pi 4
+        # Sized for a Pi 4. gate is a 4-core N100 and takes the same values.
         num-threads = 4;
         msg-cache-size = "64m";
         rrset-cache-size = "128m";
@@ -155,15 +162,17 @@ in
   };
 
   systemd.services.unbound = {
-    # Don't start until the LAN address exists — unbound binds the host's LAN
-    # address directly, so starting before the interface is up leaves a
-    # half-bound socket.
+    # Only load-bearing when `allowFrom` is set, which binds the host's LAN
+    # address alongside loopback: starting before that interface is up leaves a
+    # half-bound socket. Inert on the loopback-only hosts, and kept so the
+    # ordering is already right if one of them ever gains a consumer.
     after = [ "network-online.target" ];
     wants = [ "network-online.target" ];
 
     # Persist the resolver cache across restarts/reboots. Unbound's cache is
-    # in-memory, so the ~biweekly autoUpgrade kernel reboot would otherwise start
-    # cold. Dump on stop (daemon still alive), restore on start.
+    # in-memory, so every deploy that reboots a host would otherwise start it
+    # cold, and a cold recursive resolver is slow in a way people notice.
+    # Dump on stop (daemon still alive), restore on start.
     serviceConfig = {
       ExecStop = dumpCache;
       ExecStartPost = loadCache;

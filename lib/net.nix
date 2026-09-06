@@ -10,16 +10,13 @@
   #
   # The third octet is the VLAN id, so an address names its own segment.
   #
-  # 192.168 rather than 10.x, and not for taste: Cloudflare WARP routes
-  # 10.8.0.0/13 into its tunnel on Nick's work profile, which swallows
-  # 10.10.0.0/16 whole. A home LAN numbered there would be unreachable from his
-  # own laptop whenever WARP was connected, and that profile is managed by the
-  # employer, so it could not be excluded locally. Corporate profiles rarely
-  # claim 192.168 space, because employees' home networks live there. Verified
-  # with `route -n get` against the tunnel rather than assumed.
-  #
-  # These do not collide with the 192.168.86.0/24 the Nest hands out today, so
-  # both schemes coexist through the transition.
+  # 192.168 rather than 10.x, and not for taste: a centrally managed VPN client
+  # on one of the laptops here routes a wide slice of 10/8 into its tunnel, wide
+  # enough to swallow a /16 picked anywhere in that space. A home LAN numbered
+  # there would be unreachable from that machine whenever the tunnel was up, and
+  # the policy is not ours to change locally. Managed profiles rarely claim
+  # 192.168, because that is where home networks live. Verified with
+  # `route -n get` against the tunnel rather than assumed.
   #
   # `subnet` is carried explicitly rather than derived from gateway and prefix:
   # Kea and nftables both want the network address in CIDR form, and deriving
@@ -84,23 +81,23 @@
       };
     };
 
-    # The work laptop, and nothing else. Segmented for the same reason guest is,
-    # but the threat model runs both ways: it is a corporate-managed machine
-    # running MDM, EDR and a VPN client that cannot be audited from here, and
-    # on trusted it could enumerate every device in the house. Equally, the
-    # house's iot chatter has no business reaching a machine subject to someone
-    # else's security policy.
+    # One centrally managed laptop, and nothing else. Segmented for the same
+    # reason guest is, but the threat model runs both ways: its software is
+    # administered by someone else and cannot be audited from here, so on
+    # trusted it could enumerate every device in the house. Equally, the house's
+    # iot chatter has no business reaching a machine held to a security policy
+    # that is not ours.
     #
-    # This is not hypothetical. The 192.168 note above exists because Cloudflare
-    # WARP on that profile routes 10.8.0.0/13 into a corporate tunnel: the
-    # machine already makes routing decisions on its owner's behalf, not ours.
-    # 192.168.50.0/24 is clear of that range.
+    # This is not hypothetical. The 192.168 note above exists because that
+    # machine's VPN client claims a wide slice of 10/8: it already makes routing
+    # decisions on its administrator's behalf, not ours. This subnet is clear of
+    # that range.
     #
     # It reaches the internet and the fleet resolvers on port 53, and nothing
     # else. Filtering is kept deliberately, but AdGuard's per-client settings
-    # are where to disable query logging for it: a timestamped per-client record
-    # of a work laptop's lookups is an awkward thing to hold, in both
-    # directions, and filtering does not require retaining it.
+    # are where to disable query logging for it: a timestamped record of that
+    # machine's lookups is an awkward thing to hold, in both directions, and
+    # filtering does not require retaining it.
     work = {
       id = 50;
       subnet = "192.168.50.0/24";
@@ -154,22 +151,29 @@
       sshInterfaces = [ "end0" ];
     };
 
-    # gate (CWWK N100, 4x i226) deliberately has no `ip` yet: it keeps its DHCP
-    # lease from the Nest until the router subnets are settled, so pinning one
-    # here would be fiction.
+    # gate (CWWK N100, 4x i226) has no `ip` and no `iface`. Both exist for the
+    # hosts/common model of one host, one address, one default gateway, and
+    # gate fits none of it: it holds `.1` in every segment and takes its default
+    # route from the ISP over `wan`. There is no single address to name here and
+    # nothing for hosts/common to configure, so its addresses are generated from
+    # `segments` in hosts/gate/routing.nix instead.
     #
-    # The WAN port is `wanIface`, deliberately not `iface`. `iface` means "the
-    # NIC hosts/common binds this host's static address and default gateway to",
-    # and on a router that is a LAN port. Naming the WAN port `iface` would mean
-    # that the moment gate gains an `ip`, hosts/common silently configures the
-    # LAN address and the LAN default gateway on the interface facing the
-    # internet. gate gets an `iface` of its own when the LAN side exists.
+    # The WAN port is therefore `wanIface`, deliberately not `iface`. `iface`
+    # means "the NIC hosts/common binds this host's static address and default
+    # gateway to", and on a router that is a LAN port. Under the other name,
+    # adding an `ip` here would silently configure a LAN address and a LAN
+    # default gateway on the interface facing the internet.
     #
-    # Until then it has no `ip`, and nothing may assume otherwise: hosts/core5's
-    # pimon firewall and modules/unbound's allowFrom both dereference
-    # `net.hosts.<h>.ip` unguarded, so adding gate to `pimonAgents` or to an
-    # `allowFrom` before it is addressed fails *that* host's evaluation, not
-    # gate's.
+    # Nothing may assume gate has an `ip`: hosts/core5's pimon firewall and
+    # modules/unbound's `allowFrom` both dereference `net.hosts.<h>.ip`
+    # unguarded, so naming gate in either fails *that* host's evaluation rather
+    # than gate's. modules/net-assertions.nix catches the `pimonAgents` half
+    # with a message that names the cause; `allowFrom` is still bare.
+    #
+    # That is also the one thing likely to force an address here, when Phase 8
+    # instruments gate. Decide what it would mean first: the honest answer is a
+    # segment gateway, which is not what `ip` denotes for any other host in this
+    # file.
     gate = {
       # Role names, and the PCI path each is pinned to. hosts/gate turns these
       # into systemd .link files; the kernel never generates names in this
@@ -203,7 +207,7 @@
       #
       # `wan` was here while it was the management path, facing the Nest's LAN
       # rather than the internet. It was removed at the Phase 7 cutover on
-      # 2026-09-04, once a trusted-segment path was proven: SSH from
+      # 2026-09-05, once a trusted-segment path was proven: SSH from
       # 192.168.10.101 over `br-trusted`, verified before this line changed and
       # not after. Deleting it is the difference between a router and a router
       # with SSH on its WAN.

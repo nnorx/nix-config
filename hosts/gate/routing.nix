@@ -1,7 +1,8 @@
-# gate routes, for all four segments.
+# gate routes, for all five segments.
 #
-# Still behind the Nest: `wan` keeps its DHCP lease, so this is double NAT,
-# which breaks inbound and UPnP and nothing here depends on either.
+# `wan` faces the modem as of the Phase 7 cutover on 2026-09-05. This is the
+# house's only route to the internet now, so a bad ruleset here is an outage
+# rather than an inconvenience.
 #
 # `lan0` is the tagged trunk to the Flex switch. `servers` is the *untagged*
 # VLAN on it, deliberately: the switch and the AP have to reach the controller
@@ -28,12 +29,12 @@
 # this bridge exists to prevent, and it is invisible in `nft list ruleset`.
 # gate runs no containers today; if that changes, this needs revisiting.
 #
-# **Do not deploy this before the switch uplink physically moves to lan0.**
-# An earlier version of this comment claimed the change was inert until then.
-# It is not: `service-sockets-require-all` spans four interfaces, none of which
-# has carrier until the trunk is cabled, so Kea fails its retries, exits, and
-# `Restart=on-failure` loops it indefinitely. Merging is safe; deploying is
-# part of the cable move, not a step before it.
+# **Kea requires carrier on every interface it serves.**
+# `service-sockets-require-all` spans the four interfaces that have pools, so
+# an unplugged trunk means Kea fails its retries, exits, and `Restart=on-failure`
+# loops it indefinitely. That was a deploy-ordering hazard while the uplink was
+# still on the Nest; now it is the property that makes a dead trunk take DHCP
+# down loudly rather than leaving it running deaf.
 {
   lib,
   net,
@@ -89,11 +90,11 @@ let
   # proxying to them, is what keeps AdGuard's per-client attribution
   # meaningful.
   #
-  # The addresses come from lib/net.nix, so they follow the Pis when they
-  # renumber into `servers`. Until then the Pis are on the flat LAN, queries
-  # leave through wan masqueraded from gate's own lease, and AdGuard sees gate
-  # rather than the client. Attribution only becomes real once there is no NAT
-  # between them.
+  # The addresses come from lib/net.nix, so they followed the Pis into
+  # `servers`. Attribution is real now that they are there: `networking.nat`
+  # masquerades only on the way out `wan`, so a query from a client segment to
+  # a Pi crosses the forward chain with its source address intact and AdGuard
+  # sees the client rather than the gateway.
   fleetResolvers = [
     net.hosts.core4.ip
     net.hosts.lifeline.ip
@@ -226,7 +227,7 @@ in
     #
     # Linux defaults to answering for *any* local address on *any* interface,
     # which is reasonable on a host and wrong on a router holding a different
-    # subnet on each of four segments. It caused a real failure during the
+    # subnet on each of five segments. It caused a real failure during the
     # cutover: the AP, sitting on servers, ARPed for 192.168.10.1, which lives
     # on br-trusted. gate answered on lan0 anyway, so the AP unicast a DHCP
     # renewal for its old address to a gateway that was not on its segment,
@@ -267,8 +268,9 @@ in
         #
         # Retry instead, and require every configured interface, so a
         # persistent failure exits non-zero and the unit's Restart=on-failure
-        # keeps trying. The cost is that deploying before the trunk is cabled
-        # loops the unit, which is why the header says not to.
+        # keeps trying. The cost is that an interface with no carrier loops the
+        # unit rather than being skipped, which is the trade the header
+        # describes.
         service-sockets-max-retries = 5;
         service-sockets-retry-wait-time = 5000;
         service-sockets-require-all = true;
