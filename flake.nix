@@ -128,6 +128,46 @@
           }
         );
 
+      # The specialArgs and modules every host gets, whichever nixosSystem
+      # builds it.
+      #
+      # Shared as pieces rather than behind one helper because core5 cannot go
+      # through mkHost: it is built by `nixos-raspberrypi.lib.nixosSystem`
+      # against that flake's own pinned nixpkgs, so it resolves to a different
+      # nixpkgs revision than the other three, and that wrapper sets
+      # `nixpkgs.hostPlatform` itself, so it must not be handed the `system`
+      # argument mkHost passes.
+      #
+      # What sharing buys: a module added here reaches every host. It used to
+      # reach three, and nothing failed. core5 simply did not have it.
+      fleetSpecialArgs =
+        { hostname, system }:
+        {
+          inherit hostname sshPubKey net;
+          unstable = unstableFor.${system};
+          pimonPkg = pimon.packages.${system}.default;
+        };
+
+      fleetModules =
+        { hostname, system }:
+        [
+          ./hosts/common
+          ./hosts/${hostname}
+          sops-nix.nixosModules.sops
+          { system.configurationRevision = self.rev or self.dirtyRev or "unknown"; }
+          home-manager.nixosModules.home-manager
+          {
+            home-manager.useGlobalPkgs = true;
+            home-manager.useUserPackages = true;
+            home-manager.users.${hostname} = import ./home/common.nix;
+            home-manager.extraSpecialArgs = {
+              username = hostname;
+              homeDirectory = "/home/${hostname}";
+              unstable = unstableFor.${system};
+            };
+          }
+        ];
+
       # Helper function to create a NixOS configuration for any host
       mkHost =
         {
@@ -137,29 +177,8 @@
         }:
         nixpkgs.lib.nixosSystem {
           inherit system;
-          specialArgs = {
-            inherit hostname sshPubKey net;
-            unstable = unstableFor.${system};
-            pimonPkg = pimon.packages.${system}.default;
-          };
-          modules = [
-            ./hosts/common
-            ./hosts/${hostname}
-            sops-nix.nixosModules.sops
-            { system.configurationRevision = self.rev or self.dirtyRev or "unknown"; }
-            home-manager.nixosModules.home-manager
-            {
-              home-manager.useGlobalPkgs = true;
-              home-manager.useUserPackages = true;
-              home-manager.users.${hostname} = import ./home/common.nix;
-              home-manager.extraSpecialArgs = {
-                username = hostname;
-                homeDirectory = "/home/${hostname}";
-                unstable = unstableFor.${system};
-              };
-            }
-          ]
-          ++ extraModules;
+          specialArgs = fleetSpecialArgs { inherit hostname system; };
+          modules = fleetModules { inherit hostname system; } ++ extraModules;
         };
 
       # Raspberry Pi hosts — mkHost plus the SD-card boot and filesystem layout
@@ -334,41 +353,36 @@
       # NixOS configurations for Raspberry Pis
       nixosConfigurations = {
         # Pi 5 uses nixos-raspberrypi for boot firmware + kernel support
-        core5 = nixos-raspberrypi.lib.nixosSystem {
-          specialArgs = {
+        # Not mkPi. core5's nixosSystem comes from nixos-raspberrypi and
+        # evaluates against that flake's nixpkgs; see fleetModules above. It
+        # shares the fleet's specialArgs and modules, but not the call.
+        #
+        # `nixos-raspberrypi` is deliberately absent from specialArgs: the
+        # wrapper injects it and its own value wins the merge.
+        #
+        # pi.nix sits last, matching core4 and lifeline through mkPi. Every
+        # option it sets is mkDefault, so the position is not load-bearing.
+        core5 =
+          let
             hostname = "core5";
-            inherit nixos-raspberrypi sshPubKey net;
-            unstable = unstableFor."aarch64-linux";
-            pimonPkg = pimon.packages."aarch64-linux".default;
+            system = "aarch64-linux";
+          in
+          nixos-raspberrypi.lib.nixosSystem {
+            specialArgs = fleetSpecialArgs { inherit hostname system; };
+            modules = [
+              (
+                { nixos-raspberrypi, ... }:
+                {
+                  imports = with nixos-raspberrypi.nixosModules; [
+                    raspberry-pi-5.base
+                    raspberry-pi-5.page-size-16k
+                  ];
+                }
+              )
+            ]
+            ++ fleetModules { inherit hostname system; }
+            ++ [ ./hosts/common/pi.nix ];
           };
-          modules = [
-            (
-              { nixos-raspberrypi, ... }:
-              {
-                imports = with nixos-raspberrypi.nixosModules; [
-                  raspberry-pi-5.base
-                  raspberry-pi-5.page-size-16k
-                ];
-              }
-            )
-            ./hosts/common
-            ./hosts/common/pi.nix
-            ./hosts/core5
-            sops-nix.nixosModules.sops
-            { system.configurationRevision = self.rev or self.dirtyRev or "unknown"; }
-            home-manager.nixosModules.home-manager
-            {
-              home-manager.useGlobalPkgs = true;
-              home-manager.useUserPackages = true;
-              home-manager.users.core5 = import ./home/common.nix;
-              home-manager.extraSpecialArgs = {
-                username = "core5";
-                homeDirectory = "/home/core5";
-                unstable = unstableFor."aarch64-linux";
-              };
-            }
-          ];
-        };
 
         # Pi 3/4 use U-Boot via nixos-hardware
         core4 = mkPi {
