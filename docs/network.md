@@ -236,17 +236,23 @@ public repo's history and should be treated as disclosed rather than fixed:
 
 - **core4's AdGuard admin hash**, `$2y$05$...`, committed 2026-02-25 and moved
   to sops in #32. Cost 05 is 32 rounds, which is cheap enough to attack offline
-  with a wordlist. This one wants rotating, not just encrypting.
+  with a wordlist. **Rotated.** The live value no longer matches the published
+  prefix.
 - **lifeline's AdGuard admin hash**, `$2b$10$...`, committed 2026-08-23, same
-  fix in #32. Cost 10 is far better, but it has been public just as long.
-- **`initialPassword = "changeme"`** in `hosts/common`. With
-  `wheelNeedsPassword = true` in the baseline this is the console *and* sudo
-  password on any host where it was never changed. SSH is key-only, so it is
-  not a remote entry point, but it is a free privilege escalation to anyone who
-  already has a shell or the console.
+  fix in #32. Cost 10 is far better, but it had been public just as long.
+  **Rotated**, on the same check.
+- **`initialPassword = "changeme"`**, in `hosts/common` until it was replaced by
+  `hashedPasswordFile` reading `user-password-hash` from sops. With
+  `wheelNeedsPassword = true` in the baseline it was the console *and* sudo
+  password on any host where it was never changed. SSH is key-only, so it was
+  never a remote entry point, but it was a free privilege escalation for anyone
+  who already had a shell or the console.
 
 Rotation is the remedy for all three, and rotating means changing the
-credential, not re-encrypting the old one.
+credential, not re-encrypting the old one. The trap specific to the last of
+these: putting the hash of `changeme` into `secrets/<host>.yaml` would leave
+every host holding the published password with an encrypted wrapper around it
+and nothing to show for the exercise. The value has to be new.
 
 ## Renumbering
 

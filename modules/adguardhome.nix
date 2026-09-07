@@ -62,7 +62,9 @@ let
   '';
 in
 {
-  sops.secrets.adguard-admin-hash.sopsFile = ../secrets/${hostname}.yaml;
+  # Declared here, with no `sopsFile`: hosts/common sets `sops.defaultSopsFile`
+  # to this host's file, which is the only place this module's secret ever lived.
+  sops.secrets.adguard-admin-hash = { };
   sops.templates."AdGuardHome.yaml".content = renderedConfig;
 
   # Appended rather than replacing preStart: the stock preStart installs the

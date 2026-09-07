@@ -84,11 +84,13 @@ let
   '';
 in
 {
-  sops.secrets.unifi-mongo-password.sopsFile = ../secrets/${hostname}.yaml;
 
   # One env file for both containers: the application authenticates with the
   # same credential the database is initialised with, so splitting them is a
   # way to have them drift.
+  # Declared here, with no `sopsFile`; see the note in modules/adguardhome.nix.
+  sops.secrets.unifi-mongo-password = { };
+
   sops.templates."unifi-db.env".content = ''
     MONGO_USER=unifi
     MONGO_PASS=${config.sops.placeholder.unifi-mongo-password}

@@ -54,30 +54,64 @@ the USB below sits ahead of the internal disk in the boot order.
 ## When sudo is the thing that broke
 
 The fleet's login and sudo password is a sops secret, rendered into
-`/run/secrets-for-users` early in activation, and `users.mutableUsers` is
-false. That combination is what makes the password declarative rather than
-whatever each host happened to be left holding, and it moves one failure into
-a new place: if a host cannot decrypt its secret, the account has no usable
-password, so console login and `sudo` both fail.
+`/run/secrets-for-users` early in activation, and `users.mutableUsers` is false.
+That is what makes the password declarative rather than whatever each host was
+left holding, and it puts one failure somewhere the other two layers on this
+page cannot reach.
 
-SSH still works, because authorized keys are declarative and do not depend on
-sops. So the usual shape of this is a host you can reach and cannot escalate
-on, which is recoverable but not from a shell on that host.
+**Activation does not stop when the secret fails to render.** Each activation
+snippet runs under a trap that records the failure and carries on, so a host
+that cannot decrypt its secret prints `Activation script snippet
+'setupSecretsForUsers' failed` and then runs the `users` snippet anyway.
+`update-users-groups.pl` warns that the password file does not exist, and
+because `mutableUsers` is false it writes `!` into the shadow entry of every
+declared account, root included. `nixos-rebuild` reports a non-zero exit after
+`/etc/shadow` has already been rewritten.
 
-The likely cause is the host's SSH host key changing, since that is what its
-age identity is derived from. Re-imaging does that. The fix is to re-derive the
-recipient into `.sops.yaml` and run `sops updatekeys secrets/<host>.yaml`, as
-[hosts/common](../hosts/common/default.nix) describes.
+**Neither of the layers above recovers this.** `/etc/shadow` is mutable state,
+not part of a generation, so selecting an older generation does not restore the
+password, and neither does `deploy-guard` rolling gate back automatically. The
+pre-change generation has `mutableUsers = true`, which preserves existing shadow
+entries rather than rewriting them, so it leaves the `!` exactly where it is.
+Both will appear to work and change nothing.
 
-Confirm before assuming it:
+**Root is locked too, so `sulogin` is not a way in.** At an emergency or rescue
+prompt it refuses a locked root account and says so rather than offering a
+shell, and nothing here sets `SYSTEMD_SULOGIN_FORCE`. With `kernel.sysrq = 0` in
+the baseline as well, a host at that prompt with a keyboard attached is still a
+USB or a card pull away from recovery.
+
+SSH keeps working throughout, because authorized keys are declarative and do not
+depend on sops. So the shape of this is a host you can reach, cannot escalate
+on, and cannot fix from a shell.
+
+Confirm it rather than assuming it. There is no
+`sops-install-secrets-for-users.service` on this fleet: that unit only exists
+when `systemd.sysusers` or `services.userborn` is enabled, and neither is, so
+sops-nix installs these through the activation script instead. Look at the
+activation output:
 
 ```bash
-systemctl status sops-install-secrets-for-users
+journalctl -b | grep -i setupSecretsForUsers
 ls -l /run/secrets-for-users/
 ```
 
-On a Pi this is a card pull. On `gate` it is the USB below, because there is no
-second route in.
+The likely cause is the host's SSH host key changing, since that is what its age
+identity is derived from. Re-imaging does that. The fix is to re-derive the
+recipient into `.sops.yaml` and run `sops updatekeys secrets/<host>.yaml`, as
+[hosts/common](../hosts/common/default.nix) describes.
+
+**That fix does not apply itself.** Re-keying happens on a dev machine, and
+landing it on the locked host needs a privileged rebuild there, which is the
+thing that is broken: `nrs` is `sudo nixos-rebuild`, `PermitRootLogin` is `no`,
+and `system.autoUpgrade` is disabled. So the re-key is preparation, and physical
+recovery is what applies it. On a Pi that is a card pull. On `gate` it is the
+USB below, because there is no second route in.
+
+The cheap way to never meet this: register a host's sops recipient **before**
+its first activation, not after, and confirm `/run/secrets-for-users/` is
+populated on a host you can still sudo on before trusting it on one you cannot.
+[pi-install.md](pi-install.md) orders the install that way.
 
 ## Recovery USB (x86)
 

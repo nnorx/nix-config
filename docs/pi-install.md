@@ -64,7 +64,35 @@ core5 is the exception. The Pi 5 needs `nixos-raspberrypi`'s own installer, so
    sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
    ```
 
-5. Build, stage, reboot. **Run these one at a time.** Pasted as a block,
+5. **Register the host's sops age recipient, before any rebuild.** The recipient
+   is derived from the SSH host key, and the host's own config now takes its
+   login password from `secrets/<host>.yaml`. If the host is not yet a recipient
+   when its first activation runs, the secret does not render, activation
+   continues anyway, and the account is left locked with no sudo and no working
+   `passwd`. That ends the install in a card pull, and it is not recoverable by
+   rolling back. See "When sudo is the thing that broke" in
+   [recovery.md](recovery.md).
+
+   From a machine with the sops age key, against the address from step 3:
+
+   ```bash
+   ssh-keyscan -t ed25519 <dhcp-address> | cut -d' ' -f2,3 | ssh-to-age
+   ```
+
+   Add that recipient to `.sops.yaml` under the host's rule, then re-encrypt and
+   publish, because the next step fetches the flake from GitHub rather than from
+   your working tree:
+
+   ```bash
+   sops updatekeys secrets/<host>.yaml
+   git add .sops.yaml secrets/<host>.yaml && git commit && git push
+   ```
+
+   A host with no `secrets/<host>.yaml` at all needs one created here, with a
+   `user-password-hash` in it. Without it the flake does not evaluate for that
+   host, so there is nothing to install.
+
+6. Build, stage, reboot. **Run these one at a time.** Pasted as a block,
    interrupting one leaves the shell to run the rest, including the reboot:
 
    ```bash
@@ -79,25 +107,23 @@ core5 is the exception. The Pi 5 needs `nixos-raspberrypi`'s own installer, so
    connected over. `boot` stages the generation and the reboot brings it up
    cleanly, and a failed boot leaves the previous generation selectable.
 
-6. Reconnect at the static address and set a password:
+7. Reconnect at the static address and confirm the password landed:
 
    ```bash
    ssh <hostname>@<static-ip>   # address from lib/net.nix
-   passwd                       # initialPassword is "changeme"
+   ls -l /run/secrets-for-users/
+   sudo -k && sudo true         # prompts for the passphrase from sops
    ```
 
-   SSH is key-only, so that password is only used for `sudo` and at the console.
-   It is public in this repo, so changing it is not optional.
+   There is no `passwd` step. The password is declarative: it comes from
+   `user-password-hash` in `secrets/<host>.yaml` and is rewritten into
+   `/etc/shadow` on every activation, so a local `passwd` change would be
+   discarded at the next rebuild. Rotating means editing the secret.
 
-7. **Re-derive the host's sops age recipient.** A fresh install regenerates the
-   SSH host key that the recipient is derived from, so `secrets/<host>.yaml`
-   becomes undecryptable by that host until `.sops.yaml` is updated and
-   `sops updatekeys secrets/<host>.yaml` is run. The failure surfaces later as
-   an unrelated-looking deploy error.
+   SSH is key-only, so this password is used only for `sudo` and at the console.
+   If `sudo` does not accept it, do not reboot: read the recovery section linked
+   in step 5 while you still have a shell.
 
-   ```bash
-   ssh-keyscan -t ed25519 <host> | cut -d' ' -f2,3 | ssh-to-age
-   ```
 
 ## core5 boots from NVMe
 
