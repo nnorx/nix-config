@@ -128,23 +128,111 @@ let
   # masquerades only on the way out `wan`, so a query from a client segment to
   # a Pi crosses the forward chain with its source address intact and AdGuard
   # sees the client rather than the gateway.
-  fleetResolvers = [
-    net.hosts.core4.ip
-    net.hosts.lifeline.ip
+  #
+  # Named by host rather than by address, because the redirect below has to
+  # know which *segment* each resolver sits on to assert it is not the one it
+  # is redirecting.
+  fleetResolverHosts = [
+    "core4"
+    "lifeline"
   ];
+
+  # Filtered before dereferencing, so a bad entry is reported by the assertion
+  # below instead of throwing "attribute 'ip' missing" from inside a map. Nix
+  # orders an assertion against the code it guards not at all: whichever is
+  # forced first wins, and here the throw wins every time. Verified by putting
+  # `gate` in the list, which lib/net.nix deliberately gives neither attribute:
+  # without this filter the assertion never gets to speak.
+  resolverIsUsable = h: net.hosts ? ${h} && net.hosts.${h} ? ip && net.hosts.${h} ? segment;
+  usableResolvers = lib.filter resolverIsUsable fleetResolverHosts;
+
+  fleetResolvers = map (h: net.hosts.${h}.ip) usableResolvers;
+
+  # The segments those resolvers sit on. Derived rather than named, so the
+  # redirect's exclusion follows the resolvers if one ever moves. Writing it as
+  # `iface != trunk` instead would state the same fact a second way, which is
+  # the drift this file spends most of its comments guarding against.
+  resolverSegments = map (h: net.hosts.${h}.segment) usableResolvers;
 
   # guest gets public resolvers instead. lib/net.nix calls that segment
   # internet-only, and pointing it at the fleet's resolvers would contradict
   # that and require a forward rule into servers to work at all.
+  #
+  # Stated as a list and a predicate rather than inline in `resolversFor`,
+  # because the DNS redirect below has to make the same distinction and
+  # spelling "guest" twice is how the two would drift apart.
+  publicResolverSegments = [ "guest" ];
+  usesFleetResolvers = name: !(builtins.elem name publicResolverSegments);
+
   resolversFor =
     name:
-    if name == "guest" then
+    if usesFleetResolvers name then
+      fleetResolvers
+    else
       [
         "1.1.1.1"
         "9.9.9.9"
-      ]
-    else
-      fleetResolvers;
+      ];
+
+  # Where a client is told to use the fleet's resolvers, catch it doing
+  # otherwise. A device with DNS hardcoded to 8.8.8.8 ignores everything Kea
+  # hands it, so it is both unfiltered and absent from AdGuard's query log:
+  # invisible in the one place the house would look.
+  #
+  # This is the rule the servers segment was created to make possible. A DNAT
+  # to a resolver on a *different* subnet keeps the client's source address,
+  # because the reply comes back through gate and conntrack undoes the
+  # translation. On the *same* subnet the resolver answers the client directly,
+  # from an address the client never sent to, so the client discards it, and
+  # masquerading the hairpin to fix that destroys the source address the
+  # redirect existed to preserve. See `servers` in lib/net.nix.
+  #
+  # Two exclusions, each for its own reason:
+  #
+  # `guest` is excluded because it is not on the fleet's resolvers at all, so
+  # there is nothing to redirect it to: the forward chain has no path from
+  # guest into servers, deliberately.
+  #
+  # `servers` is excluded twice over. It is the subnet the resolvers are on, so
+  # it is exactly the hairpin case above. It also carries core4's and
+  # lifeline's own Unbound, which recurses by talking to authoritative servers
+  # on port 53 all over the internet; redirecting that would point each
+  # resolver's recursion back at the resolvers and take DNS down completely
+  # rather than degrade it. gate's own Unbound is safe without being named,
+  # because locally generated traffic hits `output` and this chain is
+  # `prerouting`.
+  #
+  # A segment added to lib/net.nix later is redirected by default, which is the
+  # opposite of how `deniedUpstream` above derives its list. That is deliberate
+  # and not symmetry for its own sake: an unfiltered segment is the condition
+  # this rule exists to remove, so the safe default is to include a new segment
+  # and let whoever adds it opt out, rather than to add a segment that silently
+  # is not covered.
+  #
+  # The cost of that default, and the known gap here: the Unbound reasoning
+  # above is about recursion, not about servers, and it holds for any host that
+  # recurses. A workstation on trusted running its own resolver, or a container
+  # runtime with one, has its queries to authoritative servers rewritten to
+  # AdGuard, which answers recursively rather than with referrals and
+  # synthesises answers for filtered names, so a validating local resolver gets
+  # SERVFAIL rather than degraded service. Only whole segments can be excluded
+  # here, so a host like that needs its own segment or an exception written by
+  # address. Nothing in the fleet does this today; gate and the Pis are the
+  # recursers and all three are already outside the redirect.
+  redirectOn = lib.filterAttrs (
+    _: name: usesFleetResolvers name && !(builtins.elem name resolverSegments)
+  ) segmentOn;
+  redirectIfaces = builtins.attrNames redirectOn;
+
+  # Spread across the resolvers rather than pinning one. The fleet runs two
+  # deliberately independent resolvers, and sending every redirected client to
+  # the first would quietly make it a single point of failure for precisely the
+  # devices that cannot be repointed by DHCP. `numgen inc` is per-connection,
+  # and stub resolvers randomise their source port per query, so a retry after
+  # a timeout generally lands on the other resolver. That is the failover here;
+  # nftables cannot health-check a target, so one resolver being down degrades
+  # these clients rather than sparing them.
+  resolverMap = lib.concatStringsSep ", " (lib.imap0 (i: ip: "${toString i} : ${ip}") fleetResolvers);
 in
 {
   # A segment declared in lib/net.nix but not carried by an interface here
@@ -166,6 +254,38 @@ in
         no address and no route.
       '';
     }
+  ]
+  ++ map (h: {
+    assertion = resolverIsUsable h;
+    message = ''
+      hosts/gate/routing.nix names "${h}" as a fleet resolver, but net.hosts has
+      no such host with both an `ip` and a `segment`. Both are dereferenced
+      unguarded here, to address the DNAT and to work out which segment to
+      exclude from it, so without this the failure is an "attribute missing"
+      trace naming neither this list nor the host. `gate` is the likely
+      mistake: lib/net.nix gives it neither, deliberately.
+    '';
+  }) fleetResolverHosts
+  ++ [
+    {
+      assertion = fleetResolvers != [ ];
+      message = ''
+        hosts/gate/routing.nix has no usable fleet resolver, so the DNS redirect
+        would have nothing to point at. The nftables rule would render as
+        `mod 0` over an empty map, whose error message says nothing about this
+        list.
+      '';
+    }
+    {
+      assertion = redirectOn != { };
+      message = ''
+        hosts/gate/routing.nix would redirect port 53 on no interface at all, so
+        the rule catching hardcoded resolvers would not exist. Every segment is
+        either on public resolvers or holds a resolver itself. This fails here
+        rather than at `iifname { }`, which is an nftables syntax error whose
+        message says nothing about why the set is empty.
+      '';
+    }
   ];
 
   # nftables backend rather than iptables. The reason is filterForward below:
@@ -181,6 +301,37 @@ in
     enable = true;
     externalInterface = net.hosts.gate.wanIface;
     internalInterfaces = segmentIfaces;
+  };
+
+  # Catch clients that ignore the resolvers Kea hands them.
+  #
+  # Merged into the nat module's own table rather than a private one: `content`
+  # is `types.lines`, so this appends a chain beside the module's `pre`, `post`
+  # and `out` instead of standing up a second table competing for the same
+  # hook. It is a separate base chain because `pre` is generated as one string
+  # and cannot be appended to.
+  #
+  # `dstnat + 10` puts it after `pre`, so an explicit port forward added later
+  # wins over this blanket rule rather than racing it at equal priority.
+  #
+  # The counter is deliberate. #65 shipped a drop with no counter and no log,
+  # so nothing could say whether it had ever matched; `nft list chain ip
+  # nixos-nat dns-redirect` answers that here, and a counter that stays at zero
+  # is itself the finding.
+  # `family` is declared here rather than left to the nat module. That module
+  # supplies it only under `mkIf networking.nat.enable`, so without this the
+  # option is defined by nothing the moment nat is turned off, and evaluation
+  # fails with "the option `networking.nftables.tables.nixos-nat.family' is used
+  # but not defined" — a message naming neither this file nor the cause.
+  networking.nftables.tables."nixos-nat" = {
+    family = "ip";
+    content = ''
+      chain dns-redirect {
+        type nat hook prerouting priority dstnat + 10;
+
+        iifname ${nftSet (quoted redirectIfaces)} meta l4proto { tcp, udp } th dport 53 ip daddr != ${nftSet fleetResolvers} counter dnat to numgen inc mod ${toString (builtins.length fleetResolvers)} map { ${resolverMap} } comment "catch hardcoded resolvers"
+      }
+    '';
   };
 
   networking = {

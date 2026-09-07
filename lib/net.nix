@@ -103,6 +103,17 @@
       subnet = "192.168.50.0/24";
       gateway = "192.168.50.1";
       prefixLength = 24;
+
+      # Filtered, but not recorded. The paragraph above said AdGuard's
+      # per-client settings are "where to disable query logging for it", which
+      # left the property depending on someone having ticked a box in a UI.
+      # modules/adguardhome.nix now reads this flag and writes that client on
+      # every resolver, so it is a fact about the topology instead.
+      #
+      # This became load-bearing when gate started redirecting hardcoded
+      # resolvers: before that, a machine on this segment ignoring DHCP was not
+      # logged because it was not talking to the fleet at all.
+      logQueries = false;
       pool = {
         first = "192.168.50.100";
         last = "192.168.50.240";
