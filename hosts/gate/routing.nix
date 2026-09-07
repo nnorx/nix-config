@@ -128,23 +128,75 @@ let
   # masquerades only on the way out `wan`, so a query from a client segment to
   # a Pi crosses the forward chain with its source address intact and AdGuard
   # sees the client rather than the gateway.
-  fleetResolvers = [
-    net.hosts.core4.ip
-    net.hosts.lifeline.ip
+  #
+  # Named by host rather than by address, because the redirect below has to
+  # know which *segment* each resolver sits on to assert it is not the one it
+  # is redirecting.
+  fleetResolverHosts = [
+    "core4"
+    "lifeline"
   ];
+  fleetResolvers = map (h: net.hosts.${h}.ip) fleetResolverHosts;
 
   # guest gets public resolvers instead. lib/net.nix calls that segment
   # internet-only, and pointing it at the fleet's resolvers would contradict
   # that and require a forward rule into servers to work at all.
+  #
+  # Stated as a list and a predicate rather than inline in `resolversFor`,
+  # because the DNS redirect below has to make the same distinction and
+  # spelling "guest" twice is how the two would drift apart.
+  publicResolverSegments = [ "guest" ];
+  usesFleetResolvers = name: !(builtins.elem name publicResolverSegments);
+
   resolversFor =
     name:
-    if name == "guest" then
+    if usesFleetResolvers name then
+      fleetResolvers
+    else
       [
         "1.1.1.1"
         "9.9.9.9"
-      ]
-    else
-      fleetResolvers;
+      ];
+
+  # Where a client is told to use the fleet's resolvers, catch it doing
+  # otherwise. A device with DNS hardcoded to 8.8.8.8 ignores everything Kea
+  # hands it, so it is both unfiltered and absent from AdGuard's query log:
+  # invisible in the one place the house would look.
+  #
+  # This is the rule the servers segment was created to make possible. A DNAT
+  # to a resolver on a *different* subnet keeps the client's source address,
+  # because the reply comes back through gate and conntrack undoes the
+  # translation. On the *same* subnet the resolver answers the client directly,
+  # from an address the client never sent to, so the client discards it, and
+  # masquerading the hairpin to fix that destroys the source address the
+  # redirect existed to preserve. See `servers` in lib/net.nix.
+  #
+  # Two exclusions, each for its own reason:
+  #
+  # `guest` is excluded because it is not on the fleet's resolvers at all, so
+  # there is nothing to redirect it to: the forward chain has no path from
+  # guest into servers, deliberately.
+  #
+  # `servers` is excluded twice over. It is the subnet the resolvers are on, so
+  # it is exactly the hairpin case above. It also carries core4's and
+  # lifeline's own Unbound, which recurses by talking to authoritative servers
+  # on port 53 all over the internet; redirecting that would point each
+  # resolver's recursion back at the resolvers and take DNS down completely
+  # rather than degrade it. gate's own Unbound is safe without being named,
+  # because locally generated traffic hits `output` and this chain is
+  # `prerouting`.
+  redirectOn = lib.filterAttrs (iface: name: usesFleetResolvers name && iface != trunk) segmentOn;
+  redirectIfaces = builtins.attrNames redirectOn;
+
+  # Spread across the resolvers rather than pinning one. The fleet runs two
+  # deliberately independent resolvers, and sending every redirected client to
+  # the first would quietly make it a single point of failure for precisely the
+  # devices that cannot be repointed by DHCP. `numgen inc` is per-connection,
+  # and stub resolvers randomise their source port per query, so a retry after
+  # a timeout generally lands on the other resolver. That is the failover here;
+  # nftables cannot health-check a target, so one resolver being down degrades
+  # these clients rather than sparing them.
+  resolverMap = lib.concatStringsSep ", " (lib.imap0 (i: ip: "${toString i} : ${ip}") fleetResolvers);
 in
 {
   # A segment declared in lib/net.nix but not carried by an interface here
@@ -166,7 +218,19 @@ in
         no address and no route.
       '';
     }
-  ];
+  ]
+  ++ map (h: {
+    assertion = !(builtins.elem net.hosts.${h}.segment (builtins.attrValues redirectOn));
+    message = ''
+      hosts/gate/routing.nix redirects port 53 from segment
+      ${net.hosts.${h}.segment}, which is where the resolver ${h} sits. A DNAT to a
+      resolver on the client's own subnet hairpins: the resolver answers the
+      client directly, from an address the client never sent to, so the client
+      discards the reply. Redirecting a segment to a resolver on it does not
+      work and cannot be made to work without masquerading away the source
+      address the redirect exists to preserve. See `servers` in lib/net.nix.
+    '';
+  }) fleetResolverHosts;
 
   # nftables backend rather than iptables. The reason is filterForward below:
   # NixOS only offers a filtered forward chain on this backend, and a router
@@ -182,6 +246,29 @@ in
     externalInterface = net.hosts.gate.wanIface;
     internalInterfaces = segmentIfaces;
   };
+
+  # Catch clients that ignore the resolvers Kea hands them.
+  #
+  # Merged into the nat module's own table rather than a private one: `content`
+  # is `types.lines`, so this appends a chain beside the module's `pre`, `post`
+  # and `out` instead of standing up a second table competing for the same
+  # hook. It is a separate base chain because `pre` is generated as one string
+  # and cannot be appended to.
+  #
+  # `dstnat + 10` puts it after `pre`, so an explicit port forward added later
+  # wins over this blanket rule rather than racing it at equal priority.
+  #
+  # The counter is deliberate. #65 shipped a drop with no counter and no log,
+  # so nothing could say whether it had ever matched; `nft list chain ip
+  # nixos-nat dns-redirect` answers that here, and a counter that stays at zero
+  # is itself the finding.
+  networking.nftables.tables."nixos-nat".content = ''
+    chain dns-redirect {
+      type nat hook prerouting priority dstnat + 10;
+
+      iifname ${nftSet (quoted redirectIfaces)} meta l4proto { tcp, udp } th dport 53 ip daddr != ${nftSet fleetResolvers} counter dnat to numgen inc mod ${toString (builtins.length fleetResolvers)} map { ${resolverMap} } comment "catch hardcoded resolvers"
+    }
+  '';
 
   networking = {
     # Tagged sub-interfaces on the trunk, derived from taggedSegments above.

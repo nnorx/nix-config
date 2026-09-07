@@ -15,13 +15,23 @@ as a revert path, and it raises what a bad deploy costs: the recovery USB and
 
 ## Still open
 
-- [ ] **Port-53 DNAT redirect for hardcoded resolvers.** Not written. Worth
-      noting how load-bearing its absence is: the entire reason the Pis sit on
-      their own segment is that this redirect only preserves the client's
-      source address when the resolver is on a *different* subnet. That design
-      constraint has been paid for and the rule it was paid for does not exist
-      yet, so a device with DNS hardcoded to 8.8.8.8 is currently unfiltered
-      and invisible.
+- [x] **Port-53 DNAT redirect for hardcoded resolvers.** Written, in the
+      `dns-redirect` chain in `hosts/gate/routing.nix`. The servers segment was
+      paid for to make this rule possible and now it exists: a query to any
+      resolver other than the fleet's, from trusted, iot or work, is rewritten
+      to core4 or lifeline with the client's source address intact.
+
+      servers and guest are excluded, each for its own reason, and an assertion
+      refuses to build if a segment holding a resolver is ever added back to the
+      redirect. The rule carries a `counter`, so
+      `nft list chain ip nixos-nat dns-redirect` says whether it has ever
+      matched. **Not deployed or observed yet** — see the checklist below.
+
+      It catches plaintext DNS only. A device speaking DoT (853) or DoH (443)
+      still bypasses the fleet's resolvers, and DoH is not distinguishable from
+      other HTTPS traffic at the firewall. Blocking 853 outbound would push
+      DoT-capable devices back onto port 53 where this rule catches them; that
+      is not done here.
 - [ ] **Confirm AdGuard logs real client IPs** rather than the gateway. The
       mechanism is in place (Kea hands out the Pi addresses directly, and nat
       masquerades only outbound on `wan`), but it has not been verified against
@@ -58,6 +68,14 @@ that happens to be working.
 - [ ] `gate` rebooted, everything returns with no manual intervention,
       including Kea leases and the WAN lease
 - [ ] iot cannot reach trusted; guest cannot reach anything
+- [ ] A client with DNS hardcoded to 8.8.8.8 still resolves, its queries appear
+      in AdGuard under the client's own address, and a filtered domain is
+      blocked for it. The `dns-redirect` counter should be non-zero afterwards;
+      a counter still at zero means the rule is not on the path it was
+      believed to be on
+- [ ] The Pis still resolve. Their own Unbound recursion leaves from the
+      servers segment, which the redirect excludes, and getting that wrong
+      takes DNS down completely rather than degrading it
 
 ### Phase 8: afterwards
 
