@@ -233,6 +233,26 @@ let
   # nftables cannot health-check a target, so one resolver being down degrades
   # these clients rather than sparing them.
   resolverMap = lib.concatStringsSep ", " (lib.imap0 (i: ip: "${toString i} : ${ip}") fleetResolvers);
+
+  # The addresses sshd binds, derived from the interfaces lib/net.nix already
+  # names as gate's SSH surface. gate has no `ip`, so modules/ssh.nix skips it
+  # and this is where the same job gets done, the split hosts/common makes for
+  # addressing.
+  #
+  # Derived rather than listed for the reason that file's own comment gives:
+  # when `lan0` stopped meaning trusted and started meaning servers, the value
+  # of `sshInterfaces` did not change but its meaning did. Deriving the address
+  # from `segmentOn` means the bind follows the interface's meaning instead of
+  # being a second place that has to be remembered.
+  sshIfaces = net.hosts.gate.sshInterfaces;
+
+  # Filtered before dereferencing, so an interface that carries no segment is
+  # reported by the assertion below rather than thrown as a bare "attribute
+  # missing" from inside a map. Nix gives an assertion no priority over the code
+  # it guards: whichever is forced first wins, and the throw wins. Verified by
+  # putting `wan` back in the list, which is the mistake this is here to catch.
+  routedSshIfaces = lib.filter (i: segmentOn ? ${i}) sshIfaces;
+  sshAddresses = map (i: seg.${segmentOn.${i}}.gateway) routedSshIfaces;
 in
 {
   # A segment declared in lib/net.nix but not carried by an interface here
@@ -268,6 +288,18 @@ in
   }) fleetResolverHosts
   ++ [
     {
+      assertion = lib.all (i: segmentOn ? ${i}) sshIfaces;
+      message = ''
+        lib.net.hosts.gate.sshInterfaces names ${
+          lib.concatStringsSep ", " (lib.filter (i: !(segmentOn ? ${i})) sshIfaces)
+        }, which carries no segment here, so there is no address for sshd to
+        bind. modules/firewall.nix would still open port 22 on that interface
+        while sshd listened on none of it, which reads as a firewall fault. If
+        the interface is meant to be an SSH surface, give it a segment; if it is
+        not, take it out of that list.
+      '';
+    }
+    {
       assertion = fleetResolvers != [ ];
       message = ''
         hosts/gate/routing.nix has no usable fleet resolver, so the DNS redirect
@@ -301,6 +333,26 @@ in
     enable = true;
     externalInterface = net.hosts.gate.wanIface;
     internalInterfaces = segmentIfaces;
+  };
+
+  # sshd binds the two segment gateways rather than 0.0.0.0. See the comment in
+  # modules/ssh.nix; on this host it matters most, because `wan` now holds a
+  # routable public address and the input chain is otherwise the only thing in
+  # front of a listening sshd.
+  services.openssh.listenAddresses = map (addr: {
+    inherit addr;
+    port = null;
+  }) sshAddresses;
+
+  # `br-trusted` is a bridge over a VLAN sub-interface, so it is among the last
+  # things to come up. Without this ordering sshd races it, loses, and systemd
+  # stops retrying after five failures in ten seconds, which on the house's only
+  # router means no way in. Same reasoning as Kea below.
+  systemd.services.sshd = {
+    wants = [ "network-online.target" ];
+    after = [ "network-online.target" ] ++ map (i: "network-addresses-${i}.service") routedSshIfaces;
+    serviceConfig.RestartSec = 5;
+    unitConfig.StartLimitIntervalSec = 0;
   };
 
   # Catch clients that ignore the resolvers Kea hands them.
