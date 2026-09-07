@@ -3,6 +3,7 @@
 # Boot and storage live in pi.nix (Pis) or the host's own directory (x86), since
 # those genuinely differ per platform. Everything here applies fleet-wide.
 {
+  config,
   pkgs,
   lib,
   hostname,
@@ -35,6 +36,13 @@ in
   # that key: re-derive it into .sops.yaml and run `sops updatekeys`.
   sops.age.sshKeyPaths = [ "/etc/ssh/ssh_host_ed25519_key" ];
 
+  # Every secret this fleet has is per-host and lives at the same path, so name
+  # it once. modules/adguardhome.nix and modules/unifi.nix used to spell it out
+  # themselves, at a different relative depth to this file, which is three
+  # copies to find on the day secrets/ moves into the private flake input that
+  # docs/network.md anticipates.
+  sops.defaultSopsFile = ../../secrets/${hostname}.yaml;
+
   # Networking. Addressing is derived from lib/net.nix rather than repeated per
   # host, so that file's promise — renumbering the LAN is a one-file change —
   # holds structurally instead of depending on every host repeating the same
@@ -61,10 +69,53 @@ in
     defaultGateway = net.segments.${host.segment}.gateway;
   };
 
+  # The login and sudo password, from sops rather than a literal in a public
+  # repo. It was `initialPassword = "changeme"`, which is worse than it sounds:
+  # `security.sudo.wheelNeedsPassword` is true, so on any host where nobody
+  # ever ran `passwd` that published string was the sudo password.
+  #
+  # `neededForUsers` is what makes this work at all. Users are created early in
+  # activation, before the normal secrets are rendered, so a hash under
+  # /run/secrets would not exist yet when it is read. This lands it in
+  # /run/secrets-for-users, which sops-nix populates first.
+  #
+  # If this secret cannot be rendered, activation does not stop. The snippet
+  # fails, the `users` snippet runs anyway, and the account is left locked. That
+  # is not recoverable by rolling back, because /etc/shadow is mutable state
+  # rather than part of a generation. docs/recovery.md has the full account, and
+  # it is why a host's sops recipient must be registered before its first
+  # activation rather than after.
+  sops.secrets.user-password-hash.neededForUsers = true;
+
+  # Declarative users, and inseparable from the `hashedPasswordFile` below
+  # rather than a hardening preference: it is what makes that line take effect
+  # at all.
+  #
+  # NixOS writes a declared password into an *existing* account's shadow entry
+  # only when this is false. With it true, update-users-groups.pl merges the
+  # current /etc/shadow and leaves the entry alone, applying a declared hash
+  # only to accounts it is creating for the first time. Every account in this
+  # fleet already exists, so setting hashedPasswordFile without this would have
+  # changed nothing, reported nothing, and left `changeme` in place wherever it
+  # was never changed. A security fix that silently does not apply is worse
+  # than none, because it is believed.
+  #
+  # Three costs, all deliberate:
+  #
+  #   - `passwd` on a host no longer persists. The next activation rewrites the
+  #     entry from the sops value, so rotating means editing the secret.
+  #   - root is left locked (`!`), because nothing declares a password for it.
+  #     That also means `sulogin` refuses a shell at an emergency prompt, so
+  #     physical recovery is the USB or a card pull. See docs/recovery.md.
+  #   - undeclared accounts and groups are removed, and group memberships added
+  #     by hand with `usermod -aG` are dropped. On a freshly flashed Pi that
+  #     retires the image's leftover `nixos` account on first activation.
+  users.mutableUsers = false;
+
   # User account — hostname doubles as username (core4, core5, lifeline, gate)
   users.users.${hostname} = {
     isNormalUser = true;
-    initialPassword = "changeme"; # Change on first login with: passwd
+    hashedPasswordFile = config.sops.secrets.user-password-hash.path;
     extraGroups = [
       "wheel"
     ];
