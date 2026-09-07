@@ -51,6 +51,34 @@ boot-and-reboot cycles.
 The firmware timeout is short and not reliably catchable, which is part of why
 the USB below sits ahead of the internal disk in the boot order.
 
+## When sudo is the thing that broke
+
+The fleet's login and sudo password is a sops secret, rendered into
+`/run/secrets-for-users` early in activation, and `users.mutableUsers` is
+false. That combination is what makes the password declarative rather than
+whatever each host happened to be left holding, and it moves one failure into
+a new place: if a host cannot decrypt its secret, the account has no usable
+password, so console login and `sudo` both fail.
+
+SSH still works, because authorized keys are declarative and do not depend on
+sops. So the usual shape of this is a host you can reach and cannot escalate
+on, which is recoverable but not from a shell on that host.
+
+The likely cause is the host's SSH host key changing, since that is what its
+age identity is derived from. Re-imaging does that. The fix is to re-derive the
+recipient into `.sops.yaml` and run `sops updatekeys secrets/<host>.yaml`, as
+[hosts/common](../hosts/common/default.nix) describes.
+
+Confirm before assuming it:
+
+```bash
+systemctl status sops-install-secrets-for-users
+ls -l /run/secrets-for-users/
+```
+
+On a Pi this is a card pull. On `gate` it is the USB below, because there is no
+second route in.
+
 ## Recovery USB (x86)
 
 **This does not install anything.** Nothing is written to the host: the USB

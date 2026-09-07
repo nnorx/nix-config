@@ -64,6 +64,27 @@
     "kernel.sysrq" = 0;
   };
 
+  # Declarative users. This is not tidiness, and it is not separable from the
+  # `hashedPasswordFile` in hosts/common: it is what makes that line take
+  # effect at all.
+  #
+  # NixOS writes a declared password into an *existing* account's shadow entry
+  # only when mutableUsers is false. With it true, update-users-groups.pl
+  # merges the current /etc/shadow and leaves the entry alone, applying a
+  # declared hash only to accounts it is creating for the first time. Every
+  # account in this fleet already exists, so pointing hashedPasswordFile at a
+  # sops secret without this would have changed nothing, reported nothing, and
+  # left `changeme` in place on any host where it was never changed. A security
+  # fix that silently does not apply is worse than none, because it is
+  # believed.
+  #
+  # Two costs, both deliberate. `passwd` on a host no longer persists, since
+  # the next activation rewrites the entry from the sops value, so rotating a
+  # password means editing the secret. And root is left locked (`!`), because
+  # nothing here declares a password for it; sudo from the wheel user is the
+  # way in, and docs/recovery.md covers the case where that fails.
+  users.mutableUsers = false;
+
   # Sudo — only wheel group, require password
   security.sudo = {
     execWheelOnly = true;

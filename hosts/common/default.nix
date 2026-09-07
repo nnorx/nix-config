@@ -3,6 +3,7 @@
 # Boot and storage live in pi.nix (Pis) or the host's own directory (x86), since
 # those genuinely differ per platform. Everything here applies fleet-wide.
 {
+  config,
   pkgs,
   lib,
   hostname,
@@ -61,10 +62,27 @@ in
     defaultGateway = net.segments.${host.segment}.gateway;
   };
 
+  # The login and sudo password, from sops rather than a literal in a public
+  # repo. It was `initialPassword = "changeme"`, which is worse than it sounds:
+  # `security.sudo.wheelNeedsPassword` is true, so on any host where nobody
+  # ever ran `passwd` that published string was the sudo password.
+  #
+  # `neededForUsers` is what makes this work at all. Users are created early in
+  # activation, before the normal secrets are rendered, so a hash under
+  # /run/secrets would not exist yet when it is read. This lands it in
+  # /run/secrets-for-users, which sops-nix populates first.
+  #
+  # It pairs with `users.mutableUsers = false` in modules/baseline.nix, and the
+  # two are not separable. See the comment there.
+  sops.secrets.user-password-hash = {
+    sopsFile = ../../secrets/${hostname}.yaml;
+    neededForUsers = true;
+  };
+
   # User account — hostname doubles as username (core4, core5, lifeline, gate)
   users.users.${hostname} = {
     isNormalUser = true;
-    initialPassword = "changeme"; # Change on first login with: passwd
+    hashedPasswordFile = config.sops.secrets.user-password-hash.path;
     extraGroups = [
       "wheel"
     ];
