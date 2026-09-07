@@ -44,11 +44,16 @@ alone.
 
 | VLAN | Segment | Subnet | Holds | Policy |
 |---|---|---|---|---|
-| 10 | trusted | 192.168.10.0/24 | Laptops, phones, the wired workstation | Full access |
-| 20 | servers | 192.168.20.0/24 | core4, core5, lifeline, switch, AP | Reachable from trusted. **No DHCP pool**: statically addressed |
-| 30 | iot | 192.168.30.0/24 | Cameras, plugs, TVs | Internet, plus port 53 to the Pis |
-| 40 | guest | 192.168.40.0/24 | Visitors | Internet only, public resolvers |
-| 50 | work | 192.168.50.0/24 | One managed laptop | Internet, plus port 53 to the Pis |
+| 10 | trusted | 192.168.10.0/24 | Laptops, phones, the wired workstation | Full access. Port 53 redirected |
+| 20 | servers | 192.168.20.0/24 | core4, core5, lifeline, switch, AP | Reachable from trusted. **No DHCP pool**: statically addressed. Not redirected |
+| 30 | iot | 192.168.30.0/24 | Cameras, plugs, TVs | Internet, plus port 53 to the Pis. Port 53 redirected |
+| 40 | guest | 192.168.40.0/24 | Visitors | Internet only, public resolvers. Not redirected |
+| 50 | work | 192.168.50.0/24 | One managed laptop | Internet, plus port 53 to the Pis. Port 53 redirected, and not logged |
+
+"Port 53 redirected" means plaintext DNS aimed anywhere other than the fleet's
+own resolvers is rewritten to them, so the port-53 column above describes where
+those queries end up rather than merely where they are permitted. See
+[DNS](#dns).
 
 Everything not named in the policy column is refused by the default-drop
 forward chain rather than by a deny rule, so `guest` is isolated by not
@@ -162,14 +167,38 @@ Two operators everywhere a fallback appears, Cloudflare and Quad9, so a single
 provider outage does not take bootstrap with it. Google is deliberately absent:
 keeping them out of the DNS path is one of the reasons this fleet exists.
 
+**Clients that ignore all of that are redirected.** Handing out resolver
+addresses only works for clients that use them, and a device with DNS hardcoded
+to a public resolver is both unfiltered and absent from the query log, which is
+the worst of the two. gate's `dns-redirect` chain rewrites plaintext port 53
+from trusted, iot and work to core4 or lifeline whichever address it was aimed
+at, spreading across the two rather than pinning one.
+
+This is the rule the `servers` segment exists to make possible: a DNAT to a
+resolver on a different subnet keeps the client's source address, because the
+reply returns through gate and conntrack undoes the translation. On the same
+subnet it would not, which is why `servers` is excluded, and why the exclusion
+is derived from where the resolvers sit rather than written out. `servers` also
+carries the Pis' own recursion, which must reach authoritative servers on port
+53 untouched. `guest` is excluded because it is not on the fleet's resolvers at
+all.
+
+The `work` segment is redirected like the others and its queries are dropped
+from the log rather than recorded, via `logQueries = false` in `lib/net.nix`,
+which `modules/adguardhome.nix` turns into a persistent client with
+`ignore_querylog` on every resolver. Filtering that machine and keeping a
+timestamped record of it are separate decisions, and only the first is wanted.
+
 **Local name resolution is a gap.** Kea does not register hostnames with
 AdGuard. Static reservations in `lib/net.nix` plus AdGuard rewrites for the
 handful of names worth having is the intended answer, and it keeps the topology
 in one file.
 
-**DoH is advisory, not enforceable.** Port 853 and known DoH endpoint IPs can be
-blocked, but browsers ship encrypted DNS over 443 and the endpoint lists change.
-Browser policy is more reliable than firewall rules here.
+**DoH is advisory, not enforceable, and the redirect does not change that.**
+Port 853 and known DoH endpoint IPs can be blocked, but browsers ship encrypted
+DNS over 443 and the endpoint lists change. Browser policy is more reliable than
+firewall rules here. The redirect covers plaintext port 53 only, so it closes
+the hardcoded-`8.8.8.8` case and none of the encrypted ones.
 
 ## What stays out of this repo
 

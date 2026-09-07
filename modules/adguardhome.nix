@@ -89,6 +89,21 @@ in
         }
       ];
 
+      # Segments that are filtered but deliberately not recorded. The flag and
+      # the reasoning both live in lib/net.nix; this turns them into AdGuard's
+      # own per-client settings on every resolver that runs this module, so the
+      # property survives without anyone remembering the UI.
+      #
+      # `ids` takes CIDR, so one entry covers the segment however its hosts are
+      # addressed. Statistics are dropped alongside the log: a per-client query
+      # count over time is a weaker record than the log but still a record.
+      clients.persistent = lib.mapAttrsToList (name: seg: {
+        inherit name;
+        ids = [ seg.subnet ];
+        ignore_querylog = true;
+        ignore_statistics = true;
+      }) (lib.filterAttrs (_: seg: !(seg.logQueries or true)) net.segments);
+
       dns = {
         bind_hosts = [ "0.0.0.0" ];
         port = 53;
