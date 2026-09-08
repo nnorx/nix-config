@@ -69,11 +69,6 @@ in
     l = "eza";
     lt = "eza --tree --level=2";
 
-    # Safety nets
-    rm = "rm -i";
-    cp = "cp -i";
-    mv = "mv -i";
-
     # Modern replacements
     cat = "bat --paging=never";
 
@@ -93,7 +88,7 @@ in
     gsr = "git branch --sort=-committerdate --format='%(refname:short)' | fzf | xargs git switch";
 
     # Interactive file utilities
-    fopen = ''f="$(fd --type f --hidden --follow --exclude .git | fzf --preview 'bat --color=always {}')" && nvim "$f"'';
+    fopen = ''f="$(fd --type f --hidden --follow --exclude .git | fzf --preview 'bat --color=always {}')" && "''${EDITOR:-nano}" "$f"'';
     bigfiles = "fd -t f -x du -h {} | sort -rh | head -20";
 
     # Misc

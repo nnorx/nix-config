@@ -32,10 +32,7 @@
     plugins = with pkgs.tmuxPlugins; [
       sensible # Sensible defaults
       yank # Better copy/paste
-      {
-        plugin = resurrect; # Save/restore sessions
-        extraConfig = "set -g @resurrect-strategy-nvim 'session'";
-      }
+      resurrect # Save/restore sessions
       {
         plugin = continuum; # Auto-save sessions
         extraConfig = ''
