@@ -19,6 +19,7 @@
     curl # HTTP client
     unzip # Archive extraction
     tldr # Community-maintained command cheat sheets
+    nano # Terminal editor, the target of EDITOR/VISUAL
   ];
 
   # FZF - fuzzy finder integration

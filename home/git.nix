@@ -34,7 +34,7 @@
       merge.conflictStyle = "diff3";
 
       # Misc
-      core.editor = "nvim";
+      core.editor = "nano";
       core.autocrlf = if pkgs.stdenv.isLinux then "input" else false;
 
       # Credential helper - platform-appropriate

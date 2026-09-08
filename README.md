@@ -179,8 +179,8 @@ Three Home Manager profiles:
 
 | Profile | Used by | Contents |
 |---|---|---|
-| `home/common.nix` | every host, including the Pis and gate | zsh/bash + starship, git, neovim, tmux, CLI tools, vulnix |
-| `home/default.nix` | WSL (`nick`), macOS (`nicknorcross`) | common, plus Node, Rust, kubectl, LSPs, direnv, keychain ssh-agent, Claude Code |
+| `home/common.nix` | every host, including the Pis and gate | zsh/bash + starship, git, nano, tmux, CLI tools, vulnix |
+| `home/default.nix` | WSL (`nick`), macOS (`nicknorcross`) | common, plus Node, Rust, Docker CLI, direnv, keychain ssh-agent, Claude Code |
 | `home/darwin.nix` | macOS only | GNU coreutils |
 
 First run on a new machine:
@@ -196,22 +196,6 @@ After that, `hms` applies changes and `nfu && hms` updates everything first.
 
 Package lists live in `home/common-tools.nix` and `home/dev-tools.nix` rather
 than being mirrored here, where they would rot.
-
-### Dev shells
-
-```bash
-nix develop ~/projects/nix-config#playwright   # Chromium with Nix-patched binaries
-nix develop ~/projects/nix-config#fullstack    # Node, pnpm, Railway
-```
-
-Per project, via direnv:
-
-```bash
-echo 'use flake ~/projects/nix-config#playwright' > .envrc && direnv allow
-```
-
-The Playwright shell prints the `@playwright/test` version to pin, and provides
-`pwt`, `pwth`, `pwtd`, `pwui`, `pwshow` and `pwgen`.
 
 ## Commands
 

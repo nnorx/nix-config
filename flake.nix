@@ -250,39 +250,6 @@
       # Formatter for `nix fmt`
       formatter = forAllSystems ({ pkgs, ... }: pkgs.nixfmt-tree);
 
-      # Reusable devShells for common project types
-      devShells = forAllSystems (
-        { pkgs, unstable }:
-        {
-          # Fullstack development with Railway deployment
-          fullstack = pkgs.mkShell {
-            packages = [
-              pkgs.nodejs_24
-              unstable.pnpm
-              pkgs.railway
-            ];
-            shellHook = ''
-              echo "Fullstack dev shell ready (node $(node --version), $(railway --version 2>/dev/null || echo 'railway available'))"
-            '';
-          };
-
-          # Playwright e2e testing with Nix-patched Chromium
-          playwright = pkgs.mkShell {
-            packages = [
-              pkgs.nodejs_24
-              unstable.pnpm
-              unstable.playwright-test
-            ];
-            shellHook = ''
-              export PLAYWRIGHT_BROWSERS_PATH="${unstable.playwright-driver.browsers-chromium}"
-              export PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS="true"
-              echo "Playwright $(playwright --version) ready (chromium-only)"
-              echo "Pin in package.json: @playwright/test@${unstable.playwright-driver.version}"
-            '';
-          };
-        }
-      );
-
       # Installer image for Pi 5 — includes SSH key for headless access
       # Build with: nix build .#packages.aarch64-linux.core5-installer --accept-flake-config
       packages.aarch64-linux.core5-installer =

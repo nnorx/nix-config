@@ -14,30 +14,24 @@
     nodejs_24 # Node.js 24 (includes npm)
     unstable.pnpm # pnpm 10 from nixpkgs-unstable
     typescript # was nodePackages.typescript; that set was removed in 26.05
-    typescript-language-server
 
     # ===== Rust =====
     rustc # Rust compiler
     cargo # Rust package manager
     rustfmt # Rust formatter
     clippy # Rust linter
-    rust-analyzer # Rust LSP
 
     # ===== Git Tools =====
-    lazygit # Git TUI
     git-crypt # Transparent file encryption in git
 
     # ===== DevOps Tools =====
     (docker_29.override { clientOnly = true; }) # Docker CLI
     docker-compose # Docker orchestration
-    kubectl # Kubernetes CLI
-    k9s # Kubernetes TUI
 
     # ===== Networking =====
     dnsutils # dig/delv — query the Pi DNS hosts from outside
 
-    # ===== Language Servers & Formatters =====
-    nil # Nix LSP
+    # ===== Formatters =====
     nixfmt-rfc-style # Nix formatter
 
     # ===== Misc Development =====
@@ -48,29 +42,16 @@
 
   # Dev-specific shell aliases (merged with common aliases via module system)
   shell-common.aliases = {
-    # Git TUI
-    lg = "lazygit";
-
     # Package manager
     pn = "pnpm";
 
     # AI tools
     cld = "claude";
-
-    # Playwright
-    pwt = "npx playwright test";
-    pwth = "npx playwright test --headed";
-    pwtd = "npx playwright test --debug";
-    pwui = "npx playwright test --ui";
-    pwshow = "npx playwright show-report";
-    pwgen = "npx playwright codegen";
   };
 
   # Dev-specific session variables
   home.sessionVariables = {
-    # Skip Playwright browser downloads - use Nix-provided browsers in devShells
-    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
-    # Point rust-analyzer to Nix-provided stdlib source
+    # Point rust tooling at the Nix-provided stdlib source
     RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
   };
 
