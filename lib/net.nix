@@ -94,25 +94,23 @@
     # that range.
     #
     # It reaches the internet and the fleet resolvers on port 53, and nothing
-    # else. Filtering is kept deliberately, but AdGuard's per-client settings
-    # are where to disable query logging for it: a timestamped record of that
-    # machine's lookups is an awkward thing to hold, in both directions, and
-    # filtering does not require retaining it.
+    # else. Filtering is kept deliberately, but query logging is off (see
+    # `logQueries` below): a timestamped record of that machine's lookups is an
+    # awkward thing to hold, in both directions, and filtering does not require
+    # retaining it.
     work = {
       id = 50;
       subnet = "192.168.50.0/24";
       gateway = "192.168.50.1";
       prefixLength = 24;
 
-      # Filtered, but not recorded. The paragraph above said AdGuard's
-      # per-client settings are "where to disable query logging for it", which
-      # left the property depending on someone having ticked a box in a UI.
-      # modules/adguardhome.nix now reads this flag and writes that client on
-      # every resolver, so it is a fact about the topology instead.
+      # Filtered, but not recorded. modules/adguardhome.nix reads this flag and
+      # writes the matching per-client rule on every resolver, so the property
+      # holds without anyone having to tick a box in a UI.
       #
-      # This became load-bearing when gate started redirecting hardcoded
-      # resolvers: before that, a machine on this segment ignoring DHCP was not
-      # logged because it was not talking to the fleet at all.
+      # Load-bearing since gate started redirecting hardcoded resolvers: before
+      # that, a machine here ignoring DHCP went unlogged because it was not
+      # talking to the fleet at all.
       logQueries = false;
       pool = {
         first = "192.168.50.100";
@@ -181,37 +179,10 @@
     # than gate's. modules/net-assertions.nix catches the `pimonAgents` half
     # with a message that names the cause; `allowFrom` is still bare.
     #
-    # That is also the one thing likely to force an address here, when Phase 8
-    # instruments gate. Decide what it would mean first: the honest answer is a
-    # segment gateway, which is not what `ip` denotes for any other host in this
-    # file.
+    # Phase 8 instrumentation is the thing likely to force an address here.
+    # Decide what it would denote first: gate holds one per segment, not one
+    # overall.
     gate = {
-      # Role names, and the PCI path each is pinned to. hosts/gate turns these
-      # into systemd .link files; the kernel never generates names in this
-      # shape, so there is no rename collision.
-      #
-      # Matching on PCI path rather than MAC address is deliberate. It defends
-      # against the thing that actually reorders interfaces, which is systemd's
-      # predictable-naming scheme changing between releases and turning enp2s0
-      # into something else, while keeping hardware identifiers out of a public
-      # repo. See "What stays out of this repo" in docs/router.md. The residual
-      # risk it does not cover is firmware renumbering the PCI buses, which
-      # fixed hardware with no hotplug does not do, and which a MAC check after
-      # the rename catches.
-      #
-      # Physical sockets are labelled ETH0-ETH3 on the chassis and map in
-      # order, so wan is ETH0.
-      #
-      # Roles, settled in Phase 1:
-      #   wan   ETH0  the modem
-      #   lan0  ETH1  tagged trunk to the Flex switch, every segment on it
-      #   lan1  ETH2  untagged, bridged into trusted: a dedicated 2.5G run to
-      #               one machine that does not contend with the Pis and the
-      #               AP for the switch uplink. Bridged rather than given its
-      #               own subnet so it shares a broadcast domain with the rest
-      #               of trusted, which is what mDNS and friends need to see
-      #               phones and printers
-      #   lan2  ETH3  spare, left down
       # Interfaces sshd is reachable on. Listed rather than derived, because
       # this is a security control and deriving it would mean a future
       # interface silently becoming an SSH surface.
@@ -235,6 +206,30 @@
         "br-trusted"
       ];
 
+      # Role names, and the PCI path each is pinned to. hosts/gate turns these
+      # into systemd .link files; the kernel never generates names in this
+      # shape, so there is no rename collision.
+      #
+      # Matching on PCI path rather than MAC address is deliberate. It defends
+      # against the thing that actually reorders interfaces, which is systemd's
+      # predictable-naming scheme changing between releases and turning enp2s0
+      # into something else, while keeping hardware identifiers out of a public
+      # repo. See "What stays out of this repo" in docs/router.md. The residual
+      # risk it does not cover is firmware renumbering the PCI buses, which
+      # fixed hardware with no hotplug does not do, and which a MAC check after
+      # the rename catches.
+      #
+      # Physical sockets are labelled ETH0-ETH3 on the chassis and map in
+      # order, so wan is ETH0.
+      #
+      # Roles, settled in Phase 1:
+      #   wan   ETH0  the modem
+      #   lan0  ETH1  tagged trunk to the Flex switch, every segment on it
+      #   lan1  ETH2  untagged, bridged into trusted: a dedicated 2.5G run to
+      #               one machine that does not contend with the Pis and the
+      #               AP for the switch uplink. See hosts/gate/routing.nix for
+      #               why it is bridged rather than given its own subnet
+      #   lan2  ETH3  spare, left down
       nics = {
         wan = "pci-0000:02:00.0";
         lan0 = "pci-0000:03:00.0";

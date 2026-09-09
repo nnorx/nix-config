@@ -12,8 +12,7 @@
 # That choice moved the meaning of `lan0` from trusted to servers without
 # changing its name, which silently repointed `sshInterfaces` in lib/net.nix at
 # the segment holding vendor firmware and away from the one holding laptops.
-# `br-trusted` is listed there now. An interface name is not a stable
-# description of what is behind it.
+# `br-trusted` is listed there now.
 #
 # `lan1` is untagged trusted, bridged with the tagged trusted VLAN rather than
 # given a subnet of its own, so a machine cabled directly to gate shares a
@@ -35,6 +34,10 @@
 # loops it indefinitely. That was a deploy-ordering hazard while the uplink was
 # still on the Nest; now it is the property that makes a dead trunk take DHCP
 # down loudly rather than leaving it running deaf.
+#
+# Lists below are derived from `segmentOn` and lib/net.nix wherever they can be,
+# so a segment added to the topology cannot be half-configured here. Where one
+# is written out instead, the comment says why.
 {
   lib,
   net,
@@ -43,9 +46,7 @@
 let
   seg = net.segments;
 
-  # Interface names, bound once each. They appear in the addresses, the Kea
-  # listeners and subnets, the nat internal list, the firewall scopes and the
-  # forward rules, and those drifting apart is how this class of bug happens.
+  # Interface names, bound once each and used throughout.
   trunk = "lan0"; # tagged trunk to the Flex switch; untagged = servers
   wired = "lan1"; # untagged trusted, a dedicated run to one machine
   trustedBr = "br-trusted"; # tagged trusted + `wired`, so they share a domain
@@ -76,8 +77,6 @@ let
     ${tagged "guest"} = "guest";
   };
 
-  # Bound once rather than recomputed at each call site, for the same reason
-  # the interface names above are.
   segmentIfaces = builtins.attrNames segmentOn;
 
   # DHCP is served where a segment declares a pool, and nowhere else. servers
@@ -149,18 +148,12 @@ let
   fleetResolvers = map (h: net.hosts.${h}.ip) usableResolvers;
 
   # The segments those resolvers sit on. Derived rather than named, so the
-  # redirect's exclusion follows the resolvers if one ever moves. Writing it as
-  # `iface != trunk` instead would state the same fact a second way, which is
-  # the drift this file spends most of its comments guarding against.
+  # redirect's exclusion follows the resolvers if one ever moves.
   resolverSegments = map (h: net.hosts.${h}.segment) usableResolvers;
 
   # guest gets public resolvers instead. lib/net.nix calls that segment
   # internet-only, and pointing it at the fleet's resolvers would contradict
   # that and require a forward rule into servers to work at all.
-  #
-  # Stated as a list and a predicate rather than inline in `resolversFor`,
-  # because the DNS redirect below has to make the same distinction and
-  # spelling "guest" twice is how the two would drift apart.
   publicResolverSegments = [ "guest" ];
   usesFleetResolvers = name: !(builtins.elem name publicResolverSegments);
 
@@ -179,13 +172,9 @@ let
   # hands it, so it is both unfiltered and absent from AdGuard's query log:
   # invisible in the one place the house would look.
   #
-  # This is the rule the servers segment was created to make possible. A DNAT
-  # to a resolver on a *different* subnet keeps the client's source address,
-  # because the reply comes back through gate and conntrack undoes the
-  # translation. On the *same* subnet the resolver answers the client directly,
-  # from an address the client never sent to, so the client discards it, and
-  # masquerading the hairpin to fix that destroys the source address the
-  # redirect existed to preserve. See `servers` in lib/net.nix.
+  # This is the rule the servers segment was created to make possible: the
+  # redirect only preserves the client's source address when the resolver is on
+  # a different subnet. See `servers` in lib/net.nix for the mechanism.
   #
   # Two exclusions, each for its own reason:
   #
@@ -202,23 +191,15 @@ let
   # because locally generated traffic hits `output` and this chain is
   # `prerouting`.
   #
-  # A segment added to lib/net.nix later is redirected by default, which is the
-  # opposite of how `deniedUpstream` above derives its list. That is deliberate
-  # and not symmetry for its own sake: an unfiltered segment is the condition
-  # this rule exists to remove, so the safe default is to include a new segment
-  # and let whoever adds it opt out, rather than to add a segment that silently
-  # is not covered.
+  # A segment added to lib/net.nix later is redirected by default: an
+  # unfiltered segment is the condition this rule exists to remove, so a new
+  # segment is covered until whoever adds it opts out.
   #
-  # The cost of that default, and the known gap here: the Unbound reasoning
-  # above is about recursion, not about servers, and it holds for any host that
-  # recurses. A workstation on trusted running its own resolver, or a container
-  # runtime with one, has its queries to authoritative servers rewritten to
-  # AdGuard, which answers recursively rather than with referrals and
-  # synthesises answers for filtered names, so a validating local resolver gets
-  # SERVFAIL rather than degraded service. Only whole segments can be excluded
-  # here, so a host like that needs its own segment or an exception written by
-  # address. Nothing in the fleet does this today; gate and the Pis are the
-  # recursers and all three are already outside the redirect.
+  # Known gap: the Unbound reasoning above is about recursion, so it holds for
+  # any host that recurses, not just those on servers. A workstation running its
+  # own validating resolver would get SERVFAIL rather than degraded service, and
+  # only whole segments can be excluded here, so it would need its own segment
+  # or an exception by address. Nothing in the fleet does this today.
   redirectOn = lib.filterAttrs (
     _: name: usesFleetResolvers name && !(builtins.elem name resolverSegments)
   ) segmentOn;
@@ -314,10 +295,10 @@ in
   # `dstnat + 10` puts it after `pre`, so an explicit port forward added later
   # wins over this blanket rule rather than racing it at equal priority.
   #
-  # The counter is deliberate. #65 shipped a drop with no counter and no log,
-  # so nothing could say whether it had ever matched; `nft list chain ip
-  # nixos-nat dns-redirect` answers that here, and a counter that stays at zero
-  # is itself the finding.
+  # The counter is deliberate: `nft list chain ip nixos-nat dns-redirect` says
+  # whether this has ever matched, and a counter that stays at zero is itself
+  # the finding.
+  #
   # `family` is declared here rather than left to the nat module. That module
   # supplies it only under `mkIf networking.nat.enable`, so without this the
   # option is defined by nothing the moment nat is turned off, and evaluation
@@ -365,8 +346,7 @@ in
 
     firewall = {
       # Default-drop forwarding. Without this the forward chain accepts
-      # everything, and a router whose forward chain defaults to accept is not
-      # a firewall.
+      # everything.
       filterForward = true;
 
       # Inter-segment policy, plus one deny. The accepts below are
@@ -465,18 +445,14 @@ in
         service-sockets-retry-wait-time = 5000;
         service-sockets-require-all = true;
 
-        # Kea is deliberately not bound to the trunk parent. Its raw sockets
-        # would receive tagged frames as well as untagged ones, because the
-        # kernel delivers to AF_PACKET taps before VLAN demux, so a request
-        # from an iot device would arrive on `lan0.30` and on `lan0`, and the
-        # `lan0` copy would be answered from the servers pool. Serving DHCP
-        # only where a segment declares a pool, and giving servers none, means
-        # nothing binds `lan0` and the ambiguity cannot arise.
+        # Kea is deliberately not bound to the trunk parent, where its raw
+        # sockets would see tagged frames as well as untagged ones. Serving
+        # DHCP only where a segment declares a pool, and giving servers none,
+        # means nothing binds `lan0`. See `servers` in lib/net.nix.
       };
 
-      # Leases survive a restart of the daemon and a reboot of the box. Without
-      # persistence every reboot is a fresh pool and clients renumber, which on
-      # a router is indistinguishable from a fault.
+      # Without persistence every reboot is a fresh pool and clients renumber,
+      # which on a router is indistinguishable from a fault.
       lease-database = {
         type = "memfile";
         persist = true;

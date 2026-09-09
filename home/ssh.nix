@@ -17,11 +17,10 @@
     # keychain 2.9.0+ auto-detects the ssh agent, so `agents` is deprecated
     # and omitted. Key names resolve relative to ~/.ssh.
     #
-    # id_ed25519_pis was left out on the grounds that it is used via
-    # IdentityFile rather than the agent. That does not follow: the key has a
-    # passphrase, and IdentityFile only says which key to offer, not who signs
-    # with it. Without an agent holding it, every connection to a Pi — or now
-    # to gate — prompts, and each new shell starts with an empty agent.
+    # id_ed25519_pis is listed because it has a passphrase: IdentityFile only
+    # says which key to offer, not who signs with it, so without an agent
+    # holding it every connection to a Pi or to gate prompts, and each new
+    # shell starts with an empty agent.
     keys = [
       "id_ed25519_hetzner"
       "id_ed25519_pis"
