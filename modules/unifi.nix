@@ -98,11 +98,9 @@ in
   '';
 
   systemd.tmpfiles.rules = [
-    # Traversable, so the host user can reach `config` below. It was 0750
-    # root:root, which meant the documented backup command could not enter the
-    # directory at all even though the directory it wanted was owned by that
-    # user. Nothing sensitive lives at this level; the contents carry their own
-    # modes.
+    # Traversable, so the host user can reach `config` below and the backup in
+    # docs/unifi.md can run without root. Nothing sensitive lives at this level;
+    # the contents carry their own modes.
     "d ${stateDir} 0755 root root -"
 
     # The database is root's. Mongo starts as root and drops privileges itself.

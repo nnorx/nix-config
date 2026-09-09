@@ -70,9 +70,8 @@ in
 
     settings = {
       server = {
-        # Bind the LAN address only when another host actually forwards here.
-        # With allowFrom empty the resolver is absent from the network rather
-        # than merely refusing it, so it does not depend on the firewall or on
+        # Bind the LAN address only when another host actually forwards here,
+        # so an unused resolver does not depend on the firewall or on
         # access-control to stay unreachable.
         interface = [
           "127.0.0.1"

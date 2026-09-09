@@ -37,10 +37,9 @@ in
   sops.age.sshKeyPaths = [ "/etc/ssh/ssh_host_ed25519_key" ];
 
   # Every secret this fleet has is per-host and lives at the same path, so name
-  # it once. modules/adguardhome.nix and modules/unifi.nix used to spell it out
-  # themselves, at a different relative depth to this file, which is three
-  # copies to find on the day secrets/ moves into the private flake input that
-  # docs/network.md anticipates.
+  # it once here rather than in each module that reads one: one copy to change
+  # on the day secrets/ moves into the private flake input that docs/network.md
+  # anticipates.
   sops.defaultSopsFile = ../../secrets/${hostname}.yaml;
 
   # Networking. Addressing is derived from lib/net.nix rather than repeated per
@@ -53,13 +52,9 @@ in
   }
   // lib.optionalAttrs (host ? ip) {
     # Address, prefix and default gateway all come from the one segment the
-    # host names. During the cutover a host also held an address on the flat
-    # LAN, so it stayed reachable while the switch uplink moved behind gate.
-    # That second address is gone, and deliberately: once end0 was carrying
-    # the servers VLAN, the flat address was configured on an interface that
-    # no longer reached that network, so the host answered nothing there and
-    # silently blackholed everything it sent to 192.168.86.0/24 — including,
-    # on core5, the controller's traffic to the switch.
+    # host names, and from no other. A second address on a network the
+    # interface no longer reaches is not inert: the host answers nothing there
+    # and silently blackholes everything it sends to it.
     interfaces.${host.iface}.ipv4.addresses = [
       {
         address = host.ip;
@@ -97,8 +92,7 @@ in
   # only to accounts it is creating for the first time. Every account in this
   # fleet already exists, so setting hashedPasswordFile without this would have
   # changed nothing, reported nothing, and left `changeme` in place wherever it
-  # was never changed. A security fix that silently does not apply is worse
-  # than none, because it is believed.
+  # was never changed.
   #
   # Three costs, all deliberate:
   #

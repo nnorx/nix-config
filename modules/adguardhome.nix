@@ -132,19 +132,11 @@ in
         # is a /24), so all of trusted shares one bucket and all of iot shares
         # another. No setting makes it per-device.
         #
-        # It used to be a whole-LAN ceiling, because a second reason applied:
-        # the router proxied client DNS, so every query arrived from the gateway
-        # address. That stopped being true as clients moved onto gate's Kea,
-        # which hands out the Pi addresses directly, so queries now arrive with
-        # the client's own source address. That is what makes AdGuard's
-        # per-client logging and per-client rules work at all.
-        #
-        # So the number has outlived both readings it was picked under: 300 was
-        # chosen as per-device, 3000 as whole-LAN (#16), and it is now neither.
-        # It wants a deliberate look rather than another guess. Exceeded queries
-        # are dropped rather than refused, so the symptom of setting it too low
-        # is intermittent partial resolution, which reads as a network fault.
-        # Port 53 is restricted to the LAN interface by the firewall either way.
+        # This number was picked back when the router proxied client DNS and
+        # every query arrived from the gateway address, so it is not sized for
+        # what it now measures and wants a deliberate look. Exceeded queries are
+        # dropped rather than refused, so setting it too low shows up as
+        # intermittent partial resolution, which reads as a network fault.
         ratelimit = 3000;
       };
 
