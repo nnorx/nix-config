@@ -52,34 +52,62 @@ let
       coreutils
       findutils
       git
+      gnused
       openssh
     ];
     text = ''
+      # Keepalives, so a stalled connection ends the push instead of hanging
+      # it. The unit's TimeoutStartSec is the outer bound; this is what makes a
+      # dead TCP session fail in a minute rather than at that bound.
       export GIT_SSH_COMMAND="ssh -i ${keyPath} -o IdentitiesOnly=yes \
         -o UserKnownHostsFile=${knownHosts} -o StrictHostKeyChecking=yes \
-        -o HostKeyAlgorithms=ssh-ed25519"
+        -o HostKeyAlgorithms=ssh-ed25519 \
+        -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=4"
+
+      # Listing failures and an empty listing are different faults with
+      # different fixes, so they are reported apart. find's own error (missing
+      # directory, permission denied) reaches the journal above this message
+      # rather than being folded into advice about the schedule.
+      if ! listing=$(find ${backupDir} -maxdepth 1 -name '*.unf' -mmin +2 -printf '%T@ %p\n'); then
+        echo "cannot list ${backupDir} as $(id -un); the error above is the cause." >&2
+        echo "A missing directory means the controller has not started since a reset." >&2
+        exit 1
+      fi
 
       # Newest autobackup, not a named one: the controller rotates these and
-      # the filename carries a timestamp that is its own, not ours.
-      newest=$(find ${backupDir} -maxdepth 1 -name '*.unf' -printf '%T@ %p\n' 2>/dev/null \
-        | sort -rn | head -1 | cut -d' ' -f2- || true)
+      # the filename carries a timestamp that is its own. `-mmin +2` above
+      # skips a file the controller may still be writing.
+      newest=$(printf '%s\n' "''${listing}" | sort -rn | sed -n '1s/^[^ ]* //p')
 
       if [ -z "''${newest}" ]; then
-        echo "no .unf in ${backupDir}." >&2
+        echo "no .unf older than two minutes in ${backupDir}." >&2
         echo "The controller's own backup schedule is what fills it:" >&2
         echo "  Settings > System > Backups. See docs/unifi.md." >&2
         exit 1
       fi
 
-      hash=$(sha256sum "''${newest}" | cut -d' ' -f1)
+      # One read of the live file. Hashing and encrypting it separately would
+      # read it twice, and the hash recorded could describe a different file
+      # from the one pushed.
+      snapshot=$(mktemp)
+      trap 'rm -f "''${snapshot}"' EXIT
+      cp "''${newest}" "''${snapshot}"
+      hash=$(sha256sum "''${snapshot}" | cut -d' ' -f1)
 
-      cd ${workDir} || exit 1
+      # Repeats WorkingDirectory= on purpose, so the script also runs by hand.
+      cd ${workDir}
       if [ ! -d repo/.git ]; then
         git clone --branch ${branch} ${repoUrl} repo
       fi
-      cd repo || exit 1
+      cd repo
       git fetch origin ${branch}
       git reset --hard origin/${branch}
+
+      # reset does not touch untracked files. A first run killed between
+      # writing unifi/ and committing it leaves a latest.sha256 that matches
+      # the newest backup, and without this every later run would read it,
+      # report "already pushed", and exit 0 while nothing ever left the host.
+      git clean -fdx
 
       # Compare the *plaintext* hash, not the encrypted blob. This runs daily
       # but the controller writes a new file only when its own schedule fires,
@@ -92,11 +120,11 @@ let
       fi
 
       mkdir -p unifi
-      age --recipient ${ageRecipient} --output unifi/latest.unf.age "''${newest}"
+      age --recipient ${ageRecipient} --output unifi/latest.unf.age "''${snapshot}"
       printf '%s\n' "''${hash}" > unifi/latest.sha256
 
       git add unifi
-      git -c user.name=core5 -c user.email=core5@nix-config.invalid \
+      git -c user.name=${hostname} -c user.email=${hostname}@nix-config.invalid \
         commit -m "unifi: controller state $(date -u +%Y-%m-%d)"
       git push origin ${branch}
       echo "pushed ''${hash}"
@@ -105,8 +133,9 @@ let
 in
 {
   # Declared here with no `sopsFile`; see the note in modules/adguardhome.nix.
-  # Owned by the host user because the unit runs as that user: the backup
-  # directory is 0750 core5:users and root is not what needs to read it.
+  # Owned by the host user because the unit runs as that user. The
+  # controller's config volume is 0750 and owned by that user (see
+  # modules/unifi.nix), so root is not what needs to read it.
   sops.secrets.unifi-backup-deploy-key = {
     owner = hostname;
     mode = "0400";
@@ -127,11 +156,22 @@ in
 
       ExecStart = lib.getExe push;
 
-      # ProtectHome below makes /home unreachable, and both git and ssh want a
-      # HOME they can read. Unset, git warns and ssh looks in / for a config.
+      # Oneshot units have no start timeout unless one is set, and a timer will
+      # not start a unit that is still active. Without this a hung push would
+      # sit in "activating" forever and every later backup would silently not
+      # happen. A 30 KB push takes seconds; this is only the backstop.
+      TimeoutStartSec = "15min";
+
+      # systemd sets HOME to the account's home for User= services, and
+      # ProtectHome below makes that unreachable. git reads its global config
+      # from $HOME, so it is pointed somewhere it can read. ssh is unaffected
+      # either way: it resolves ~ from the passwd entry rather than $HOME, and
+      # is handed its key and known_hosts explicitly.
       Environment = [ "HOME=${workDir}" ];
 
-      # Hardening. Reads one directory, writes one, and talks to GitHub.
+      # Hardening. ProtectSystem=strict leaves everything read-only except the
+      # StateDirectory, which is all this needs: it reads the backup directory
+      # and writes only its own working copy.
       NoNewPrivileges = true;
       ProtectSystem = "strict";
       ProtectHome = true;
@@ -140,7 +180,6 @@ in
       ProtectControlGroups = true;
       RestrictNamespaces = true;
       RestrictSUIDSGID = true;
-      ReadOnlyPaths = [ backupDir ];
     };
   };
 

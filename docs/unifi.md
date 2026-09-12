@@ -106,6 +106,13 @@ destination for a file carrying Wi-Fi PSKs: the destination is untrusted by
 construction, and the private half is in Bitwarden and
 `~/.config/sops/age/keys.txt`.
 
+The deploy key has write access and core5 can read it, so a compromised core5
+could push to the backup repo. It cannot erase what is already there: a ruleset
+on `nnorx/homelab-state` blocks force-pushes and deletion of the default branch,
+with no bypass actors, so the history this copy exists for survives the host it
+exists to outlive. Verified on 2026-09-12 by a force-push from the owner's own
+token, which was rejected.
+
 The plaintext hash is what decides whether to commit, not the encrypted blob.
 The timer runs daily while the controller writes a new file only on its own
 schedule, and age uses a fresh ephemeral key per run, so the same file encrypts
@@ -126,10 +133,21 @@ hashes and no config change between them settles it.
 
 ### Restoring
 
+**`latest` is not always the one you want.** After a rebuild or a controller
+reset, the new controller's first scheduled backup is of an empty config, and
+the timer pushes it over the good one. Every earlier version is still in the
+repo's history, and the ruleset above is what guarantees that:
+
 ```bash
-age --decrypt --identity ~/.config/sops/age/keys.txt \
-  unifi/latest.unf.age > restore.unf
+git clone git@github.com:nnorx/homelab-state.git && cd homelab-state
+git log --format='%h %ad %s' --date=short -- unifi/latest.unf.age
+git show <commit>:unifi/latest.unf.age > pick.unf.age
+age --decrypt --identity ~/.config/sops/age/keys.txt pick.unf.age > restore.unf
 ```
+
+Pick the last commit from before the loss, not the newest. On a rebuilt core5,
+`systemctl stop unifi-backup.timer` until the restore is done keeps an empty
+controller's backup from landing on top in the meantime.
 
 Then a fresh controller, and Settings > System > Backups > Restore. Expect to
 re-adopt: a restore brings back the saved device config, which is the thing
