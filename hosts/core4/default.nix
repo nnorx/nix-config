@@ -22,7 +22,6 @@ in
     # allowFrom is empty: core3 is retired and nothing off-box queries this
     # Unbound, so the module binds 127.0.0.1 only and it is not on the LAN.
     (import ../../modules/unbound.nix { })
-    ../../modules/docker.nix
     (import ../../modules/pimon.nix {
       mode = "agent";
       collectorUrl = "http://${net.hosts.core5.ip}:${toString net.ports.pimon}";
@@ -31,9 +30,6 @@ in
 
   # Resolve through own AGH instance
   networking.nameservers = [ "127.0.0.1" ];
-
-  # Docker access for this host's user
-  users.users.${hostname}.extraGroups = [ "docker" ];
 
   # DNS + AGH web UI — LAN interface only. Unbound's port is not opened, and
   # with an empty allowFrom it is not bound to the LAN either.
