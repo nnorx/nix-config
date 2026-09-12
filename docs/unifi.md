@@ -42,7 +42,8 @@ controller's own database:
 
 1. Settings > System: turn **off** Remote Management and Analytics. Otherwise
    Google's telemetry has been swapped for Ubiquiti's.
-2. Settings > System > Backups: set a schedule.
+2. Settings > System > Backups: set a schedule. See
+   [the automated copy](#the-automated-copy) for what its interval costs.
 
 The inform host used to be a third. The controller advertises an address for
 devices to report to, and on a bridge network that is its container address in
@@ -65,8 +66,96 @@ scp -r core5:/var/lib/unifi/config/data/backup/ ./unifi-backup-$(date +%F)/
 they do not belong in this repo or any public location.
 
 This is state that lives outside the flake and is not reproducible from Nix.
-Backing it up is a manual, scheduled step, and there is no second copy of it
-anywhere.
+
+### The automated copy
+
+[`modules/unifi-backup.nix`](../modules/unifi-backup.nix) takes the newest file
+the controller wrote, encrypts it to the `nick` age recipient, and pushes it to
+a private repo. A daily timer on core5, and a no-op when the newest backup is
+one it has already pushed.
+
+It does not make a backup of its own. The controller's `.unf` is the format its
+restore flow expects, and a `mongodump` would be a second, unsupported path
+into a database whose migrations are one-way. The module's only job is moving
+a file that already exists off the host that holds the original.
+
+**It depends on the controller's own schedule**, and the schedule's interval
+bounds how stale the off-box copy can be: on a monthly schedule, a change made
+on the 2nd is not off the box until the 1st of the following month. Until the
+first scheduled run, `config/data/backup/autobackup/` is empty and the unit
+fails loudly saying so, rather than exiting cleanly on nothing.
+
+Two things on that settings page are easy to misread:
+
+- **The tooltip's path is wrong for this install.** It names
+  `/var/lib/unifi/backup/autobackup`, the location on a Debian package install,
+  which does not exist in this container. The real directory is
+  `/config/data/backup/autobackup`, on the volume, so scheduled files survive
+  the container being recreated.
+- **Enabled is not the same as having run.** `logs/backup.log` records every
+  run. On 2026-09-12 it held three, all manual exports, beside a schedule that
+  had been switched on after its first possible run time and so had never
+  fired.
+
+**Backup Retention: Settings Only** is the right choice. It keeps a backup
+around 30 KB, and settings are what a rebuild needs; statistics history is not.
+
+age encryption needs only the public half of the key, so core5 holds nothing
+that can read these back. That is what makes a private repo an acceptable
+destination for a file carrying Wi-Fi PSKs: the destination is untrusted by
+construction, and the private half is in Bitwarden and
+`~/.config/sops/age/keys.txt`.
+
+The deploy key has write access and core5 can read it, so a compromised core5
+could push to the backup repo. It cannot erase what is already there: a ruleset
+on `nnorx/homelab-state` blocks force-pushes and deletion of the default branch,
+with no bypass actors, so the history this copy exists for survives the host it
+exists to outlive. Verified on 2026-09-12 by a force-push from the owner's own
+token, which was rejected.
+
+The plaintext hash is what decides whether to commit, not the encrypted blob.
+The timer runs daily while the controller writes a new file only on its own
+schedule, and age uses a fresh ephemeral key per run, so the same file encrypts
+differently every time. Comparing ciphertext would re-commit an already-pushed
+backup every day.
+
+**Known gap: a silent stop.** Nothing alerts on the unit failing.
+`systemctl status unifi-backup` on core5 is the manual check until the Phase 8
+monitoring work in [router.md](router.md) covers it.
+
+Whether the repo can stand in for that check is not yet confirmed. If the
+controller writes a byte-different file on every run, as it probably does since
+the archive records when it was made, every scheduled run produces a commit,
+and a repo quiet for longer than one interval means the pipeline is broken. If
+identical settings produce identical files, commits happen only on real changes
+and a quiet repo proves nothing. Two consecutive scheduled files with different
+hashes and no config change between them settles it.
+
+### Restoring
+
+**`latest` is not always the one you want.** After a rebuild or a controller
+reset, the new controller's first scheduled backup is of an empty config, and
+the timer pushes it over the good one. Every earlier version is still in the
+repo's history, and the ruleset above is what guarantees that:
+
+```bash
+git clone git@github.com:nnorx/homelab-state.git && cd homelab-state
+git log --format='%h %ad %s' --date=short -- unifi/latest.unf.age
+git show <commit>:unifi/latest.unf.age > pick.unf.age
+age --decrypt --identity ~/.config/sops/age/keys.txt pick.unf.age > restore.unf
+```
+
+Pick the last commit from before the loss, not the newest. On a rebuilt core5,
+`systemctl stop unifi-backup.timer` until the restore is done keeps an empty
+controller's backup from landing on top in the meantime.
+
+Then a fresh controller, and Settings > System > Backups > Restore. Expect to
+re-adopt: a restore brings back the saved device config, which is the thing
+that stranded the switch on 2026-09-04, so read the re-adoption section below
+before assuming it will come back clean.
+
+**A backup nobody has restored is not a backup.** This path has not been
+drilled yet.
 
 ## Upgrading
 

@@ -55,6 +55,7 @@ modules/
   adguardhome.nix      Parameterised AGH: upstreams, caching, DNSSEC, blocklists
   unbound.nix          Recursive resolver, DNSSEC, cache persistence
   unifi.nix            Controller as two pinned containers
+  unifi-backup.nix     Its state, age-encrypted and pushed off-box (core5 only)
   pimon.nix            Monitoring agent or collector
   firewall.nix         Default-deny. SSH scoped per interface, never globally
   ssh.nix              Key-only auth, modern crypto

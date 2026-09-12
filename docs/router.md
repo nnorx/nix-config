@@ -161,6 +161,12 @@ One at a time, weeks apart, now that the house is boring.
       Note this is also what would force gate to have an `ip` in `lib/net.nix`,
       since core5's firewall opens a port per `pimonAgents` entry and reads that
       attribute. Decide what the address would mean first.
+
+      Include `unifi-backup.service` on core5 in whatever alerts. It fails
+      loudly, but only into the journal, and a backup that stopped weeks ago is
+      discovered at exactly the moment it is needed. docs/unifi.md defers its
+      silent-failure gap to this item, so this is where that deferral is
+      tracked.
 - [ ] **Inbound remote access.** The one with clear payoff: SSH into the fleet,
       the AdGuard UI, Home Assistant, and filtered DNS from a hotel. Answer the
       CGNAT question above first, since it picks the technology.

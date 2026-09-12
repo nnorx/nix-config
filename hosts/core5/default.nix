@@ -16,6 +16,7 @@ in
   imports = [
     ../../modules/docker.nix
     ../../modules/unifi.nix
+    ../../modules/unifi-backup.nix
     (import ../../modules/pimon.nix {
       mode = "collector";
       bind = "0.0.0.0";
