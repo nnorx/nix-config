@@ -10,7 +10,7 @@ addressing.
 | Host | Hardware | Address | Role |
 |---|---|---|---|
 | **gate** | CWWK N100, 4x Intel i226 | `.1` in every segment | The router. nftables, NAT, Kea DHCP across five VLANs, and its own recursive Unbound |
-| **core4** | Raspberry Pi 4 (8GB) | 192.168.20.32 | AdGuard Home + Unbound, Docker, pimon agent |
+| **core4** | Raspberry Pi 4 (8GB) | 192.168.20.32 | AdGuard Home + Unbound, pimon agent |
 | **lifeline** | Raspberry Pi 4 | 192.168.20.11 | AdGuard Home + Unbound, pimon agent. An independent second DNS path |
 | **core5** | Raspberry Pi 5, NVMe | 192.168.20.49 | UniFi controller, pimon collector, Docker |
 
@@ -62,7 +62,7 @@ modules/
   deploy-guard.nix     Automatic rollback for reboots that go wrong (gate only)
   net-assertions.nix   Consistency checks for lib/net.nix
   baseline.nix         Nix settings, caches, sysctl hardening, gc, journald
-  docker.nix           Docker daemon
+  docker.nix           Docker daemon (core5 only)
 
 home/                  Home Manager. common.nix everywhere, default.nix on dev
                        hosts (adds dev-tools, ssh agent, Claude Code)
