@@ -66,17 +66,26 @@ as a revert path, and it raises what a bad deploy costs: the recovery USB and
 
 ### Validation checklist
 
-Not yet run. These are the tests that distinguish a network that works from one
-that happens to be working.
+These are the tests that distinguish a network that works from one that
+happens to be working. The DNS half was run on **2026-09-12** and is recorded
+below. The throughput, segmentation and gate-reboot items are still open.
 
 - [ ] `iperf3` between two clients on different VLANs, forwarded through gate,
       confirming the routing path does multi-gig rather than just the links
       negotiating at 2.5G
 - [ ] WAN speed test matching the service tier
 - [ ] External port scan of the WAN address showing nothing listening
-- [ ] `dnssec-failed.org` fails to resolve, proving DNSSEC validation is live
-- [ ] A DNS leak test showing the fleet's resolver, not the ISP's
-- [ ] One Pi powered off, house still resolves
+- [x] `dnssec-failed.org` fails to resolve, proving DNSSEC validation is live.
+      2026-09-12: SERVFAIL on both resolvers, against Unbound directly on 5335
+      and through AdGuard on 53. A signed control zone returns NOERROR with the
+      `ad` flag, so this is validation rather than a coincidental failure
+- [x] A DNS leak test showing the fleet's resolver, not the ISP's. 2026-09-12:
+      both resolvers recurse from gate's own WAN address as seen by an
+      authoritative server, so nothing forwards through the ISP
+- [x] One Pi powered off, house still resolves. 2026-09-12: core4 powered
+      down, 10/10 queries answered from a DHCP-configured client. Median
+      latency rose from roughly 580 ms to 880 ms on uncached names, which is
+      the stub failing over rather than anything breaking
 - [ ] `gate` rebooted, everything returns with no manual intervention,
       including Kea leases and the WAN lease
 - [ ] iot cannot reach trusted; guest cannot reach anything
@@ -92,20 +101,38 @@ that happens to be working.
       to be on. **Read it in the same sitting as the test.** The nftables unit
       deletes and re-adds the table on every reload, so any later
       `nixos-rebuild switch` that changes the ruleset resets the counter to
-      zero, which reads identically to the rule never having matched
-- [ ] The Pis still resolve. Their own Unbound recursion leaves from the
+      zero, which reads identically to the rule never having matched.
+
+      Partly done. 2026-09-12, from a trusted-segment client: queries sent to
+      8.8.8.8, 1.1.1.1 and 9.9.9.9 all came back with the fleet's blocklist
+      answer for a filtered domain while unfiltered names resolved normally,
+      so the rewrite is on the path for all three. The two halves still open
+      are the counter read, which needs root, and confirming the queries land
+      in AdGuard under the client's own address rather than the gateway's
+- [x] The Pis still resolve. Their own Unbound recursion leaves from the
       servers segment, which the redirect excludes, and getting that wrong
-      takes DNS down completely rather than degrading it
+      takes DNS down completely rather than degrading it. Confirmed
+      2026-09-12
 - [ ] Nothing from the work segment appears in AdGuard's query log, which is
       what `logQueries = false` in `lib/net.nix` is meant to guarantee now that
       the segment is redirected rather than bypassing the fleet
-- [ ] One Pi powered off, and a client with a **hardcoded** resolver still
+- [x] One Pi powered off, and a client with a **hardcoded** resolver still
       resolves. This is a different test from the one above: a DHCP-configured
       client holds both resolver addresses and fails over in its own stub,
       while a redirected client has its destination chosen per connection by
       `numgen`, so roughly half its queries dead-end and rely on a retry
       landing elsewhere. That class did not depend on the Pis at all before the
-      redirect
+      redirect.
+
+      2026-09-12, core4 powered down: **exactly 10 of 20** single-shot queries
+      (`+tries=1`) dead-ended, so "roughly half" is the literal behaviour, not
+      an approximation. With retries allowed, 20 of 20 answered and filtering
+      still applied. The cost of losing one resolver is therefore latency
+      rather than failure, for this class as well as the DHCP one.
+
+      This is the argument for staggering automatic upgrades rather than
+      enabling them fleet-wide on one schedule: the degradation is survivable
+      for one resolver at a time and total if both windows overlap
 
 ### Phase 8: afterwards
 
