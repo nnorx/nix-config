@@ -103,10 +103,29 @@ recipient into `.sops.yaml` and run `sops updatekeys secrets/<host>.yaml`, as
 
 **That fix does not apply itself.** Re-keying happens on a dev machine, and
 landing it on the locked host needs a privileged rebuild there, which is the
-thing that is broken: `nrs` is `sudo nixos-rebuild`, `PermitRootLogin` is `no`,
-and `system.autoUpgrade` is disabled. So the re-key is preparation, and physical
-recovery is what applies it. On a Pi that is a card pull. On `gate` it is the
-USB below, because there is no second route in.
+thing that is broken: `nrs` is `sudo nixos-rebuild` and `PermitRootLogin` is
+`no`. So the re-key is preparation, and physical recovery is what applies it.
+On a Pi that is a card pull. On `gate` it is the USB below, because there is no
+second route in.
+
+Automatic upgrades run as root and do not need a login, which looks like a
+way around this. **Do not plan on it**, because on two of the three Pis it
+cannot work:
+
+- **core4 and lifeline** resolve through their own AdGuard, whose entire config
+  file is rendered from the same sops file that just failed to decrypt. AdGuard
+  does not start, the host cannot resolve `github.com`, and the upgrade that
+  would carry the fix cannot fetch it.
+- **core5** resolves through public resolvers directly, so its nightly upgrade
+  could pull a re-key merged to `main` and apply it without anyone touching the
+  host. Useful if it happens; not a recovery plan.
+- **gate** has no upgrade timer.
+
+The opposite hazard does apply. A recovered Pi keeps its upgrade timer, and
+its next run pulls `main` again. If `main` is what broke it, merge the fix
+before recovering, or make `sudo systemctl stop nixos-upgrade.timer` the first
+command once you have a shell. Otherwise that night's upgrade undoes the
+recovery.
 
 The cheap way to never meet this: register a host's sops recipient **before**
 its first activation, not after, and confirm `/run/secrets-for-users/` is

@@ -25,6 +25,9 @@
 }:
 let
   backupDir = "/var/lib/unifi/config/data/backup/autobackup";
+
+  # After the automatic-upgrade reboot window; see the timer and assertion below.
+  pushAt = "06:30";
   workDir = "/var/lib/unifi-backup";
 
   repoUrl = "git@github.com:nnorx/homelab-state.git";
@@ -183,16 +186,42 @@ in
     };
   };
 
-  # Daily, and deliberately later than any sensible controller backup time.
-  # The ordering is a soft dependency rather than a real one: if the
-  # controller has not written a new file yet, the hash check makes this a
-  # no-op and the change is picked up the next day. A one-day lag on config
-  # that changes a few times a year is not worth a tighter coupling.
+  # Daily, after the automatic-upgrade reboot window closes. A reboot inside it
+  # kills a push mid-way, and because the timer has already fired for that day
+  # the off-box copy lags a day. Nothing corrupts, since the next run cleans the
+  # working copy, but the assertion below keeps the two apart if the window
+  # moves.
+  #
+  # Ordering against the controller is a soft dependency. Its schedule runs in
+  # UTC whatever the container's TZ says, so "12:30 AM" in its UI is the
+  # previous evening here, well before this. If it has not written a new file
+  # yet, the hash check makes this a no-op and the change is picked up the next
+  # day.
+  # Start time only: RandomizedDelaySec can add 20 minutes, so leave a margin
+  # after the window rather than sitting on its edge.
+  assertions = [
+    (
+      let
+        upgrade = config.system.autoUpgrade;
+        window = upgrade.rebootWindow;
+        insideWindow = pushAt >= window.lower && pushAt < window.upper;
+      in
+      {
+        assertion = !(upgrade.enable && upgrade.allowReboot && window != null && insideWindow);
+        message = ''
+          modules/unifi-backup.nix pushes at ${pushAt}, inside the automatic
+          upgrade reboot window (${window.lower}-${window.upper}). A reboot there
+          kills the push mid-way. Move pushAt after the window.
+        '';
+      }
+    )
+  ];
+
   systemd.timers.unifi-backup = {
     description = "Daily off-box push of the UniFi controller's backup";
     wantedBy = [ "timers.target" ];
     timerConfig = {
-      OnCalendar = "05:00";
+      OnCalendar = pushAt;
       RandomizedDelaySec = "20m";
       Persistent = true;
     };
