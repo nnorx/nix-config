@@ -121,6 +121,12 @@ cannot work:
   host. Useful if it happens; not a recovery plan.
 - **gate** has no upgrade timer.
 
+The opposite hazard does apply. A recovered Pi keeps its upgrade timer, and
+its next run pulls `main` again. If `main` is what broke it, merge the fix
+before recovering, or make `sudo systemctl stop nixos-upgrade.timer` the first
+command once you have a shell. Otherwise that night's upgrade undoes the
+recovery.
+
 The cheap way to never meet this: register a host's sops recipient **before**
 its first activation, not after, and confirm `/run/secrets-for-users/` is
 populated on a host you can still sudo on before trusting it on one you cannot.

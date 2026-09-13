@@ -1,58 +1,68 @@
 # System hardening and maintenance baseline for every host
 { lib, ... }:
 {
-  # Automatic NixOS upgrades from the flake.
+  # Automatic NixOS upgrades from the flake. Shared settings only: nothing here
+  # turns them on. hosts/common/pi.nix does, for the Pis and nothing else.
   #
-  # Off here and switched on in hosts/common/pi.nix, so it reaches the three
-  # Pis and not gate. The original pause was for the rack migration, which is
-  # long finished; gate stays manual for a different and permanent reason. It
-  # is the house's only route to the internet and the Nest is gone, so an
-  # unattended reboot onto a bad generation at 4am has no rollback router
-  # behind it, only the recovery USB and whoever notices. A Pi is a card pull.
-  #
-  # mkDefault rather than plain false, so pi.nix can turn it on without this
-  # having to know which hosts are Pis.
+  # gate stays manual. With allowReboot the nixpkgs unit reboots only when the
+  # kernel, its modules or the initrd changed, and otherwise runs `switch`. On
+  # gate that is an unattended switch of the routing it is serving, with no
+  # deploy-guard in front of it and no second router behind it. A Pi that goes
+  # wrong is a card pull.
   system.autoUpgrade = {
-    enable = lib.mkDefault false;
     flake = "github:nnorx/nix-config";
+
+    # A flake, not a channel, so `--upgrade` would do nothing but update the
+    # root `nixos` channel the Pi images still carry, and warn about it.
+    upgrade = false;
+
     flags = [
-      # Without this the flake's nixConfig is ignored, so an unattended upgrade
-      # would skip the binary caches.
+      # Redundant with nix.settings below, which already puts the caches in
+      # nix.conf. Kept so an upgrade resolves exactly as `nrs` does.
       "--accept-flake-config"
 
-      # Substitute or fail. Never build on the host.
-      #
-      # linux_rpi4 is in no public cache, which is the entire reason
-      # .github/workflows/cache.yml exists, and a Pi 4 that starts compiling it
-      # unattended at 3am is still compiling at lunchtime: fanless, warm, and
-      # serving DNS the whole time. The race is real rather than theoretical,
-      # because cache.yml can take hours on a kernel bump and both are
-      # triggered by the same push to main.
-      #
-      # `--max-jobs 0` refuses to build anything locally, so an upgrade that
-      # outruns the cache workflow fails cleanly and the timer tries again
-      # rather than melting a Pi.
-      #
-      # The cost is that a genuinely uncached path stops upgrades silently, and
-      # a host that quietly stopped upgrading looks exactly like one with
-      # nothing to do. That is a real gap until the wrong-boot detection in
-      # docs/router.md exists, and it is the safer side of the trade.
+      # Substitute or fail; never build on the host. A Pi 4 kernel is in no
+      # public cache and takes 9-15 hours to compile there, and cache.yml,
+      # which fills our own cache, runs off the same push to main that an
+      # upgrade picks up. A run that outruns it fails and the next night
+      # retries. The cost: a host that has quietly stopped upgrading looks like
+      # one with nothing to do, until the wrong-boot detection in
+      # docs/router.md exists.
       "--max-jobs"
       "0"
+
+      # Without this, the flag above fails every upgrade. NixOS marks the system
+      # toplevel, etc and hundreds of small generated files such as unit
+      # definitions `allowSubstitutes = false`, and stock Nix honours that, so
+      # they can only be built locally, which `--max-jobs 0` forbids. Every
+      # commit changes the toplevel. A dry run of lifeline's system for 163bb57
+      # lists 255 derivations to build without this and none with it: cache.yml
+      # builds and pushes exactly those paths, so they are there to fetch.
+      "--option"
+      "always-allow-substitutes"
+      "true"
     ];
     allowReboot = true;
 
-    # Wide enough to contain the staggered start times in pi.nix plus the time
-    # an upgrade actually takes. A host whose upgrade finishes after the window
-    # simply does not reboot, and carries the old kernel until the next run.
+    # A run that misses its slot, typically because the rack lost power, waits
+    # for the next night instead of firing at boot. Catching up at boot would
+    # start every Pi's upgrade at once, undoing the stagger in pi.nix, and
+    # possibly before a resolver's own AdGuard is serving.
+    persistent = false;
+
+    # Contains the start times in pi.nix plus the time a run takes.
     #
-    # The lower bound sits before the first start rather than on it. The
-    # nixpkgs unit compares HH:MM strings strictly, so with lower = "03:00" a
-    # run that finished inside the 03:00 minute itself would read as outside
-    # the window and skip its reboot.
+    # A run that finishes outside it does nothing further. The new generation
+    # is already the boot default, but the host neither reboots nor switches,
+    # and runs the old generation until a later run lands inside the window or
+    # something else reboots it.
     #
-    # Anything else on these hosts that must not be interrupted by a reboot
-    # belongs after `upper`; modules/unifi-backup.nix is the first such case.
+    # The lower bound sits before the first start rather than on it. The unit
+    # compares HH:MM strings strictly, so a run finishing inside its own start
+    # minute would otherwise count as outside.
+    #
+    # Anything that must not be interrupted by a reboot runs after `upper`.
+    # modules/unifi-backup.nix asserts that it does.
     rebootWindow = {
       lower = "02:30";
       upper = "06:00";
