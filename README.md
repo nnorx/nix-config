@@ -120,9 +120,18 @@ If a Pi resolves through itself and cannot reach GitHub, override DNS first:
 sudo bash -c 'echo "nameserver 1.1.1.1" > /etc/resolv.conf'
 ```
 
-Automatic upgrades are **off** fleet-wide in `modules/baseline.nix`. Unattended
-3am reboots are hard to tell apart from a fault while hardware is being moved
-around.
+**Merging to `main` deploys the Pis that night.** They upgrade automatically
+from `github:nnorx/nix-config`, staggered so the two resolvers never go down
+together: lifeline at 03:00, core4 at 04:00, core5 at 05:00. A change to the
+kernel, its modules or the initrd reboots the host, and only inside
+02:30-06:00; anything else is switched in place. Upgrades substitute from the
+cache or fail, and never compile on the host. gate has no upgrade timer at all
+and is always deployed by hand. `hosts/common/pi.nix` and
+`modules/baseline.nix` carry the reasoning.
+
+```bash
+ssh lifeline 'systemctl list-timers nixos-upgrade; journalctl -u nixos-upgrade -n 30'
+```
 
 ## Secrets
 

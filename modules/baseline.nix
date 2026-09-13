@@ -45,8 +45,16 @@
     # Wide enough to contain the staggered start times in pi.nix plus the time
     # an upgrade actually takes. A host whose upgrade finishes after the window
     # simply does not reboot, and carries the old kernel until the next run.
+    #
+    # The lower bound sits before the first start rather than on it. The
+    # nixpkgs unit compares HH:MM strings strictly, so with lower = "03:00" a
+    # run that finished inside the 03:00 minute itself would read as outside
+    # the window and skip its reboot.
+    #
+    # Anything else on these hosts that must not be interrupted by a reboot
+    # belongs after `upper`; modules/unifi-backup.nix is the first such case.
     rebootWindow = {
-      lower = "03:00";
+      lower = "02:30";
       upper = "06:00";
     };
   };
