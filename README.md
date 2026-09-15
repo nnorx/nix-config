@@ -12,7 +12,7 @@ addressing.
 | **gate** | CWWK N100, 4x Intel i226 | `.1` in every segment | The router. nftables, NAT, Kea DHCP across five VLANs, and its own recursive Unbound |
 | **core4** | Raspberry Pi 4 (8GB) | 192.168.20.32 | AdGuard Home + Unbound, pimon agent |
 | **lifeline** | Raspberry Pi 4 | 192.168.20.11 | AdGuard Home + Unbound, pimon agent. An independent second DNS path |
-| **core5** | Raspberry Pi 5, NVMe | 192.168.20.49 | UniFi controller, pimon collector, Docker |
+| **core5** | Raspberry Pi 5, NVMe | 192.168.20.49 | Home Assistant, UniFi controller, pimon collector, Docker |
 
 ```
    internet ── modem ── gate ─┬─ lan1 ── wired machine        (untagged trusted)
@@ -47,7 +47,7 @@ hosts/
   common/              Fleet-wide: locale, users, addressing, deploy aliases
     pi.nix             Pi-only boot and SD-card layout
   core4/ lifeline/     AdGuard + Unbound
-  core5/               UniFi controller, pimon collector, NVMe root
+  core5/               Home Assistant, UniFi controller, pimon collector, NVMe root
   gate/                The router
     routing.nix        VLANs, NAT, firewall policy, Kea
 
@@ -56,6 +56,7 @@ modules/
   unbound.nix          Recursive resolver, DNSSEC, cache persistence
   unifi.nix            Controller as two pinned containers
   unifi-backup.nix     Its state, age-encrypted and pushed off-box (core5 only)
+  home-assistant.nix   Home Assistant, native, from unstable (core5 only)
   pimon.nix            Monitoring agent or collector
   firewall.nix         Default-deny. SSH scoped per interface, never globally
   ssh.nix              Key-only auth, modern crypto
@@ -80,6 +81,7 @@ docs/                  Runbooks, see below
 | [pi-install.md](docs/pi-install.md) | Flashing a Pi, NVMe migration, EEPROM boot order |
 | [recovery.md](docs/recovery.md) | deploy-guard, generation rollback, the rescue USB |
 | [unifi.md](docs/unifi.md) | Controller, backups, adopting and re-adopting devices |
+| [home-assistant.md](docs/home-assistant.md) | First run, phones, adding integrations, upgrades |
 
 ## Deploying
 

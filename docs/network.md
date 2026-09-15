@@ -1,8 +1,8 @@
 # The network
 
 What the house runs on, in the present tense. `gate` routes, two Pis resolve,
-and a third runs the UniFi controller. For how it got here and what is still
-open, see [router.md](router.md).
+and a third runs the UniFi controller and Home Assistant. For how it got here
+and what is still open, see [router.md](router.md).
 
 ```
                               internet
@@ -32,6 +32,7 @@ open, see [router.md](router.md).
                                        │     │      │       │
                                   AdGuard AdGuard UniFi   tagged
                                   Unbound Unbound pimon    SSIDs
+                                                  HA
 ```
 
 ## Segments

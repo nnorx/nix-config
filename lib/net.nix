@@ -270,5 +270,9 @@
     unifiInform = 8080; # devices POST their state here
     unifiStun = 3478; # UDP, keeps devices reachable behind NAT
     unifiDiscovery = 10001; # UDP, device discovery
+
+    # Home Assistant's frontend and API, on core5. Phones on trusted reach it,
+    # which gate's "trusted reaches servers" rule already allows.
+    homeAssistant = 8123;
   };
 }
