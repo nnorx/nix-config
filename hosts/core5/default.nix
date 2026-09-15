@@ -17,6 +17,7 @@ in
     ../../modules/docker.nix
     ../../modules/unifi.nix
     ../../modules/unifi-backup.nix
+    ../../modules/home-assistant.nix
     (import ../../modules/pimon.nix {
       mode = "collector";
       bind = "0.0.0.0";
@@ -84,14 +85,18 @@ in
     "9.9.9.9" # Quad9
   ];
 
-  # UniFi controller — LAN interface only. The switch and AP need all four:
-  # the UI for us, inform for device state, STUN to stay reachable, and
-  # discovery for adoption. The MongoDB port is deliberately absent, since it
-  # is published to nothing and lives on the container network.
+  # LAN interface only. The switch and AP need all four UniFi ports: the UI for
+  # us, inform for device state, STUN to stay reachable, and discovery for
+  # adoption. The MongoDB port is deliberately absent, since it is published to
+  # nothing and lives on the container network.
+  #
+  # Home Assistant is opened here rather than with the module's `openFirewall`,
+  # which opens the port on every interface.
   networking.firewall.interfaces.${net.hosts.${hostname}.iface} = {
     allowedTCPPorts = [
       net.ports.unifiUi
       net.ports.unifiInform
+      net.ports.homeAssistant
     ];
     allowedUDPPorts = [
       net.ports.unifiStun
