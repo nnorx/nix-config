@@ -12,7 +12,7 @@
   home.packages = with pkgs; [
     # ===== JavaScript/TypeScript =====
     nodejs_24 # Node.js 24 (includes npm)
-    unstable.pnpm # pnpm 10 from nixpkgs-unstable
+    unstable.pnpm_11 # pnpm 11.x — pinned: bare `pnpm` now resolves to pnpm_12
     typescript # was nodePackages.typescript; that set was removed in 26.05
 
     # ===== Rust =====
