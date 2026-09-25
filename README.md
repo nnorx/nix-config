@@ -22,6 +22,10 @@ addressing.
                                   untagged = servers
 ```
 
+Alongside the fleet, **forge** is a Framework 16 laptop running NixOS as a
+desktop: Plasma, Steam, LUKS and Secure Boot. It is not a server and does not
+share `hosts/common`; see [docs/laptop.md](docs/laptop.md).
+
 Five segments: trusted (10), servers (20), iot (30), guest (40), work (50).
 core4 and lifeline share no state, so either can serve DNS alone. gate resolves
 through its own Unbound so it can be rebuilt while both are down.
@@ -50,6 +54,7 @@ hosts/
   core5/               UniFi controller, pimon collector, NVMe root
   gate/                The router
     routing.nix        VLANs, NAT, firewall policy, Kea
+  forge/               The laptop: disko layout, Secure Boot, NVIDIA, Plasma
 
 modules/
   adguardhome.nix      Parameterised AGH: upstreams, caching, DNSSEC, blocklists
@@ -80,6 +85,7 @@ docs/                  Runbooks, see below
 | [pi-install.md](docs/pi-install.md) | Flashing a Pi, NVMe migration, EEPROM boot order |
 | [recovery.md](docs/recovery.md) | deploy-guard, generation rollback, the rescue USB |
 | [unifi.md](docs/unifi.md) | Controller, backups, adopting and re-adopting devices |
+| [laptop.md](docs/laptop.md) | Installing forge, enabling Secure Boot, preparing for Windows |
 
 ## Deploying
 
@@ -199,7 +205,7 @@ Three Home Manager profiles:
 | Profile | Used by | Contents |
 |---|---|---|
 | `home/common.nix` | every host, including the Pis and gate | zsh/bash + starship, git, nano, tmux, CLI tools, vulnix |
-| `home/default.nix` | WSL (`nick`), macOS (`nicknorcross`) | common, plus Node, Rust, Docker CLI, direnv, keychain ssh-agent, Claude Code |
+| `home/default.nix` | WSL (`nick`), macOS (`nicknorcross`), and forge through NixOS | common, plus Node, Rust, Docker CLI, direnv, keychain ssh-agent, Claude Code |
 | `home/darwin.nix` | macOS only | GNU coreutils |
 
 First run on a new machine:

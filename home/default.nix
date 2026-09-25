@@ -1,6 +1,6 @@
 # Dev profile — full development environment
 # Imports the common profile plus dev tools, languages, and LSPs
-# Used by dev hosts (WSL, macOS)
+# Used by dev hosts: WSL and macOS standalone, forge embedded in its NixOS config
 
 { ... }:
 {
