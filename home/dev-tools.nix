@@ -34,8 +34,9 @@
     # ===== Networking =====
     dnsutils # dig/delv — query the Pi DNS hosts from outside
 
-    # ===== Formatters =====
-    nixfmt-rfc-style # Nix formatter
+    # ===== Nix =====
+    nixfmt # Nix formatter
+    nixd # Nix language server, for the editor's nix-ide extension
 
     # ===== Misc Development =====
     gnumake # Make build tool
