@@ -22,6 +22,7 @@
     ./boot.nix
     ./graphics.nix
     ./desktop.nix
+    ./dev.nix
     ../../modules/baseline.nix
     ../../modules/docker.nix
   ];
