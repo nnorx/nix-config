@@ -21,6 +21,20 @@
     # Uses its own pinned nixpkgs fork — do NOT add nixpkgs.follows
     nixos-raspberrypi.url = "github:nvmd/nixos-raspberrypi/main";
 
+    # Declarative partitioning, used once, by nixos-anywhere, to lay out forge's
+    # disk. Afterwards it only generates fileSystems from the same description.
+    disko = {
+      url = "github:nix-community/disko/latest";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    # Secure Boot for forge. Pinned to a release tag, as upstream recommends, so
+    # the weekly lock bump never moves the signing stub underneath it.
+    lanzaboote = {
+      url = "github:nix-community/lanzaboote/v1.1.0";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
     # sops-nix — age-encrypted secrets, decrypted at activation on each host
     sops-nix = {
       url = "github:Mic92/sops-nix";
@@ -75,6 +89,8 @@
       home-manager,
       nixos-hardware,
       nixos-raspberrypi,
+      disko,
+      lanzaboote,
       sops-nix,
       pimon,
       claude-plugins,
@@ -217,6 +233,14 @@
           ];
         }).config.system.build.sdImage;
 
+      # Claude Code plugin marketplaces, keyed by the `name` field in each
+      # marketplace's .claude-plugin/marketplace.json. Shared by the standalone
+      # Home Manager configs and forge's embedded one.
+      claudeMarketplaces = {
+        nnorx = claude-plugins;
+        improve = improve;
+      };
+
       # Helper function to create a Home Manager configuration
       mkHome =
         {
@@ -237,12 +261,7 @@
           extraSpecialArgs = {
             inherit username homeDirectory;
             unstable = unstableFor.${system};
-            # Claude Code plugin marketplaces, keyed by the `name` field in each
-            # marketplace's .claude-plugin/marketplace.json.
-            claudeMarketplaces = {
-              nnorx = claude-plugins;
-              improve = improve;
-            };
+            inherit claudeMarketplaces;
           };
         };
     in
@@ -321,7 +340,7 @@
       packages.aarch64-linux.core4-installer = mkPiInstaller "core4";
       packages.aarch64-linux.lifeline-installer = mkPiInstaller "lifeline";
 
-      # NixOS configurations for Raspberry Pis
+      # NixOS configurations: the Pis, the router, and the laptop
       nixosConfigurations = {
         # Pi 5 uses nixos-raspberrypi for boot firmware + kernel support
         # Not mkPi. core5's nixosSystem comes from nixos-raspberrypi and
@@ -371,6 +390,44 @@
           hostname = "gate";
           system = "x86_64-linux";
         };
+
+        # The Framework 16 laptop. Not mkHost: hosts/common is the server fleet's
+        # contract (username = hostname, static addressing from lib/net.nix, SSH as
+        # the only way in), and a desktop that roams on Wi-Fi fits none of it.
+        # hosts/forge imports the part that is genuinely shared,
+        # modules/baseline.nix, and states the rest itself.
+        #
+        # Home Manager is embedded, like the fleet's, so one rebuild covers both,
+        # but with the full dev profile and a real user rather than common.nix.
+        forge =
+          let
+            hostname = "forge";
+            system = "x86_64-linux";
+          in
+          nixpkgs.lib.nixosSystem {
+            inherit system;
+            specialArgs = fleetSpecialArgs { inherit hostname system; };
+            modules = [
+              ./hosts/forge
+              nixos-hardware.nixosModules.framework-16-amd-ai-300-series-nvidia
+              disko.nixosModules.disko
+              lanzaboote.nixosModules.lanzaboote
+              sops-nix.nixosModules.sops
+              { system.configurationRevision = self.rev or self.dirtyRev or "unknown"; }
+              home-manager.nixosModules.home-manager
+              {
+                home-manager.useGlobalPkgs = true;
+                home-manager.useUserPackages = true;
+                home-manager.users.nick = import ./home;
+                home-manager.extraSpecialArgs = {
+                  username = "nick";
+                  homeDirectory = "/home/nick";
+                  unstable = unstableFor.${system};
+                  inherit claudeMarketplaces;
+                };
+              }
+            ];
+          };
       };
 
       # Home Manager configurations for different machines
