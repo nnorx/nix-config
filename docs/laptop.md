@@ -139,6 +139,11 @@ the fleet, plus GitHub), and `~/.config/sops/age/keys.txt` if you will edit
 secrets from here. Set Konsole's font to Cascadia Code NF, and clone this repo to
 `~/projects/nix-config`.
 
+The time zone is deliberately not declared, so it can change when the laptop
+travels. It starts as UTC; set it once with
+`timedatectl set-timezone America/New_York` or in System Settings, and again
+wherever you are.
+
 ## Rebuilding
 
 | | |

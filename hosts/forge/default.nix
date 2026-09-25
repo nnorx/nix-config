@@ -23,6 +23,7 @@
     ./graphics.nix
     ./desktop.nix
     ../../modules/baseline.nix
+    ../../modules/docker.nix
   ];
 
   # NVIDIA's driver and Steam.
@@ -32,8 +33,10 @@
   system.stateVersion = "26.05";
   home-manager.users.nick.home.stateVersion = "26.05";
 
-  # Same as hosts/common.
-  time.timeZone = "America/New_York";
+  # The fleet pins America/New_York. A laptop that travels needs the zone to be
+  # settable at runtime, and a declared one makes /etc/localtime read-only, so
+  # this leaves it to `timedatectl` or Plasma's settings.
+  time.timeZone = null;
   i18n.defaultLocale = "en_US.UTF-8";
 
   # NetworkManager rather than the fleet's static addressing: this host joins
@@ -56,18 +59,30 @@
 
   # Declarative users, for the same reasons as hosts/common, where the costs
   # are spelled out. The password is also the sudo password and the one SDDM
-  # asks for; the disk passphrase is separate.
+  # asks for (see fprintAuth below); the disk passphrase is separate.
   users.mutableUsers = false;
   users.users.nick = {
     isNormalUser = true;
     hashedPasswordFile = config.sops.secrets.user-password-hash.path;
+    # `docker` is root-equivalent: anyone in it can start a container that
+    # mounts /. That sidesteps the sudo password for this user, the same
+    # trade Docker Desktop makes on WSL. Rootless Docker avoids it if that
+    # ever matters more than convenience.
     extraGroups = [
       "wheel"
       "networkmanager"
+      "docker"
     ];
     shell = pkgs.zsh;
   };
   programs.zsh.enable = true;
+
+  # nixos-hardware enables fprintd, and NixOS then puts pam_fprintd ahead of
+  # the password in every PAM service. At the SDDM greeter that stalls a typed
+  # password until the fingerprint prompt times out, and a fingerprint login
+  # cannot unlock KWallet, which needs the password. So SDDM takes the password
+  # alone; sudo and the lock screen keep the fingerprint once one is enrolled.
+  security.pam.services.sddm.fprintAuth = false;
 
   # Both are already defaults from nixos-hardware. Stated so the choice is
   # visible here: power-profiles-daemon is Framework's recommendation on AMD,

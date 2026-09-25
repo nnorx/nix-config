@@ -14,7 +14,7 @@ let
   secureBoot = false;
 in
 {
-  boot.loader.systemd-boot.enable = if secureBoot then lib.mkForce false else true;
+  boot.loader.systemd-boot.enable = lib.mkForce (!secureBoot);
   boot.lanzaboote = lib.mkIf secureBoot {
     enable = true;
     pkiBundle = "/var/lib/sbctl";

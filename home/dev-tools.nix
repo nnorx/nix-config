@@ -1,5 +1,8 @@
 # Development tools and programming languages
-# Only included on dev hosts (WSL, macOS) — not on Raspberry Pis
+# Only included on dev hosts (WSL, macOS, forge), not on the Pis or gate. forge
+# runs full NixOS, so nothing here may assume WSL (no /mnt/c, no Docker Desktop
+# socket): the Docker CLI below talks to Docker Desktop on WSL and to forge's
+# own daemon from modules/docker.nix.
 # CLI essentials live in common-tools.nix
 
 {

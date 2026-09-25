@@ -8,6 +8,10 @@
 # key's passphrase once per boot. The bash/zsh integrations source keychain's
 # environment on startup so SSH_AUTH_SOCK is always wired up.
 #
+# forge does have a user systemd, but nothing there starts an agent either
+# (Plasma does not, and programs.ssh.startAgent is off), so keychain serves it
+# the same way and one mechanism covers every Linux dev host.
+#
 # Linux-only: macOS has its native launchd ssh-agent + Keychain, so this is
 # scoped out there (mirrors the isDarwin split in git.nix).
 { pkgs, lib, ... }:

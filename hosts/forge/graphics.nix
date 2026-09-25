@@ -1,8 +1,11 @@
 # Hybrid graphics: the Radeon iGPU drives the desktop, the RTX 5070 module
 # runs on demand through PRIME offload (`nvidia-offload <cmd>`, or "use
 # dedicated GPU" in Plasma and Steam). nixos-hardware supplies the rest: the
-# open kernel modules Blackwell requires, offload mode, and the NVIDIA
-# suspend and hibernate services.
+# open kernel modules Blackwell requires, offload mode, and power management.
+# On this driver, VRAM is saved across suspend and hibernate by the kernel
+# module's own notifier (`powerManagement.kernelSuspendNotifier`), not by
+# nvidia-suspend/-hibernate/-resume units, which do not exist here. Look in
+# the kernel log, not systemd, when a resume goes wrong.
 {
   hardware.nvidia = {
     # nixos-hardware ships example values that must be replaced. These come
