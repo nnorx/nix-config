@@ -8,7 +8,14 @@
   # From unstable: VS Code ships monthly and extensions declare a minimum
   # engine version, so the stable channel's build can be too old to install
   # current extensions.
-  environment.systemPackages = [ unstable.vscode ];
+  #
+  # The password store is named because Electron's own detection fails under
+  # Plasma 6: it reports that no OS keyring is available while KWallet 6 is
+  # running, and Settings Sync then cannot store its sign-in. The flag goes in
+  # the launcher, so the app menu entry gets it too.
+  environment.systemPackages = [
+    (unstable.vscode.override { commandLineArgs = "--password-store=kwallet6"; })
+  ];
 
   # Extensions such as rust-analyzer download prebuilt Linux binaries, which
   # expect a dynamic loader at /lib64 that NixOS does not have, and fail with
