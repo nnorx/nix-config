@@ -102,8 +102,13 @@
   # the same files. On this host Home Manager is part of the system, so `hms`
   # rebuilds the system from the local checkout instead: the way to try a
   # branch before it reaches main.
+  #
+  # `--sudo` rather than `sudo nixos-rebuild`: evaluation and the build run as
+  # nick, and only activation is elevated. Run as root, Nix opens the checkout
+  # through libgit2, which refuses a repository owned by another user ("not
+  # owned by current user"). nrs has no such problem because it reads GitHub.
   home-manager.users.nick.shell-common.aliases.hms =
-    lib.mkForce "sudo nixos-rebuild switch --flake ~/projects/nix-config --accept-flake-config";
+    lib.mkForce "nixos-rebuild switch --sudo --flake ~/projects/nix-config";
 
   environment.systemPackages = with pkgs; [
     git
