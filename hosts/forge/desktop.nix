@@ -1,5 +1,5 @@
 # Plasma 6 on Wayland, audio, and games.
-{ pkgs, ... }:
+{ pkgs, unstable, ... }:
 {
   services.desktopManager.plasma6.enable = true;
   services.displayManager.sddm = {
@@ -30,6 +30,9 @@
   programs.gamemode.enable = true;
 
   programs.firefox.enable = true;
+
+  # From unstable, where browser security releases land first.
+  environment.systemPackages = [ unstable.brave ];
 
   # Carries Cascadia Code NF, which the starship prompt's icons need. Select it
   # as the terminal font.
