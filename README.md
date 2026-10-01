@@ -44,6 +44,7 @@ fails the build if that file stops agreeing with itself.
 ```
 flake.nix              Inputs, hosts, installer images, dev shells
 lib/net.nix            Network topology: segments, addresses, NICs, ports
+lib/ssh-keys.nix       Admin machines' SSH public keys, one per machine
 .sops.yaml             Which age keys can decrypt which secrets
 secrets/               Per-host encrypted secrets
 
@@ -147,6 +148,35 @@ Two consequences follow:
 ```bash
 ssh lifeline 'systemctl list-timers nixos-upgrade; journalctl -u nixos-upgrade -n 30'
 ```
+
+## SSH access
+
+Each admin machine has its own key, generated on it, and
+[`lib/ssh-keys.nix`](lib/ssh-keys.nix) lists the public halves. Every host, the
+Pi installers and the recovery ISO trust exactly that list. Today it is WSL and
+forge. The work Mac is deliberately not one.
+
+To add a machine, generate its key, with a passphrase, under the name every
+machine uses:
+
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_pis -C nick@<machine>
+```
+
+Add the `.pub` line to `lib/ssh-keys.nix` and merge. The Pis pick it up that
+night, and gate needs `nrs`. Revoking a machine is deleting its line the same
+way.
+
+**Images keep the list they were built with.** A rescue USB or SD image made
+before a change still trusts the old keys: after revoking one, rebuild and
+rewrite it, or the revoked key still opens it.
+
+On the Linux dev hosts, Home Manager generates `~/.ssh/config` with an entry per
+fleet host, so `ssh core4` or `ssh gate` uses the right address, user and key.
+Other hosts go in `~/.ssh/config.local`, which it includes. Home Manager will
+not replace a hand-written `~/.ssh/config`, so on a machine that has one, rename
+it to `config.local` before the first switch and delete its fleet entries,
+which would otherwise win.
 
 ## Secrets
 

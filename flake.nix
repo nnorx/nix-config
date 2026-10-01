@@ -98,8 +98,8 @@
       ...
     }:
     let
-      # SSH public key for Pi access — single source of truth
-      sshPubKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEF1Tvp3mQjByFOSRh4uXWZhRkquB3n5oNoLspunq+OV nick@nix-config";
+      # SSH public keys for fleet access, one per admin machine (lib/ssh-keys.nix)
+      sshPubKeys = builtins.attrValues (import ./lib/ssh-keys.nix);
 
       # LAN topology — single source of truth for addressing (see lib/net.nix)
       net = import ./lib/net.nix;
@@ -159,7 +159,7 @@
       fleetSpecialArgs =
         { hostname, system }:
         {
-          inherit hostname sshPubKey net;
+          inherit hostname sshPubKeys net;
           unstable = unstableFor.${system};
           pimonPkg = pimon.packages.${system}.default;
         };
@@ -224,7 +224,7 @@
                 users.users.nixos = {
                   isNormalUser = true;
                   extraGroups = [ "wheel" ];
-                  openssh.authorizedKeys.keys = [ sshPubKey ];
+                  openssh.authorizedKeys.keys = sshPubKeys;
                 };
                 # Disable ZFS — not used on Pis, and its services hang during nixos-rebuild switch
                 boot.supportedFilesystems.zfs = lib.mkForce false;
@@ -261,7 +261,7 @@
           extraSpecialArgs = {
             inherit username homeDirectory;
             unstable = unstableFor.${system};
-            inherit claudeMarketplaces;
+            inherit claudeMarketplaces net;
           };
         };
     in
@@ -287,7 +287,7 @@
               }
             )
             {
-              users.users.nixos.openssh.authorizedKeys.keys = [ sshPubKey ];
+              users.users.nixos.openssh.authorizedKeys.keys = sshPubKeys;
             }
           ];
         }).config.system.build.sdImage;
@@ -324,7 +324,7 @@
               # sshd's own PermitEmptyPasswords default is "no". Say it
               # explicitly rather than resting on that.
               services.openssh.settings.PasswordAuthentication = false;
-              users.users.root.openssh.authorizedKeys.keys = [ sshPubKey ];
+              users.users.root.openssh.authorizedKeys.keys = sshPubKeys;
             }
           ];
         }).config.system.build.isoImage;
@@ -423,7 +423,7 @@
                   username = "nick";
                   homeDirectory = "/home/nick";
                   unstable = unstableFor.${system};
-                  inherit claudeMarketplaces;
+                  inherit claudeMarketplaces net;
                 };
               }
             ];

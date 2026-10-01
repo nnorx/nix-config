@@ -13,9 +13,50 @@
 # the same way and one mechanism covers every Linux dev host.
 #
 # Linux-only: macOS has its native launchd ssh-agent + Keychain, so this is
-# scoped out there (mirrors the isDarwin split in git.nix).
-{ pkgs, lib, ... }:
+# scoped out there (mirrors the isDarwin split in git.nix). The fleet's host
+# entries below are Linux-only too, for a different reason: the Linux dev
+# hosts, WSL and forge, are the admin machines in lib/ssh-keys.nix, and the work
+# Mac is deliberately not one.
 {
+  pkgs,
+  lib,
+  net,
+  ...
+}:
+let
+  # The servers have one address each in lib/net.nix. gate has none there,
+  # holding .1 in every segment, and admin machines sit on trusted, so they
+  # reach it at that segment's gateway.
+  fleet =
+    lib.mapAttrs (_name: host: host.ip) (lib.filterAttrs (_name: host: host ? ip) net.hosts)
+    // {
+      gate = net.segments.trusted.gateway;
+    };
+in
+{
+  # `ssh core4`, `ssh gate` and so on, from any admin machine. The login user
+  # is the hostname, as hosts/common makes it.
+  #
+  # IdentitiesOnly, because otherwise ssh offers every key the agent holds
+  # before the one named here, and the hosts allow three attempts
+  # (modules/ssh.nix). Another key or two loaded first is a refused login.
+  #
+  # Home Manager owns ~/.ssh/config from here on. Hosts it does not generate,
+  # such as the Hetzner box, go in ~/.ssh/config.local, which is read first, so
+  # an entry there for a fleet host would win over the one generated here.
+  programs.ssh = lib.mkIf pkgs.stdenv.isLinux {
+    enable = true;
+    # Home Manager's legacy defaults are deprecated, and none are wanted.
+    enableDefaultConfig = false;
+    includes = [ "config.local" ];
+    settings = lib.mapAttrs (name: address: {
+      HostName = address;
+      User = name;
+      IdentityFile = "~/.ssh/id_ed25519_pis";
+      IdentitiesOnly = true;
+    }) fleet;
+  };
+
   programs.keychain = lib.mkIf pkgs.stdenv.isLinux {
     enable = true;
     # keychain 2.9.0+ auto-detects the ssh agent, so `agents` is deprecated
