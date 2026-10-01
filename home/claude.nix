@@ -57,6 +57,15 @@ let
   };
 in
 {
+  # The Bash sandbox's backend on Linux; macOS uses its built-in sandbox-exec.
+  # `claude plugin eval` refuses to grant a shell tool without it, and its child
+  # agents run commands through the login shell, so an ad-hoc `nix shell` is
+  # not enough: they have to be on the profile's PATH.
+  home.packages = lib.optionals pkgs.stdenv.isLinux [
+    pkgs.bubblewrap
+    pkgs.socat
+  ];
+
   home.activation.claudeSettings = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
     settings="$HOME/.claude/settings.json"
     mkdir -p "$HOME/.claude"
