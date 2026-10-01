@@ -134,9 +134,10 @@ the machine's hardware config back into this repo.
 
 9. Commit the generated `hardware-configuration.nix` and the bus IDs.
 
-Afterwards, by hand: copy the SSH keys you want from WSL (`id_ed25519_pis` for
-the fleet, plus GitHub), and `~/.config/sops/age/keys.txt` if you will edit
-secrets from here. Set Konsole's font to Cascadia Code NF, and clone this repo to
+Afterwards, by hand: generate forge's own fleet key, as the README's "SSH
+access" describes, rather than copying WSL's; sign in to GitHub with
+`gh auth login`; and copy `~/.config/sops/age/keys.txt` if you will edit secrets
+from here. Set Konsole's font to Cascadia Code NF, and clone this repo to
 `~/projects/nix-config`.
 
 The time zone is deliberately not declared, so it can change when the laptop
