@@ -25,8 +25,12 @@ in
   # config, which is public. systemd documents that variables from an
   # EnvironmentFile override those set with Environment=, and that is what
   # replaces the empty `ip4Domains` below.
+  #
+  # Restarted when it changes, since the service reads it only at start: a
+  # rotated token or a new hostname would otherwise wait for the next reboot.
   sops.templates."cloudflare-ddns.env" = {
     owner = cfg.user;
+    restartUnits = [ "cloudflare-ddns.service" ];
     content = ''
       CLOUDFLARE_API_TOKEN=${config.sops.placeholder.cloudflare-api-token}
       IP4_DOMAINS=${config.sops.placeholder.ddns-hostname}

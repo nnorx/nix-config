@@ -8,7 +8,7 @@
 # Peers land on the `vpn` segment. ./routing.nix carries it like any other, so
 # it already has masquerade out `wan`, the upstream-management deny and the DNS
 # redirect. What it does not have is any forward accept, which is this file:
-# `grants` below is the whole of what a peer may reach.
+# DNS plus `grants` below is the whole of what a peer may reach.
 {
   config,
   lib,
@@ -21,15 +21,21 @@ let
   tunnel = net.hosts.gate.vpnIface;
   wan = net.hosts.gate.wanIface;
 
-  # What each peer may reach through the tunnel:
+  # What each peer may reach through the tunnel beyond DNS:
   #
-  #   dns       the fleet resolvers, port 53
-  #   adguard   the AdGuard UI on those resolvers
+  #   adguard   the AdGuard UI on the fleet resolvers
   #   ssh       SSH to every server, and to gate itself
   #   internet  out `wan`, for a full-tunnel profile
   #
   # Nothing grants the UniFi UI, which administers the network itself. The
   # phone gets DNS only, since it is the device most likely to be lost.
+  #
+  # DNS to the fleet resolvers is every peer's, and deliberately not a grant,
+  # because it could not be withheld. ./routing.nix redirects port 53 on this
+  # interface as on any segment, and the firewall's `ct status dnat accept`
+  # passes redirected traffic ahead of every rule here, so a peer asking
+  # 8.8.8.8 is answered by the fleet whatever this table says. A grant that
+  # cannot be refused would be worse than none.
   #
   # This applies through the tunnel only. At home forge is on trusted, as
   # before, and the tunnel does not work from inside the house anyway: the WAN
@@ -37,19 +43,12 @@ let
   # arrives on a LAN interface.
   grants = {
     forge = [
-      "dns"
       "adguard"
       "ssh"
       "internet"
     ];
-    phone = [ "dns" ];
+    phone = [ ];
   };
-  knownGrants = [
-    "dns"
-    "adguard"
-    "ssh"
-    "internet"
-  ];
 
   # Peers with a key. An address in lib/net.nix without a key is reserved and
   # configures nothing.
@@ -64,20 +63,40 @@ let
 
   nftSet = xs: "{ ${lib.concatStringsSep ", " xs} }";
   hostIp = h: net.hosts.${h}.ip;
-  resolverIps = map hostIp net.resolvers;
+
+  # Filtered for the same reason as `usablePeers`. ./routing.nix asserts that
+  # every resolver has an address, and that message names the cause; without
+  # the filter this map would throw first.
+  resolverIps = map hostIp (lib.filter (h: net.hosts ? ${h} && net.hosts.${h} ? ip) net.resolvers);
 
   # Every host with an address, which is the servers. gate has none in
   # lib/net.nix, so SSH to gate is an input rule rather than a forward one.
   serverIps = map hostIp (builtins.attrNames (lib.filterAttrs (_: h: h ? ip) net.hosts));
 
-  # One rule per grant, matching the peers that hold it. A grant nobody holds
-  # renders nothing, since `ip saddr { }` is an nftables syntax error whose
-  # message says nothing about why the set is empty.
-  rule =
-    grant: match: comment:
-    lib.optionalString (holding grant != [ ]) ''
-      iifname "${tunnel}" ip saddr ${nftSet (map addr (holding grant))} ${match} comment "${comment}"
+  # Rules for the peers in `who`, rendering nothing when there are none, since
+  # `ip saddr { }` is an nftables syntax error whose message says nothing about
+  # why the set is empty.
+  rulesFor =
+    who: match: comment:
+    lib.optionalString (who != [ ]) ''
+      iifname "${tunnel}" ip saddr ${nftSet (map addr who)} ${match} comment "${comment}"
     '';
+
+  # The forward rule behind each grant. `internet` has none of its own: the nat
+  # module's accept covers it, and peers without it are dropped ahead of that,
+  # below. The grants that mean anything are read from here, so a new grant is
+  # one entry rather than a name, a rule and a list kept in step.
+  forwardRules = {
+    adguard = {
+      match = "ip daddr ${nftSet resolverIps} tcp dport ${toString net.ports.adguardWeb} accept";
+      comment = "tunnel: adguard ui";
+    };
+    ssh = {
+      match = "ip daddr ${nftSet serverIps} tcp dport 22 accept";
+      comment = "tunnel: ssh to the servers";
+    };
+  };
+  knownGrants = builtins.attrNames forwardRules ++ [ "internet" ];
 
   withoutInternet = lib.filter (p: !(builtins.elem p (holding "internet"))) usablePeers;
 in
@@ -95,7 +114,7 @@ in
       assertion = grants ? ${p};
       message = ''
         lib/wireguard-keys.nix has a key for "${p}", but hosts/gate/wireguard.nix
-        has no `grants` entry for it. Grant it something, even [ "dns" ], or
+        has no `grants` entry for it. Give it one, even [ ] for DNS only, or
         remove the key.
       '';
     }) peers
@@ -108,10 +127,19 @@ in
       '';
     }) grants;
 
+  # Restart what holds each key when it changes. The units read these files at
+  # start, and their definitions do not change when only a secret does, so a
+  # rotation would otherwise not take effect until the next reboot. The peer
+  # units require the interface unit, so restarting it restarts them too.
   sops.secrets = {
-    wireguard-private-key = { };
+    wireguard-private-key.restartUnits = [ "wireguard-${tunnel}.service" ];
   }
-  // lib.genAttrs (map (p: "wireguard-psk-${p}") usablePeers) (_: { });
+  // lib.listToAttrs (
+    map (p: {
+      name = "wireguard-psk-${p}";
+      value.restartUnits = [ "wireguard-${tunnel}-peer-${p}.service" ];
+    }) usablePeers
+  );
 
   networking.wireguard.interfaces.${tunnel} = {
     ips = [ "${vpn.gateway}/${toString vpn.prefixLength}" ];
@@ -139,27 +167,25 @@ in
 
     # SSH to gate itself, per peer. Not `sshInterfaces`, which would open it to
     # every peer on the tunnel.
-    extraInputRules = rule "ssh" "tcp dport 22 accept" "tunnel: ssh to gate";
+    extraInputRules = rulesFor (holding "ssh") "tcp dport 22 accept" "tunnel: ssh to gate";
 
     extraForwardRules = lib.mkMerge [
       # Ahead of the nat module's blanket `iifname { segments } oifname wan
       # accept`, which would otherwise let any peer use the house as an exit by
       # editing its own config. A lost phone is the case in mind.
       (lib.mkBefore (
-        lib.optionalString (withoutInternet != [ ]) ''
-          iifname "${tunnel}" oifname "${wan}" ip saddr ${nftSet (map addr withoutInternet)} counter drop comment "tunnel: no exit for this peer"
-        ''
+        rulesFor withoutInternet ''oifname "${wan}" counter drop'' "tunnel: no exit for this peer"
       ))
 
-      (lib.concatStrings [
-        (rule "dns" "ip daddr ${nftSet resolverIps} meta l4proto { tcp, udp } th dport 53 accept"
-          "tunnel: dns to the fleet resolvers"
-        )
-        (rule "adguard" "ip daddr ${nftSet resolverIps} tcp dport ${toString net.ports.adguardWeb} accept"
-          "tunnel: adguard ui"
-        )
-        (rule "ssh" "ip daddr ${nftSet serverIps} tcp dport 22 accept" "tunnel: ssh to the servers")
-      ])
+      # Queries addressed to a resolver directly. Those addressed anywhere else
+      # are redirected, and pass as described at `grants`.
+      (rulesFor usablePeers "ip daddr ${nftSet resolverIps} meta l4proto { tcp, udp } th dport 53 accept"
+        "tunnel: dns to the fleet resolvers"
+      )
+
+      (lib.concatStrings (
+        lib.mapAttrsToList (grant: r: rulesFor (holding grant) r.match r.comment) forwardRules
+      ))
 
       # Everything else from the tunnel would fall to the chain's default drop
       # anyway. This only counts it first, after the nat module's accept so
