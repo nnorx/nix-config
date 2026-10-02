@@ -48,15 +48,17 @@ as a revert path, and it raises what a bad deploy costs: the recovery USB and
       mechanism is in place (Kea hands out the Pi addresses directly, and nat
       masquerades only outbound on `wan`), but it has not been verified against
       the query log.
-- [ ] **Is gate behind CGNAT?** Deferred from Phase 0 and now a one-liner,
-      since gate reads its own WAN address:
+- [x] **Is gate behind CGNAT?** No. 2026-10-01: `wan` holds a public,
+      routable IPv4 address, classified on gate without printing it (see
+      network.md on identifying data), and no global IPv6. Phase 8 is therefore
+      inbound WireGuard; see remote access below. To check again, for instance
+      after an ISP change:
 
       ```
       ssh gate 'ip -4 -br addr show wan; ip route | head -1'
       ```
 
-      A routable address means Phase 8 remote access is inbound WireGuard.
-      `100.64.0.0/10` means it is Tailscale. Nothing else depends on it.
+      `100.64.0.0/10` would mean CGNAT, and Tailscale instead.
 - [ ] **Service tier actually purchased**, for the WAN speed test below.
 - [ ] Static reservations in `lib/net.nix` for anything that needs a stable
       address. The switch and AP have statics set in the controller instead,
@@ -167,9 +169,47 @@ One at a time, weeks apart, now that the house is boring.
       discovered at exactly the moment it is needed. docs/unifi.md defers its
       silent-failure gap to this item, so this is where that deferral is
       tracked.
-- [ ] **Inbound remote access.** The one with clear payoff: SSH into the fleet,
-      the AdGuard UI, Home Assistant, and filtered DNS from a hotel. Answer the
-      CGNAT question above first, since it picks the technology.
+- [ ] **Inbound remote access.** The one with clear payoff: SSH into the fleet
+      and filtered DNS from a hotel. Designed 2026-10-01, not yet built.
+
+      Plain WireGuard terminating on gate, not Tailscale or Headscale. gate has
+      a routable address, so there is nothing for a coordination server to
+      solve, and either one adds a party that can enroll devices: Tailscale's
+      servers, or for Headscale a public HTTPS service at home. What that costs
+      is key hygiene, since nothing expires a WireGuard key; revoking a peer is
+      deleting it and deploying gate.
+
+      It listens on UDP 443 rather than 51820, because restrictive Wi-Fi blocks
+      unusual UDP ports more often than the one HTTP/3 uses. WireGuard answers
+      nothing without a valid key, so the WAN port scan in the checklist above
+      should still find nothing listening.
+
+      Clients get a `vpn` segment in `lib/net.nix`, one fixed address per peer,
+      and the policy is per peer in gate's nftables. forge gets DNS, the
+      AdGuard UI and SSH to the fleet. The phone gets DNS only, since it is the
+      device most likely to be lost. Neither gets the UniFi UI, which
+      administers the network itself. This is through the tunnel only: at home
+      forge is on trusted, as before.
+
+      forge has two profiles. Split, the default, carries the home subnets and
+      DNS. Full tunnel is for untrusted networks; it moves what is visible from
+      the local network to the home ISP rather than hiding it, and is bounded by
+      the home upload. The phone is split only, with `PersistentKeepalive = 25`
+      for carrier NAT.
+
+      Keys follow the SSH model: each peer's private key is generated on its
+      device and only the public half is in the repo. gate's private key and a
+      pre-shared key per peer go in sops; the pre-shared keys add a symmetric
+      layer against recorded traffic being decrypted later.
+
+      The WAN address comes from the ISP over DHCP, so gate updates an A record
+      on Cloudflare. It is DNS only, not proxied, since the proxy carries no
+      UDP. The token is scoped to DNS edit on that one zone, and the hostname
+      lives in sops, because it is identifying in the way network.md
+      describes.
+
+      gate's deploys for this go behind `deploy-guard`, since they change its
+      firewall.
 - [ ] **IPv6**: DHCPv6-PD, a /64 per VLAN, `corerad` for advertisements, and an
       explicit v6 default-deny inbound. Genuinely unexplored: the Nest ran with
       v6 disabled, so whether the ISP delegates a prefix at all is unknown until
