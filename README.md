@@ -218,6 +218,10 @@ To add a peer:
 Revoking a peer is deleting its key line and deploying gate. Nothing expires a
 WireGuard key, so that is the only revocation there is.
 
+forge connects with two NetworkManager profiles, split and full tunnel; using
+them, and why neither works from inside the house, is "Remote access" in
+[docs/laptop.md](docs/laptop.md).
+
 ## Secrets
 
 `sops-nix`, with age keys derived from each machine's SSH host key, so there is

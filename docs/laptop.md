@@ -136,8 +136,9 @@ the machine's hardware config back into this repo.
 
 Afterwards, by hand: generate forge's own fleet key, as the README's "SSH
 access" describes, rather than copying WSL's; sign in to GitHub with
-`gh auth login`; and copy `~/.config/sops/age/keys.txt` if you will edit secrets
-from here. Set Konsole's font to Cascadia Code NF, and clone this repo to
+`gh auth login`; copy `~/.config/sops/age/keys.txt` if you will edit secrets
+from here; and generate forge's WireGuard key, as "Remote access" below
+describes. Set Konsole's font to Cascadia Code NF, and clone this repo to
 `~/projects/nix-config`.
 
 The time zone is deliberately not declared, so it can change when the laptop
@@ -154,6 +155,43 @@ wherever you are.
 
 forge is not in `cache.yml`. Its closure includes NVIDIA's unfree driver, and
 that cache is public.
+
+## Remote access
+
+Two WireGuard profiles to gate, from [`hosts/forge/vpn.nix`](../hosts/forge/vpn.nix).
+Neither connects on its own. Switch one on from the network applet, or:
+
+```bash
+nmcli connection up "home (split)"   # fleet and filtered DNS only
+nmcli connection up "home (full)"    # everything, for untrusted networks
+nmcli connection down "home (split)"
+```
+
+Split is the default. Through it `ssh core4`, `ssh core5` and `ssh lifeline`
+work as at home, gate is `ssh gate-vpn`, and the AdGuard UI is on core4 and
+lifeline. The UniFi UI is not reachable, by design. Use full on networks you
+do not trust; it is bounded by the home upload.
+
+**Not at home.** gate answers WireGuard on its WAN port only, so from inside the
+house the tunnel never comes up, and a profile left on sends DNS into it. If
+lookups stop working at home, check for one with `nmcli connection show
+--active`.
+
+Behind a captive portal, log in first, then bring the tunnel up: the portal's
+page will not load through a tunnel it has not yet let out.
+
+The private key is forge's own, generated here and kept at
+`/var/lib/wireguard/forge.env` (root-only, `WG_PRIVATE_KEY=...`). It is in
+neither the repo nor sops, so a reinstall needs a new one:
+
+```bash
+wg=$(nix build --no-link --print-out-paths 'nixpkgs#wireguard-tools^out')/bin/wg
+sudo install -d -m 700 /var/lib/wireguard
+sudo sh -c "umask 077; printf 'WG_PRIVATE_KEY=%s\n' \"\$($wg genkey)\" > /var/lib/wireguard/forge.env"
+sudo sh -c ". /var/lib/wireguard/forge.env; printf '%s\n' \"\$WG_PRIVATE_KEY\" | $wg pubkey"
+```
+
+Then put the printed public key in `lib/wireguard-keys.nix` and deploy gate.
 
 ## Secure Boot
 
