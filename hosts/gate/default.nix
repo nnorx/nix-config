@@ -1,8 +1,10 @@
 # CWWK N100 (4x Intel i226) — the router.
 #
-# Routes, NATs and serves DHCP for five segments; see ./routing.nix. `wan`
-# faces the modem as of the Phase 7 cutover on 2026-09-05, so this is the
-# house's only path to the internet and the Nest is out of the network entirely.
+# Routes and NATs every segment in lib/net.nix and serves DHCP on those with a
+# pool; see ./routing.nix. Remote peers arrive over WireGuard; see
+# ./wireguard.nix. `wan` faces the modem as of the Phase 7 cutover on
+# 2026-09-05, so this is the house's only path to the internet and the Nest is
+# out of the network entirely.
 #
 # See docs/router.md for what remains.
 {
@@ -23,6 +25,8 @@ in
     # unreachable box means the house has no router.
     ../../modules/deploy-guard.nix
     ./routing.nix
+    ./wireguard.nix
+    ./ddns.nix
 
     # gate's own resolver, on loopback only.
     #

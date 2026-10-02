@@ -1,4 +1,4 @@
-# gate routes, for all five segments.
+# gate routes, for every segment in lib/net.nix.
 #
 # `wan` faces the modem as of the Phase 7 cutover on 2026-09-05. This is the
 # house's only route to the internet now, so a bad ruleset here is an outage
@@ -51,6 +51,7 @@ let
   wired = "lan1"; # untagged trusted, a dedicated run to one machine
   trustedBr = "br-trusted"; # tagged trusted + `wired`, so they share a domain
   wan = net.hosts.gate.wanIface; # bound here too, since a forward rule names it
+  tunnel = net.hosts.gate.vpnIface; # WireGuard, set up in ./wireguard.nix
 
   # 802.1q sub-interface for a tagged segment.
   tagged = name: "${trunk}.${toString seg.${name}.id}";
@@ -75,6 +76,12 @@ let
     ${tagged "iot"} = "iot";
     ${tagged "work"} = "work";
     ${tagged "guest"} = "guest";
+
+    # Listed like the rest, so the tunnel inherits what is derived from this:
+    # masquerade for full-tunnel peers, the upstream-management deny and the
+    # DNS redirect. It has no pool, so no DHCP. Its address is the exception,
+    # set by ./wireguard.nix, which creates the interface; see `interfaces`.
+    ${tunnel} = "vpn";
   };
 
   segmentIfaces = builtins.attrNames segmentOn;
@@ -131,10 +138,7 @@ let
   # Named by host rather than by address, because the redirect below has to
   # know which *segment* each resolver sits on to assert it is not the one it
   # is redirecting.
-  fleetResolverHosts = [
-    "core4"
-    "lifeline"
-  ];
+  fleetResolverHosts = net.resolvers;
 
   # Filtered before dereferencing, so a bad entry is reported by the assertion
   # below instead of throwing "attribute 'ip' missing" from inside a map. Nix
@@ -239,11 +243,11 @@ in
   ++ map (h: {
     assertion = resolverIsUsable h;
     message = ''
-      hosts/gate/routing.nix names "${h}" as a fleet resolver, but net.hosts has
-      no such host with both an `ip` and a `segment`. Both are dereferenced
-      unguarded here, to address the DNAT and to work out which segment to
-      exclude from it, so without this the failure is an "attribute missing"
-      trace naming neither this list nor the host. `gate` is the likely
+      lib/net.nix names "${h}" in `resolvers`, but net.hosts has no such host
+      with both an `ip` and a `segment`. Both are dereferenced unguarded in
+      hosts/gate/routing.nix, to address the DNAT and to work out which segment
+      to exclude from it, so without this the failure is an "attribute
+      missing" trace naming neither the list nor the host. `gate` is the likely
       mistake: lib/net.nix gives it neither, deliberately.
     '';
   }) fleetResolverHosts
@@ -335,6 +339,9 @@ in
       wired
     ];
 
+    # Not the tunnel. The WireGuard module creates that interface and assigns
+    # its address in one unit; a second address unit here would race it for a
+    # device that does not exist yet.
     interfaces = lib.mapAttrs (_: name: {
       ipv4.addresses = [
         {
@@ -342,7 +349,7 @@ in
           inherit (seg.${name}) prefixLength;
         }
       ];
-    }) segmentOn;
+    }) (builtins.removeAttrs segmentOn [ tunnel ]);
 
     firewall = {
       # Default-drop forwarding. Without this the forward chain accepts

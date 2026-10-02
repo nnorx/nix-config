@@ -30,6 +30,15 @@ let
 
   within = seg: addr: networkPart seg.prefixLength addr == networkPart seg.prefixLength (network seg);
 
+  # Inside the subnet, and neither its network nor its broadcast address, which
+  # are the host part all zeros and all ones.
+  hostPart = seg: addr: lib.drop (seg.prefixLength / 8) (octets addr);
+  isHostAddress =
+    seg: addr:
+    within seg addr
+    && !(lib.all (o: o == "0") (hostPart seg addr))
+    && !(lib.all (o: o == "255") (hostPart seg addr));
+
   byteAligned = seg: seg.prefixLength / 8 * 8 == seg.prefixLength;
 
   segmentChecks = lib.concatLists (
@@ -101,6 +110,41 @@ let
     ) hosts
   );
 
+  # A peer address is both its tunnel address and its identity in gate's
+  # firewall, so two peers sharing one would share each other's access, and
+  # WireGuard would route replies to whichever key it saw last.
+  peerChecks = lib.concatLists (
+    lib.mapAttrsToList (
+      name: seg:
+      let
+        addresses = builtins.attrValues seg.peers;
+      in
+      [
+        {
+          assertion = lib.unique addresses == addresses;
+          message = ''
+            net.segments.${name}.peers gives two peers the same address. Each
+            address is the peer's identity in gate's firewall, so they would
+            share each other's access.
+          '';
+        }
+      ]
+      ++ lib.concatLists (
+        lib.mapAttrsToList (peer: addr: [
+          {
+            assertion = isHostAddress seg addr && addr != seg.gateway;
+            message = ''
+              net.segments.${name}.peers.${peer} is ${addr}, which is not a host
+              address in ${seg.subnet} other than the gateway ${seg.gateway}:
+              it is outside the subnet, its network or broadcast address, or
+              the gateway itself.
+            '';
+          }
+        ]) seg.peers
+      )
+    ) (lib.filterAttrs (_: seg: seg ? peers) segments)
+  );
+
   # hosts/core5 dereferences `net.hosts.<agent>.ip` unguarded to build its
   # firewall, so an agent without an address fails core5's evaluation with an
   # "attribute 'ip' missing" trace that names neither this list nor the host.
@@ -114,5 +158,5 @@ let
   }) net.pimonAgents;
 in
 {
-  assertions = segmentChecks ++ hostChecks ++ agentChecks;
+  assertions = segmentChecks ++ hostChecks ++ peerChecks ++ agentChecks;
 }
