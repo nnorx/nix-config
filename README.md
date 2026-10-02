@@ -26,7 +26,8 @@ Alongside the fleet, **forge** is a Framework 16 laptop running NixOS as a
 desktop: Plasma, Steam, LUKS and Secure Boot. It is not a server and does not
 share `hosts/common`; see [docs/laptop.md](docs/laptop.md).
 
-Five segments: trusted (10), servers (20), iot (30), guest (40), work (50).
+Six segments: trusted (10), servers (20), iot (30), guest (40), work (50), and
+vpn (60) for WireGuard peers, which is not a VLAN.
 core4 and lifeline share no state, so either can serve DNS alone. gate resolves
 through its own Unbound so it can be rebuilt while both are down.
 
