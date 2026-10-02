@@ -15,6 +15,11 @@
 # packet from the LAN to its public address arrives on a LAN interface. At home
 # forge is on trusted anyway, and a profile left up there sends DNS into a
 # tunnel that never comes up.
+#
+# The endpoint is a hostname, resolved when a profile comes up. If the home
+# address changes while one is up, the tunnel goes quiet and cannot look the
+# name up again, since all DNS is going through it. Down and up again: down
+# restores the local network's DNS, and up resolves the new address.
 {
   config,
   pkgs,
@@ -46,7 +51,6 @@ let
   profile =
     {
       id,
-      iface,
       allowedIPs,
       ipv6,
     }:
@@ -54,7 +58,12 @@ let
       connection = {
         inherit id;
         type = "wireguard";
-        interface-name = iface;
+
+        # One interface for both, so NetworkManager allows only one at a
+        # time and bringing either up takes the other down. Both carry the
+        # same key and address, and gate keeps one endpoint per key, so two
+        # live at once would steal each other's replies.
+        interface-name = "wg-home";
         autoconnect = false;
       };
       wireguard = {
@@ -109,7 +118,9 @@ in
   networking.networkmanager.ensureProfiles = {
     # The private key is a file on this machine, root-only, made by hand (see
     # docs/laptop.md). Missing, the unit fails and both profiles are absent,
-    # which is the right failure: there is nothing to connect with.
+    # which is the right failure: there is nothing to connect with. Nothing
+    # watches the file, so after creating it, restart
+    # NetworkManager-ensure-profiles or the profiles wait for the next boot.
     environmentFiles = [
       config.sops.templates."wireguard-home.env".path
       "/var/lib/wireguard/forge.env"
@@ -118,7 +129,6 @@ in
     profiles = {
       home-split = profile {
         id = "home (split)";
-        iface = "wg-split";
         allowedIPs = map (ip: "${ip}/32") fleet;
         ipv6.method = "disabled";
       };
@@ -131,7 +141,6 @@ in
       # prefers IPv4 for global destinations, so most connections never try it.
       home-full = profile {
         id = "home (full)";
-        iface = "wg-full";
         allowedIPs = [
           "0.0.0.0/0"
           "::/0"
@@ -155,5 +164,11 @@ in
   # the full profile could never complete a handshake. Loose keeps the check
   # that a route back exists at all. On a laptop that routes for nothing else,
   # strict was protecting little.
+  #
+  # Narrower fixes exist, and were passed over. Exempting UDP from source port
+  # 443 would exempt every QUIC reply too, which is most of what loose gives
+  # up anyway. Restoring WireGuard's fwmark on replies, as wg-quick does, means
+  # hand-written iptables rules shadowing routing that NetworkManager owns and
+  # may change between releases.
   networking.firewall.checkReversePath = "loose";
 }

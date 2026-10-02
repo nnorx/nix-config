@@ -38,14 +38,11 @@ let
       lib.filterAttrs (_name: host: host ? ip) net.hosts
     )
     // {
-      gate = {
-        address = net.segments.trusted.gateway;
-        hostKeyAlias = "gate";
-      };
+      gate.address = net.segments.trusted.gateway;
       gate-vpn = {
         address = net.segments.vpn.gateway;
         user = "gate";
-        hostKeyAlias = "gate";
+        hostKeyAlias = net.segments.trusted.gateway;
       };
     };
 in
@@ -66,9 +63,11 @@ in
     enableDefaultConfig = false;
     includes = [ "config.local" ];
     #
-    # gate's two names share a HostKeyAlias, so its host key is recorded once,
-    # under `gate`, and checked whichever address is used. Without it the
-    # tunnel address is an unknown host with a known key, and SSH refuses.
+    # `gate-vpn` checks gate's host key under the home address, which is where
+    # every admin machine already has it recorded, so trust carries over with
+    # nothing to migrate. Without the alias the tunnel address is a new name:
+    # ssh asks again interactively, noting the key is known elsewhere, and
+    # under BatchMode it refuses outright.
     settings = lib.mapAttrs (
       name: host:
       {
