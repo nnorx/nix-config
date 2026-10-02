@@ -184,9 +184,11 @@ which would otherwise win.
 ## Remote access
 
 WireGuard terminates on gate, on UDP 443. Peers land on the `vpn` segment, and
-`grants` in [`hosts/gate/wireguard.nix`](hosts/gate/wireguard.nix) is the whole
-of what each may reach: forge gets DNS, the AdGuard UI and SSH to the fleet,
-the phone gets DNS. Neither gets the UniFi UI. The design and its reasoning are
+every peer gets the fleet's DNS, and `grants` in
+[`hosts/gate/wireguard.nix`](hosts/gate/wireguard.nix) is the rest of what each
+may reach: forge adds the AdGuard UI, SSH to the fleet and a full-tunnel exit,
+and the phone has nothing more. Neither gets the UniFi UI. The design and its
+reasoning are
 "Inbound remote access" in [docs/router.md](docs/router.md).
 
 Keys follow the SSH model. A peer generates its own key pair and only the
@@ -195,12 +197,18 @@ private key and a pre-shared key per peer are in `secrets/gate.yaml`.
 
 To add a peer:
 
-1. Give it an address in `net.segments.vpn.peers` and an entry in `grants`.
+1. Give it an address in `net.segments.vpn.peers` and an entry in `grants`,
+   `[ ]` for DNS only.
 2. Generate a pre-shared key into sops, so it is never written out in the
    clear:
    ```bash
    wg genpsk | sed 's/.*/"&"/' | sops set --value-stdin secrets/gate.yaml '["wireguard-psk-<peer>"]'
    ```
+   The peer needs the same key. A peer built from this repo reads its own copy
+   from its secrets file, as forge does from `wireguard-psk` in
+   `secrets/forge.yaml`, so set both from one `wg genpsk` and keep them equal
+   when rotating. Any other peer receives it inside its config, like the
+   phone's QR code.
 3. Generate the peer's key pair on the peer, and add its public key to
    `lib/wireguard-keys.nix`. gate refuses to evaluate with a key that has no
    address or no grants.

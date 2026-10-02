@@ -170,7 +170,9 @@ One at a time, weeks apart, now that the house is boring.
       silent-failure gap to this item, so this is where that deferral is
       tracked.
 - [ ] **Inbound remote access.** The one with clear payoff: SSH into the fleet
-      and filtered DNS from a hotel. Designed 2026-10-01, not yet built.
+      and filtered DNS from a hotel. Designed 2026-10-01. gate's half is built
+      in #97, see hosts/gate/wireguard.nix; forge's profiles and a test from
+      outside the house remain before this is ticked.
 
       Plain WireGuard terminating on gate, not Tailscale or Headscale. gate has
       a routable address, so there is nothing for a coordination server to
