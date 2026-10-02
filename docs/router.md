@@ -206,7 +206,10 @@ One at a time, weeks apart, now that the house is boring.
       on Cloudflare. It is DNS only, not proxied, since the proxy carries no
       UDP. The token is scoped to DNS edit on that one zone, and the hostname
       lives in sops, because it is identifying in the way network.md
-      describes.
+      describes. The record answers anyone who asks, so that only holds while
+      the name is hard to guess: a random label, not `vpn.` or `home.`, and
+      never a TLS certificate for it, since certificate transparency logs
+      publish every name one is issued for.
 
       gate's deploys for this go behind `deploy-guard`, since they change its
       firewall.

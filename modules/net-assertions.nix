@@ -101,6 +101,39 @@ let
     ) hosts
   );
 
+  # A peer address is both its tunnel address and its identity in gate's
+  # firewall, so two peers sharing one would share each other's access, and
+  # WireGuard would route replies to whichever key it saw last.
+  peerChecks = lib.concatLists (
+    lib.mapAttrsToList (
+      name: seg:
+      let
+        addresses = builtins.attrValues seg.peers;
+      in
+      [
+        {
+          assertion = lib.unique addresses == addresses;
+          message = ''
+            net.segments.${name}.peers gives two peers the same address. Each
+            address is the peer's identity in gate's firewall, so they would
+            share each other's access.
+          '';
+        }
+      ]
+      ++ lib.concatLists (
+        lib.mapAttrsToList (peer: addr: [
+          {
+            assertion = within seg addr && addr != seg.gateway;
+            message = ''
+              net.segments.${name}.peers.${peer} is ${addr}, which is not a host
+              address in ${seg.subnet} other than the gateway ${seg.gateway}.
+            '';
+          }
+        ]) seg.peers
+      )
+    ) (lib.filterAttrs (_: seg: seg ? peers) segments)
+  );
+
   # hosts/core5 dereferences `net.hosts.<agent>.ip` unguarded to build its
   # firewall, so an agent without an address fails core5's evaluation with an
   # "attribute 'ip' missing" trace that names neither this list nor the host.
@@ -114,5 +147,5 @@ let
   }) net.pimonAgents;
 in
 {
-  assertions = segmentChecks ++ hostChecks ++ agentChecks;
+  assertions = segmentChecks ++ hostChecks ++ peerChecks ++ agentChecks;
 }

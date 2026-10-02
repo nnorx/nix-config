@@ -9,7 +9,7 @@ addressing.
 
 | Host | Hardware | Address | Role |
 |---|---|---|---|
-| **gate** | CWWK N100, 4x Intel i226 | `.1` in every segment | The router. nftables, NAT, Kea DHCP across five VLANs, and its own recursive Unbound |
+| **gate** | CWWK N100, 4x Intel i226 | `.1` in every segment | The router. nftables, NAT, Kea DHCP across five VLANs, its own recursive Unbound, and WireGuard for remote access |
 | **core4** | Raspberry Pi 4 (8GB) | 192.168.20.32 | AdGuard Home + Unbound, pimon agent |
 | **lifeline** | Raspberry Pi 4 | 192.168.20.11 | AdGuard Home + Unbound, pimon agent. An independent second DNS path |
 | **core5** | Raspberry Pi 5, NVMe | 192.168.20.49 | UniFi controller, pimon collector, Docker |
@@ -45,6 +45,7 @@ fails the build if that file stops agreeing with itself.
 flake.nix              Inputs, hosts, installer images, dev shells
 lib/net.nix            Network topology: segments, addresses, NICs, ports
 lib/ssh-keys.nix       Admin machines' SSH public keys, one per machine
+lib/wireguard-keys.nix WireGuard public keys: gate and each remote peer
 .sops.yaml             Which age keys can decrypt which secrets
 secrets/               Per-host encrypted secrets
 
@@ -55,6 +56,8 @@ hosts/
   core5/               UniFi controller, pimon collector, NVMe root
   gate/                The router
     routing.nix        VLANs, NAT, firewall policy, Kea
+    wireguard.nix      Remote peers and what each may reach
+    ddns.nix           Keeps the WAN address in DNS on Cloudflare
   forge/               The laptop: disko layout, Secure Boot, NVIDIA, Plasma
 
 modules/
@@ -177,6 +180,34 @@ Other hosts go in `~/.ssh/config.local`, which it includes. Home Manager will
 not replace a hand-written `~/.ssh/config`, so on a machine that has one, rename
 it to `config.local` before the first switch and delete its fleet entries,
 which would otherwise win.
+
+## Remote access
+
+WireGuard terminates on gate, on UDP 443. Peers land on the `vpn` segment, and
+`grants` in [`hosts/gate/wireguard.nix`](hosts/gate/wireguard.nix) is the whole
+of what each may reach: forge gets DNS, the AdGuard UI and SSH to the fleet,
+the phone gets DNS. Neither gets the UniFi UI. The design and its reasoning are
+"Inbound remote access" in [docs/router.md](docs/router.md).
+
+Keys follow the SSH model. A peer generates its own key pair and only the
+public half goes in [`lib/wireguard-keys.nix`](lib/wireguard-keys.nix). gate's
+private key and a pre-shared key per peer are in `secrets/gate.yaml`.
+
+To add a peer:
+
+1. Give it an address in `net.segments.vpn.peers` and an entry in `grants`.
+2. Generate a pre-shared key into sops, so it is never written out in the
+   clear:
+   ```bash
+   wg genpsk | sed 's/.*/"&"/' | sops set --value-stdin secrets/gate.yaml '["wireguard-psk-<peer>"]'
+   ```
+3. Generate the peer's key pair on the peer, and add its public key to
+   `lib/wireguard-keys.nix`. gate refuses to evaluate with a key that has no
+   address or no grants.
+4. Merge and deploy gate behind `deploy-guard`, since it changes the firewall.
+
+Revoking a peer is deleting its key line and deploying gate. Nothing expires a
+WireGuard key, so that is the only revocation there is.
 
 ## Secrets
 

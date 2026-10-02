@@ -129,6 +129,26 @@
         last = "192.168.40.240";
       };
     };
+
+    # Remote peers, over WireGuard terminating on gate. See "Inbound remote
+    # access" in docs/router.md for the design.
+    #
+    # Not a VLAN: nothing on the switch carries it, and `id` only keeps the
+    # third-octet convention and 60 out of use as a tag. No `pool` either,
+    # because WireGuard has no DHCP. Each peer's address is fixed here, and it
+    # is the peer's identity in gate's firewall: WireGuard drops any packet
+    # whose source is not the address its key is bound to, so a source address
+    # arriving on the tunnel is authenticated by the key that sent it.
+    vpn = {
+      id = 60;
+      subnet = "192.168.60.0/24";
+      gateway = "192.168.60.1";
+      prefixLength = 24;
+      peers = {
+        forge = "192.168.60.10";
+        phone = "192.168.60.20";
+      };
+    };
   };
 
   # Per-host wired NIC. `iface` is the kernel name — the Pi 4 and 5 enumerate
@@ -237,8 +257,21 @@
         lan2 = "pci-0000:05:00.0";
       };
       wanIface = "wan";
+
+      # The WireGuard interface, carrying the `vpn` segment. Not in
+      # `sshInterfaces`: that would open SSH to every peer, and only some may
+      # have it, so hosts/gate/wireguard.nix opens it per peer instead.
+      vpnIface = "wg0";
     };
   };
+
+  # The fleet's DNS resolvers, AdGuard over Unbound, which DHCP hands out and
+  # gate redirects stray port-53 traffic to. Named by host so consumers can
+  # read both the address and the segment it sits on.
+  resolvers = [
+    "core4"
+    "lifeline"
+  ];
 
   # Hosts running a pimon agent that report to the collector on core5. Named
   # rather than derived from `hosts`: address presence is not the same fact as
@@ -270,5 +303,10 @@
     unifiInform = 8080; # devices POST their state here
     unifiStun = 3478; # UDP, keeps devices reachable behind NAT
     unifiDiscovery = 10001; # UDP, device discovery
+
+    # WireGuard on gate's WAN, which every peer's config names. 443 rather
+    # than 51820, because restrictive Wi-Fi blocks unusual UDP ports more often
+    # than the one HTTP/3 uses.
+    wireguard = 443;
   };
 }
