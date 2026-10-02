@@ -167,7 +167,8 @@ nmcli connection up "home (full)"    # everything, for untrusted networks
 nmcli connection down "home (split)"
 ```
 
-Split is the default. Through it `ssh core4`, `ssh core5` and `ssh lifeline`
+Only one can be up at a time: they share an interface, so bringing one up
+takes the other down. Split is the default. Through it `ssh core4`, `ssh core5` and `ssh lifeline`
 work as at home, gate is `ssh gate-vpn`, and the AdGuard UI is on core4 and
 lifeline. The UniFi UI is not reachable, by design. Use full on networks you
 do not trust; it is bounded by the home upload.
@@ -180,18 +181,28 @@ lookups stop working at home, check for one with `nmcli connection show
 Behind a captive portal, log in first, then bring the tunnel up: the portal's
 page will not load through a tunnel it has not yet let out.
 
+If a working tunnel goes quiet, the home address may have changed. The
+profile looked gate's name up when it came up, and cannot again while all DNS
+goes through it, so take it down and back up.
+
+When testing from a phone's hotspot, turn the phone's Wi-Fi off. A phone
+sharing its connection while on home Wi-Fi sends the laptop out through the
+house, which is the one place the tunnel cannot work.
+
 The private key is forge's own, generated here and kept at
 `/var/lib/wireguard/forge.env` (root-only, `WG_PRIVATE_KEY=...`). It is in
 neither the repo nor sops, so a reinstall needs a new one:
 
 ```bash
-wg=$(nix build --no-link --print-out-paths 'nixpkgs#wireguard-tools^out')/bin/wg
 sudo install -d -m 700 /var/lib/wireguard
-sudo sh -c "umask 077; printf 'WG_PRIVATE_KEY=%s\n' \"\$($wg genkey)\" > /var/lib/wireguard/forge.env"
-sudo sh -c ". /var/lib/wireguard/forge.env; printf '%s\n' \"\$WG_PRIVATE_KEY\" | $wg pubkey"
+sudo sh -c 'umask 077; printf "WG_PRIVATE_KEY=%s\n" "$(wg genkey)" > /var/lib/wireguard/forge.env'
+sudo sh -c '. /var/lib/wireguard/forge.env; printf "%s\n" "$WG_PRIVATE_KEY" | wg pubkey'
+sudo systemctl restart NetworkManager-ensure-profiles
 ```
 
-Then put the printed public key in `lib/wireguard-keys.nix` and deploy gate.
+The restart is what creates the profiles; nothing watches the key file, so
+without it they wait for the next boot. Then put the printed public key in
+`lib/wireguard-keys.nix` and deploy gate.
 
 ## Secure Boot
 

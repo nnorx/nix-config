@@ -182,14 +182,9 @@ not replace a hand-written `~/.ssh/config`, so on a machine that has one, rename
 it to `config.local` before the first switch and delete its fleet entries,
 which would otherwise win.
 
-gate has two entries, `gate` at home and `gate-vpn` over WireGuard, and both
-check its host key under the one name `gate`. A machine that already trusts
-gate by address can copy that trust to the name rather than accept the key
-again on first use:
-
-```bash
-awk '$1=="192.168.10.1"{ $1="gate"; print }' ~/.ssh/known_hosts >> ~/.ssh/known_hosts
-```
+gate has two entries, `gate` at home and `gate-vpn` over WireGuard. The second
+checks gate's host key under the home address, so a machine that trusts gate
+at home trusts it through the tunnel too.
 
 ## Remote access
 
