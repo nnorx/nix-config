@@ -265,6 +265,20 @@
     };
   };
 
+  # The MTU of the WireGuard tunnel, on gate and on every peer. WireGuard's
+  # default is 1420, which assumes a clean 1500-byte path. Mobile networks are
+  # not one: over a T-Mobile hotspot, measured 2026-10-02 with don't-fragment
+  # pings through the tunnel, the largest packet that survived was 1376 bytes.
+  # Anything bigger, which is an SSH key exchange or most of a web page,
+  # vanished without an error, while pings and the handshake itself worked,
+  # so the tunnel looked up and carried nothing.
+  #
+  # 1280 is IPv6's guaranteed minimum, so it fits any path a peer is likely
+  # to be on. TCP negotiates its segments down to match, at a cost of a few
+  # percent of throughput. Peers configured by hand, like the phone, need the
+  # same value set in their app.
+  vpnMtu = 1280;
+
   # The fleet's DNS resolvers, AdGuard over Unbound, which DHCP hands out and
   # gate redirects stray port-53 traffic to. Named by host so consumers can
   # read both the address and the segment it sits on.

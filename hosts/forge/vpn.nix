@@ -17,6 +17,7 @@
 # tunnel that never comes up.
 {
   config,
+  pkgs,
   lib,
   net,
   ...
@@ -59,6 +60,10 @@ let
       wireguard = {
         private-key = "$WG_PRIVATE_KEY";
         private-key-flags = 0; # stored in the profile, not asked of an agent
+
+        # See `net.vpnMtu` in lib/net.nix: the default 1420 handshakes and
+        # then drops everything larger than a ping on a phone's hotspot.
+        mtu = net.vpnMtu;
       };
       "wireguard-peer.${keys.gate}" = {
         endpoint = "\${WG_ENDPOINT}:${toString net.ports.wireguard}";
@@ -138,6 +143,11 @@ in
       };
     };
   };
+
+  # `wg show` for when a tunnel will not come up: NetworkManager logs nothing
+  # about WireGuard at its default level, and this is where the endpoint,
+  # handshake and transfer counters are.
+  environment.systemPackages = [ pkgs.wireguard-tools ];
 
   # NetworkManager routes a full tunnel through its own policy table, and gate's
   # encrypted replies arrive on Wi-Fi from an address that table now routes into

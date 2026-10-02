@@ -146,6 +146,10 @@ in
     listenPort = net.ports.wireguard;
     privateKeyFile = config.sops.secrets.wireguard-private-key.path;
 
+    # gate's side of the same limit: replies are as large as gate's MTU
+    # allows, and they cross the same mobile path. See `vpnMtu` in lib/net.nix.
+    mtu = net.vpnMtu;
+
     # One /32 each. WireGuard drops any packet from a peer whose source is not
     # in that peer's allowedIPs, which is what makes `ip saddr` in the rules
     # below an authenticated identity rather than a claim.
