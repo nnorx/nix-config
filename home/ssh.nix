@@ -38,10 +38,14 @@ let
       lib.filterAttrs (_name: host: host ? ip) net.hosts
     )
     // {
-      gate.address = net.segments.trusted.gateway;
+      gate = {
+        address = net.segments.trusted.gateway;
+        hostKeyAlias = "gate";
+      };
       gate-vpn = {
         address = net.segments.vpn.gateway;
         user = "gate";
+        hostKeyAlias = "gate";
       };
     };
 in
@@ -61,12 +65,20 @@ in
     # Home Manager's legacy defaults are deprecated, and none are wanted.
     enableDefaultConfig = false;
     includes = [ "config.local" ];
-    settings = lib.mapAttrs (name: host: {
-      HostName = host.address;
-      User = host.user or name;
-      IdentityFile = "~/.ssh/id_ed25519_pis";
-      IdentitiesOnly = true;
-    }) fleet;
+    #
+    # gate's two names share a HostKeyAlias, so its host key is recorded once,
+    # under `gate`, and checked whichever address is used. Without it the
+    # tunnel address is an unknown host with a known key, and SSH refuses.
+    settings = lib.mapAttrs (
+      name: host:
+      {
+        HostName = host.address;
+        User = host.user or name;
+        IdentityFile = "~/.ssh/id_ed25519_pis";
+        IdentitiesOnly = true;
+      }
+      // lib.optionalAttrs (host ? hostKeyAlias) { HostKeyAlias = host.hostKeyAlias; }
+    ) fleet;
   };
 
   programs.keychain = lib.mkIf pkgs.stdenv.isLinux {
