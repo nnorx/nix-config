@@ -169,10 +169,21 @@ One at a time, weeks apart, now that the house is boring.
       discovered at exactly the moment it is needed. docs/unifi.md defers its
       silent-failure gap to this item, so this is where that deferral is
       tracked.
-- [ ] **Inbound remote access.** The one with clear payoff: SSH into the fleet
-      and filtered DNS from a hotel. Designed 2026-10-01. gate's half is built
-      in #97, see hosts/gate/wireguard.nix; forge's profiles and a test from
-      outside the house remain before this is ticked.
+- [x] **Inbound remote access.** The one with clear payoff: SSH into the fleet
+      and filtered DNS from a hotel. Designed 2026-10-01, built 2026-10-02:
+      gate's half in #97 (hosts/gate/wireguard.nix), forge's profiles after it
+      (hosts/forge/vpn.nix). Tested from outside the house the same day, the
+      phone on mobile data and forge on the phone's hotspot, both profiles:
+      SSH to every host, filtered DNS, UniFi refused, the ISP device denied,
+      and in the full tunnel no IPv6 leaking past it.
+
+      Two things the test found, neither visible from inside the house. A
+      phone sharing its hotspot while still on home Wi-Fi sends a tethered
+      laptop out through the house, where the tunnel cannot work, so test with
+      the phone's Wi-Fi off. And the tunnel MTU is 1280, not WireGuard's 1420:
+      over the hotspot the handshake and pings worked while anything larger
+      vanished, so the tunnel looked up and carried nothing. `vpnMtu` in
+      lib/net.nix has the measurement.
 
       Plain WireGuard terminating on gate, not Tailscale or Headscale. gate has
       a routable address, so there is nothing for a coordination server to

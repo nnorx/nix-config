@@ -182,6 +182,15 @@ not replace a hand-written `~/.ssh/config`, so on a machine that has one, rename
 it to `config.local` before the first switch and delete its fleet entries,
 which would otherwise win.
 
+gate has two entries, `gate` at home and `gate-vpn` over WireGuard, and both
+check its host key under the one name `gate`. A machine that already trusts
+gate by address can copy that trust to the name rather than accept the key
+again on first use:
+
+```bash
+awk '$1=="192.168.10.1"{ $1="gate"; print }' ~/.ssh/known_hosts >> ~/.ssh/known_hosts
+```
+
 ## Remote access
 
 WireGuard terminates on gate, on UDP 443. Peers land on the `vpn` segment, and
@@ -209,7 +218,8 @@ To add a peer:
    from its secrets file, as forge does from `wireguard-psk` in
    `secrets/forge.yaml`, so set both from one `wg genpsk` and keep them equal
    when rotating. Any other peer receives it inside its config, like the
-   phone's QR code.
+   phone's QR code, and needs its MTU set to `vpnMtu` from `lib/net.nix`
+   (1280) by hand; see the comment there for why.
 3. Generate the peer's key pair on the peer, and add its public key to
    `lib/wireguard-keys.nix`. gate refuses to evaluate with a key that has no
    address or no grants.
