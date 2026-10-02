@@ -23,6 +23,7 @@
     ./graphics.nix
     ./desktop.nix
     ./dev.nix
+    ./vpn.nix
     ../../modules/baseline.nix
     ../../modules/docker.nix
   ];

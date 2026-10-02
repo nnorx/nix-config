@@ -27,10 +27,23 @@ let
   # The servers have one address each in lib/net.nix. gate has none there,
   # holding .1 in every segment, and admin machines sit on trusted, so they
   # reach it at that segment's gateway.
+  #
+  # Away from home, over WireGuard, gate is `gate-vpn` at its tunnel address
+  # instead. 192.168.10.1 is the gateway of countless other networks, so
+  # routing it into the tunnel would capture a hotel's own router; see
+  # hosts/forge/vpn.nix. The servers keep one name, since their /32s route
+  # through the tunnel without colliding.
   fleet =
-    lib.mapAttrs (_name: host: host.ip) (lib.filterAttrs (_name: host: host ? ip) net.hosts)
+    lib.mapAttrs (_name: host: { address = host.ip; }) (
+      lib.filterAttrs (_name: host: host ? ip) net.hosts
+    )
     // {
-      gate = net.segments.trusted.gateway;
+      gate.address = net.segments.trusted.gateway;
+      gate-vpn = {
+        address = net.segments.vpn.gateway;
+        user = "gate";
+        hostKeyAlias = net.segments.trusted.gateway;
+      };
     };
 in
 {
@@ -49,12 +62,22 @@ in
     # Home Manager's legacy defaults are deprecated, and none are wanted.
     enableDefaultConfig = false;
     includes = [ "config.local" ];
-    settings = lib.mapAttrs (name: address: {
-      HostName = address;
-      User = name;
-      IdentityFile = "~/.ssh/id_ed25519_pis";
-      IdentitiesOnly = true;
-    }) fleet;
+    #
+    # `gate-vpn` checks gate's host key under the home address, which is where
+    # every admin machine already has it recorded, so trust carries over with
+    # nothing to migrate. Without the alias the tunnel address is a new name:
+    # ssh asks again interactively, noting the key is known elsewhere, and
+    # under BatchMode it refuses outright.
+    settings = lib.mapAttrs (
+      name: host:
+      {
+        HostName = host.address;
+        User = host.user or name;
+        IdentityFile = "~/.ssh/id_ed25519_pis";
+        IdentitiesOnly = true;
+      }
+      // lib.optionalAttrs (host ? hostKeyAlias) { HostKeyAlias = host.hostKeyAlias; }
+    ) fleet;
   };
 
   programs.keychain = lib.mkIf pkgs.stdenv.isLinux {
