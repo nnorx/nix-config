@@ -30,6 +30,15 @@ let
 
   within = seg: addr: networkPart seg.prefixLength addr == networkPart seg.prefixLength (network seg);
 
+  # Inside the subnet, and neither its network nor its broadcast address, which
+  # are the host part all zeros and all ones.
+  hostPart = seg: addr: lib.drop (seg.prefixLength / 8) (octets addr);
+  isHostAddress =
+    seg: addr:
+    within seg addr
+    && !(lib.all (o: o == "0") (hostPart seg addr))
+    && !(lib.all (o: o == "255") (hostPart seg addr));
+
   byteAligned = seg: seg.prefixLength / 8 * 8 == seg.prefixLength;
 
   segmentChecks = lib.concatLists (
@@ -123,10 +132,12 @@ let
       ++ lib.concatLists (
         lib.mapAttrsToList (peer: addr: [
           {
-            assertion = within seg addr && addr != seg.gateway;
+            assertion = isHostAddress seg addr && addr != seg.gateway;
             message = ''
               net.segments.${name}.peers.${peer} is ${addr}, which is not a host
-              address in ${seg.subnet} other than the gateway ${seg.gateway}.
+              address in ${seg.subnet} other than the gateway ${seg.gateway}:
+              it is outside the subnet, its network or broadcast address, or
+              the gateway itself.
             '';
           }
         ]) seg.peers
