@@ -239,7 +239,17 @@ Enable it after the install, in this order.
    `bootctl status` should report `Secure Boot: enabled (user)`.
 
 6. **Set a firmware admin password.** Without one, anyone at the keyboard can
-   switch Secure Boot off.
+   switch Secure Boot off. It is in a different Security submenu from the
+   Secure Boot ones, so it is easy to save and exit without it; a second
+   `systemctl reboot --firmware-setup` is fine. Keep it in the password
+   manager, in plain letters and digits, since the firmware assumes a US
+   layout.
+
+Afterwards forge boots only signed media, which the rescue USB is not: to use
+it here, switch Enforce Secure Boot off in the firmware, with the admin
+password, and back on after. If enrollment ever goes wrong, the firmware's
+"Restore Secure Boot to Factory Settings" returns Framework's own keys, kept as
+built-in defaults that deleting the entries in step 3 does not touch.
 
 fwupd's UEFI capsule updates may fail under our own keys. If one does, the fix
 is to sign fwupd's EFI binary with sbctl.
