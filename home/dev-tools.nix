@@ -41,7 +41,6 @@
     # ===== Misc Development =====
     gnumake # Make build tool
     gcc # C compiler (needed for some builds)
-    direnv # Per-directory environment variables
   ];
 
   # Dev-specific shell aliases (merged with common aliases via module system)

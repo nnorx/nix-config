@@ -54,9 +54,9 @@ in
   # before the one named here, and the hosts allow three attempts
   # (modules/ssh.nix). Another key or two loaded first is a refused login.
   #
-  # Home Manager owns ~/.ssh/config from here on. Hosts it does not generate,
-  # such as the Hetzner box, go in ~/.ssh/config.local, which is read first, so
-  # an entry there for a fleet host would win over the one generated here.
+  # Home Manager owns ~/.ssh/config from here on. Hosts it does not generate go
+  # in ~/.ssh/config.local, which is read first, so an entry there for a fleet
+  # host would win over the one generated here.
   programs.ssh = lib.mkIf pkgs.stdenv.isLinux {
     enable = true;
     # Home Manager's legacy defaults are deprecated, and none are wanted.
@@ -90,14 +90,16 @@ in
     # holding it every connection to a Pi or to gate prompts, and each new
     # shell starts with an empty agent.
     keys = [
-      "id_ed25519_hetzner"
       "id_ed25519_pis"
     ];
 
     # --noask: never prompt for a passphrase at shell startup. Without it,
     # every new shell asks for any listed key the agent does not already hold,
-    # which is a prompt on every terminal for a project that may be dormant for
-    # months. Declining does not help — keychain simply asks again next time.
+    # which is a prompt on every terminal, including on days no fleet host is
+    # touched. Declining does not help — keychain simply asks again next time.
+    #
+    # Listing a key the machine does not have costs a warning on every shell,
+    # so only keys every Linux dev host carries belong here.
     #
     # The keys stay declared, so this makes loading opt-in rather than removing
     # them: run `ssh-add ~/.ssh/id_ed25519_pis` once after a boot, and keychain

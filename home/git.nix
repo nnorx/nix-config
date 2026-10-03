@@ -146,10 +146,18 @@
   };
 
   # GitHub CLI
+  #
+  # Home Manager's gh module also makes `gh auth git-credential` git's helper
+  # for github.com (gitCredentialHelper, on by default), so HTTPS pushes use
+  # gh's token and no machine needs a GitHub SSH key. The cache helper above
+  # only serves other hosts.
   programs.gh = {
     enable = true;
     settings = {
-      git_protocol = "ssh";
+      # https on Linux, matching that helper; forge has no GitHub SSH key, so
+      # ssh here would break `gh repo clone`. macOS keeps ssh. `gh auth login`
+      # also stores a protocol per host, which overrides this for that host.
+      git_protocol = if pkgs.stdenv.isDarwin then "ssh" else "https";
       prompt = "enabled";
     };
   };
