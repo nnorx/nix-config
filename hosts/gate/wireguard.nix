@@ -164,6 +164,17 @@ in
     }) usablePeers;
   };
 
+  # sshd on gate's tunnel address, which is `gate-vpn` in home/ssh.nix. Bound
+  # whoever holds the grant: the per-peer input rule below decides who may
+  # reach it, as `sshInterfaces` does on the LAN. The sysctl in modules/ssh.nix
+  # lets sshd bind it whether or not wg0 is up yet.
+  services.openssh.listenAddresses = [
+    {
+      addr = vpn.gateway;
+      port = null;
+    }
+  ];
+
   networking.firewall = {
     # WireGuard answers nothing without a valid key, so the WAN port scan in
     # docs/router.md still finds nothing listening.

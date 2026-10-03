@@ -8,10 +8,10 @@
 # is reviewable in the topology file rather than implied by the absence of a
 # rule. Loopback is unaffected: the base ruleset accepts it outright.
 #
-# sshd itself is deliberately left bound to all addresses rather than given a
-# ListenAddress. gate's WAN address comes from DHCP, so pinning sshd to it
-# would make the daemon's start depend on a lease, trading a firewall problem
-# for a boot-ordering one. The firewall is the right layer for this.
+# This is one of two layers. sshd also binds only the addresses it is meant to
+# be reached on (see modules/ssh.nix), so a rule that fails open here exposes a
+# closed port rather than a listening daemon. gate's WAN address is never among
+# them, so sshd's start does not depend on a DHCP lease.
 {
   lib,
   hostname,

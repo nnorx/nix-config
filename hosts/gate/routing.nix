@@ -218,6 +218,20 @@ let
   # nftables cannot health-check a target, so one resolver being down degrades
   # these clients rather than sparing them.
   resolverMap = lib.concatStringsSep ", " (lib.imap0 (i: ip: "${toString i} : ${ip}") fleetResolvers);
+
+  # The addresses sshd binds on the LAN, one per interface lib/net.nix names as
+  # gate's SSH surface: the gateway of the segment that interface carries.
+  # Derived rather than listed for the reason that file gives: when `lan0`
+  # stopped meaning trusted and started meaning servers, the value of
+  # `sshInterfaces` did not change but its meaning did. Deriving the address
+  # from `segmentOn` keeps the bind following the interface's meaning, rather
+  # than being a second list to remember.
+  #
+  # Filtered before dereferencing, so an interface that carries no segment is
+  # reported by the assertion below rather than thrown as an "attribute
+  # missing" from inside a map.
+  sshIfaces = net.hosts.gate.sshInterfaces;
+  sshAddresses = map (i: seg.${segmentOn.${i}}.gateway) (lib.filter (i: segmentOn ? ${i}) sshIfaces);
 in
 {
   # A segment declared in lib/net.nix but not carried by an interface here
@@ -253,6 +267,18 @@ in
   }) fleetResolverHosts
   ++ [
     {
+      assertion = lib.all (i: segmentOn ? ${i}) sshIfaces;
+      message = ''
+        lib/net.nix names ${
+          lib.concatStringsSep ", " (lib.filter (i: !(segmentOn ? ${i})) sshIfaces)
+        } in gate's `sshInterfaces`, but hosts/gate/routing.nix carries no
+        segment on it, so there is no address for sshd to bind. The firewall
+        would open port 22 there with nothing listening, which reads as a
+        firewall fault. Give the interface a segment, or take it out of that
+        list. `wan` is the likely mistake.
+      '';
+    }
+    {
       assertion = fleetResolvers != [ ];
       message = ''
         hosts/gate/routing.nix has no usable fleet resolver, so the DNS redirect
@@ -282,6 +308,14 @@ in
   # nat module rather than a hand-written ruleset on purpose: it is the
   # well-trodden path, and hand-rolled NAT on a box that is becoming the house
   # router is a poor place to be original.
+  # sshd on the gateway address of each SSH interface, and nowhere else on the
+  # LAN. modules/ssh.nix has the reasoning and the sysctl that makes binding
+  # these safe at boot; ./wireguard.nix adds the tunnel's address.
+  services.openssh.listenAddresses = map (addr: {
+    inherit addr;
+    port = null;
+  }) sshAddresses;
+
   networking.nat = {
     enable = true;
     externalInterface = net.hosts.gate.wanIface;
