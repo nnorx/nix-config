@@ -47,6 +47,7 @@ flake.nix              Inputs, hosts, installer images
 lib/net.nix            Network topology: segments, addresses, NICs, ports
 lib/ssh-keys.nix       Admin machines' SSH public keys, one per machine
 lib/wireguard-keys.nix WireGuard public keys: gate and each remote peer
+lib/claude-sandbox.nix Claude Code's sandbox policy, in user and managed settings
 .sops.yaml             Which age keys can decrypt which secrets
 secrets/               Per-host encrypted secrets
 

@@ -18,6 +18,7 @@
 # hosts, WSL and forge, are the admin machines in lib/ssh-keys.nix, and the work
 # Mac is deliberately not one.
 {
+  config,
   pkgs,
   lib,
   net,
@@ -45,8 +46,60 @@ let
         hostKeyAlias = net.segments.trusted.gateway;
       };
     };
+
+  # ssh to the fleet for Claude Code. Its sandbox has no route to the network
+  # that plain ssh will take, so home/claude.nix excludes this one command from
+  # the sandbox, and it runs with Nick's full access. What keeps that safe is
+  # that nothing about the local side is an argument: the host must be one of
+  # the names above, the options are fixed, and ProxyCommand and LocalCommand,
+  # which would run an arbitrary local command, are off. Everything after the
+  # host goes to the remote side, where sudo wants a password.
+  #
+  # keychain's environment file names the agent, because the process Claude
+  # Code runs under never sourced a login shell. After a reboot the agent is
+  # empty until `ssh-add`, and BatchMode turns that into a refusal rather than
+  # a prompt that would hang. That file is sourced, so its path comes from
+  # nothing a caller can set: the home directory is fixed here and the
+  # hostname read from the kernel, not $HOME and $HOSTNAME. What bash and the
+  # loader act on before the first line (BASH_ENV, LD_PRELOAD) is beyond this
+  # script; that rests on Claude Code not taking `VAR=x fleet-ssh` for
+  # fleet-ssh.
+  fleetSsh = pkgs.writeShellApplication {
+    name = "fleet-ssh";
+    runtimeInputs = [ pkgs.openssh ];
+    text = ''
+      hosts="${lib.concatStringsSep " " (builtins.attrNames fleet)}"
+      if [ "$#" -lt 2 ]; then
+        echo "usage: fleet-ssh <host> <command...>   hosts: $hosts" >&2
+        exit 64
+      fi
+      host=$1
+      shift
+      case "$host" in
+        ${lib.concatStringsSep "|" (builtins.attrNames fleet)}) ;;
+        *)
+          echo "fleet-ssh: $host is not a fleet host   hosts: $hosts" >&2
+          exit 64
+          ;;
+      esac
+      agent="${config.home.homeDirectory}/.keychain/$(</proc/sys/kernel/hostname)-sh"
+      if [ -r "$agent" ]; then
+        # shellcheck disable=SC1090
+        . "$agent"
+      fi
+      exec ssh \
+        -o BatchMode=yes \
+        -o ProxyCommand=none \
+        -o PermitLocalCommand=no \
+        -o ClearAllForwardings=yes \
+        -- "$host" "$@"
+    '';
+  };
 in
 {
+  # Linux only, like the rest of this file: the Mac is not an admin machine.
+  home.packages = lib.optionals pkgs.stdenv.isLinux [ fleetSsh ];
+
   # `ssh core4`, `ssh gate` and so on, from any admin machine. The login user
   # is the hostname, as hosts/common makes it.
   #

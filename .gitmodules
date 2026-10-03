@@ -1,0 +1,6 @@
+# No submodules. This file exists for Claude Code's Linux sandbox, which
+# protects .gitmodules from writes and, when the file is absent, masks the
+# path with a placeholder that exists but cannot be opened. Nix's git fetcher
+# checks for .gitmodules before evaluating a flake from a checkout and fails
+# on that placeholder. A real file is bound read-only instead, and reads as
+# "no submodules".
