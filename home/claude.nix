@@ -125,6 +125,10 @@ let
       # Tried on a scratch flake. See also .gitmodules.
       filesystem.allowWrite = [ sandboxNixCache ];
 
+      # A list, so recursiveUpdate would replace the shared one rather than
+      # add to it.
+      filesystem.denyRead = policy.strict.filesystem.denyRead ++ config.claude-sandbox.extraDenyRead;
+
       # Plain ssh ignores the sandbox's proxy, so it reaches nothing from
       # inside. fleet-ssh (home/ssh.nix) is the one command that runs
       # outside: it takes a fleet host and a remote command and fixes
@@ -145,50 +149,60 @@ let
   };
 in
 {
-  # The Bash sandbox's backend on Linux; macOS uses its built-in sandbox-exec.
-  # `claude plugin eval` refuses to grant a shell tool without it, and its child
-  # agents run commands through the login shell, so an ad-hoc `nix shell` is
-  # not enough: they have to be on the profile's PATH.
-  home.packages = lib.optionals pkgs.stdenv.isLinux [
-    pkgs.bubblewrap
-    pkgs.socat
-  ];
+  # For paths that exist on one machine only, like WSL's (home/wsl.nix). User
+  # settings only: forge's managed settings have no such paths to hide.
+  options.claude-sandbox.extraDenyRead = lib.mkOption {
+    type = lib.types.listOf lib.types.str;
+    default = [ ];
+    description = "Paths hidden from Claude Code's sandboxed commands on this machine, on top of lib/claude-sandbox.nix";
+  };
 
-  # No repository's .git/hooks ever runs. The sandbox lets a command write
-  # there (it protects .git/config, not hooks), and a hook runs on the next
-  # commit made outside it, with access to the sops key. Here rather than in
-  # git.nix, which the fleet imports too, and Linux only, like the sandbox:
-  # work repos on the Mac use hooks. A repo that needs them can set its own
-  # core.hooksPath, since .git/config is out of a command's reach.
-  programs.git.settings.core.hooksPath = lib.mkIf pkgs.stdenv.isLinux "${pkgs.emptyDirectory}";
+  config = {
+    # The Bash sandbox's backend on Linux; macOS uses its built-in sandbox-exec.
+    # `claude plugin eval` refuses to grant a shell tool without it, and its child
+    # agents run commands through the login shell, so an ad-hoc `nix shell` is
+    # not enough: they have to be on the profile's PATH.
+    home.packages = lib.optionals pkgs.stdenv.isLinux [
+      pkgs.bubblewrap
+      pkgs.socat
+    ];
 
-  home.activation.claudeSettings = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
-    settings="$HOME/.claude/settings.json"
-    mkdir -p "$HOME/.claude"
-    ${lib.optionalString pkgs.stdenv.isLinux "mkdir -p ${lib.escapeShellArg sandboxNixCache}"}
+    # No repository's .git/hooks ever runs. The sandbox lets a command write
+    # there (it protects .git/config, not hooks), and a hook runs on the next
+    # commit made outside it, with access to the sops key. Here rather than in
+    # git.nix, which the fleet imports too, and Linux only, like the sandbox:
+    # work repos on the Mac use hooks. A repo that needs them can set its own
+    # core.hooksPath, since .git/config is out of a command's reach.
+    programs.git.settings.core.hooksPath = lib.mkIf pkgs.stdenv.isLinux "${pkgs.emptyDirectory}";
 
-    # Earlier generations linked this path into the store. linkGeneration drops
-    # that symlink when it is the one Home Manager wrote, but clear it here too
-    # so a hand-made link cannot make the write below land in /nix/store.
-    if [ -L "$settings" ]; then
-      rm -f "$settings"
-    fi
+    home.activation.claudeSettings = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
+      settings="$HOME/.claude/settings.json"
+      mkdir -p "$HOME/.claude"
+      ${lib.optionalString pkgs.stdenv.isLinux "mkdir -p ${lib.escapeShellArg sandboxNixCache}"}
 
-    # Anything unparseable is treated as absent rather than failing the switch,
-    # which would otherwise leave the whole activation half-applied.
-    existing='{}'
-    if [ -f "$settings" ] && ${pkgs.jq}/bin/jq -e . "$settings" >/dev/null 2>&1; then
-      existing="$(cat "$settings")"
-    fi
+      # Earlier generations linked this path into the store. linkGeneration drops
+      # that symlink when it is the one Home Manager wrote, but clear it here too
+      # so a hand-made link cannot make the write below land in /nix/store.
+      if [ -L "$settings" ]; then
+        rm -f "$settings"
+      fi
 
-    # `*` merges objects but replaces arrays, so a managed object must be
-    # deleted first or its stale keys survive. A managed array is replaced
-    # either way, and is listed so what is managed can be read off here.
-    printf '%s' "$existing" | ${pkgs.jq}/bin/jq -S \
-      --argjson defaults ${lib.escapeShellArg (builtins.toJSON defaults)} \
-      --argjson managed ${lib.escapeShellArg (builtins.toJSON managed)} \
-      '$defaults * del(.extraKnownMarketplaces, .enabledPlugins, .sandbox, .permissions.deny) * $managed' \
-      > "$settings.next"
-    mv "$settings.next" "$settings"
-  '';
+      # Anything unparseable is treated as absent rather than failing the switch,
+      # which would otherwise leave the whole activation half-applied.
+      existing='{}'
+      if [ -f "$settings" ] && ${pkgs.jq}/bin/jq -e . "$settings" >/dev/null 2>&1; then
+        existing="$(cat "$settings")"
+      fi
+
+      # `*` merges objects but replaces arrays, so a managed object must be
+      # deleted first or its stale keys survive. A managed array is replaced
+      # either way, and is listed so what is managed can be read off here.
+      printf '%s' "$existing" | ${pkgs.jq}/bin/jq -S \
+        --argjson defaults ${lib.escapeShellArg (builtins.toJSON defaults)} \
+        --argjson managed ${lib.escapeShellArg (builtins.toJSON managed)} \
+        '$defaults * del(.extraKnownMarketplaces, .enabledPlugins, .sandbox, .permissions.deny) * $managed' \
+        > "$settings.next"
+      mv "$settings.next" "$settings"
+    '';
+  };
 }
