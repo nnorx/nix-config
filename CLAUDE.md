@@ -88,9 +88,16 @@ before changing it.
 
 ## Deploying and merging
 
-Deploys and merges are Nick's. Push branches and open PRs when asked, and leave
-merging to him. Do not run `nixos-rebuild switch` or `boot`, `nrs`, `nrb`,
-`hms`, `deploy-guard`, or anything under `sudo`, on any host, forge included.
+Deploys and merges are Nick's. Do not run `nixos-rebuild switch` or `boot`,
+`nrs`, `nrb`, `hms`, `deploy-guard`, or anything under `sudo`, on any host,
+forge included.
+
+Publishing is Nick's too. gh's login lives outside the sandbox, so commands
+cannot push, open a PR or comment, and that is deliberate: a token in reach
+of commands could merge to main as Nick, which deploys the Pis. Do not look
+for a way to authenticate. When asked for a PR, commit, write the title and
+body, and give Nick the commands to push and open it. The repo is public, so
+PR and CI state can be read without a token from `api.github.com`.
 
 Read-only diagnostics on a host go through `fleet-ssh <host> <command>`, the
 one command that runs outside the sandbox (`home/ssh.nix`); plain `ssh` has no

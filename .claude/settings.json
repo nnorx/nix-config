@@ -11,13 +11,7 @@
       "Bash(git status:*)",
       "Bash(git diff:*)",
       "Bash(git log:*)",
-      "Bash(git show:*)",
-      "Bash(gh pr view:*)",
-      "Bash(gh pr list:*)",
-      "Bash(gh pr diff:*)",
-      "Bash(gh pr checks:*)",
-      "Bash(gh run list:*)",
-      "Bash(gh run view:*)"
+      "Bash(git show:*)"
     ],
     "deny": [
       "Bash(sudo:*)",
