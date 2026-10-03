@@ -15,7 +15,8 @@
 # untrusted by construction: a `.unf` carries Wi-Fi PSKs and device
 # credentials, and a private repo is still a copy outside the house. age needs
 # only the *public* half to encrypt, so core5 holds nothing that could read
-# these back. The private half lives in Bitwarden and ~/.config/sops/age.
+# these back. The private half lives in the password manager and
+# ~/.config/sops/age.
 {
   config,
   pkgs,
