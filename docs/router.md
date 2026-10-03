@@ -69,14 +69,23 @@ as a revert path, and it raises what a bad deploy costs: the recovery USB and
 ### Validation checklist
 
 These are the tests that distinguish a network that works from one that
-happens to be working. The DNS half was run on **2026-09-12** and is recorded
-below. The throughput, segmentation and gate-reboot items are still open.
+happens to be working. The DNS half was run on **2026-09-12** and the port
+scan on **2026-10-02**, and both are recorded below. The throughput,
+segmentation and gate-reboot items are still open.
 
 - [ ] `iperf3` between two clients on different VLANs, forwarded through gate,
       confirming the routing path does multi-gig rather than just the links
       negotiating at 2.5G
 - [ ] WAN speed test matching the service tier
-- [ ] External port scan of the WAN address showing nothing listening
+- [x] External port scan of the WAN address showing nothing listening.
+      2026-10-02, from a phone hotspot with WireGuard off: all 65535 TCP ports
+      filtered with no response, and UDP 53, 67, 123 and 443 `open|filtered`
+      with none `closed`, so gate drops silently and WireGuard stays quiet
+      without a valid key. A control scan of `scanme.nmap.org` over the same
+      connection found 22 and 80 open, so the carrier was not masking ports.
+      nmap also reports an IPv6 address for the DDNS name from a mobile
+      network; that is the carrier's DNS64, not a record (the zone holds an A
+      record only). Rescan over IPv6 once Phase 8 brings it
 - [x] `dnssec-failed.org` fails to resolve, proving DNSSEC validation is live.
       2026-09-12: SERVFAIL on both resolvers, against Unbound directly on 5335
       and through AdGuard on 53. A signed control zone returns NOERROR with the
