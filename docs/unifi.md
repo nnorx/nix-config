@@ -103,7 +103,7 @@ around 30 KB, and settings are what a rebuild needs; statistics history is not.
 age encryption needs only the public half of the key, so core5 holds nothing
 that can read these back. That is what makes a private repo an acceptable
 destination for a file carrying Wi-Fi PSKs: the destination is untrusted by
-construction, and the private half is in Bitwarden and
+construction, and the private half is in the password manager and
 `~/.config/sops/age/keys.txt`.
 
 The deploy key has write access and core5 can read it, so a compromised core5
