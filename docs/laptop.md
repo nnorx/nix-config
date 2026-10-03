@@ -214,6 +214,10 @@ Enable it after the install, in this order.
    replaces systemd-boot and signs what it installs. Check with
    `sudo sbctl verify`. Unsigned `*-bzImage.efi` files left in `/boot/EFI/nixos`
    by the systemd-boot generations are harmless and can be deleted.
+   **`kernel-*.efi` in the same directory is not one of them**, though verify
+   lists it unsigned too. It is Lanzaboote's: each signed generation stub loads
+   it and checks it against a hash the stub carries, so it needs no signature
+   of its own, and deleting it leaves nothing to boot.
 3. Put the firmware into Setup Mode. **On Framework, do this by hand**: under
    "Administer Secure Boot", open each of PK, KEK and DB Options and delete every
    entry, one at a time. **Do not use "Erase all Secure Boot Settings"**, which

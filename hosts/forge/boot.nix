@@ -11,7 +11,7 @@ let
   #      before step 2.
   #   4. Firmware into Setup Mode, `sbctl enroll-keys`, enforce Secure Boot.
   #      docs/laptop.md has the Framework-specific steps and flags.
-  secureBoot = false;
+  secureBoot = true;
 in
 {
   boot.loader.systemd-boot.enable = lib.mkForce (!secureBoot);
