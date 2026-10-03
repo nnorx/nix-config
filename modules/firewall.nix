@@ -8,10 +8,11 @@
 # is reviewable in the topology file rather than implied by the absence of a
 # rule. Loopback is unaffected: the base ruleset accepts it outright.
 #
-# This is one of two layers. sshd also binds only the addresses it is meant to
-# be reached on (see modules/ssh.nix), so a rule that fails open here exposes a
-# closed port rather than a listening daemon. gate's WAN address is never among
-# them, so sshd's start does not depend on a DHCP lease.
+# sshd also binds only the addresses it is meant to be reached on (see
+# modules/ssh.nix), so a rule that fails open here does not put it on the
+# internet. That bind is by address, not interface: on gate's LAN side this
+# module is still the only scoping there is. gate's WAN address is never bound,
+# so sshd's start does not depend on a DHCP lease.
 {
   lib,
   hostname,

@@ -304,18 +304,17 @@ in
   # whose forward chain defaults to accept is not a firewall.
   networking.nftables.enable = true;
 
+  # sshd on the gateway address of each SSH interface, rather than on every
+  # address gate holds, the WAN one above all. By address, not by interface:
+  # the firewall still does the per-interface scoping. modules/ssh.nix has the
+  # reasoning and the sysctl that makes binding these safe at boot;
+  # ./wireguard.nix adds the tunnel's address.
+  services.openssh.listenAddresses = map (addr: { inherit addr; }) sshAddresses;
+
   # Masquerade every segment out of wan, and enable IPv4 forwarding. Using the
   # nat module rather than a hand-written ruleset on purpose: it is the
   # well-trodden path, and hand-rolled NAT on a box that is becoming the house
   # router is a poor place to be original.
-  # sshd on the gateway address of each SSH interface, and nowhere else on the
-  # LAN. modules/ssh.nix has the reasoning and the sysctl that makes binding
-  # these safe at boot; ./wireguard.nix adds the tunnel's address.
-  services.openssh.listenAddresses = map (addr: {
-    inherit addr;
-    port = null;
-  }) sshAddresses;
-
   networking.nat = {
     enable = true;
     externalInterface = net.hosts.gate.wanIface;

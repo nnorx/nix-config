@@ -1,5 +1,6 @@
 # SSH server hardening — key-only auth with modern crypto
 {
+  config,
   lib,
   hostname,
   sshPubKeys,
@@ -10,6 +11,21 @@ let
   host = net.hosts.${hostname} or { };
 in
 {
+  # Without this a host with no `ip` falls back to every address it holds,
+  # loopback and IPv6 included, and nothing says so. hosts/common supports
+  # such hosts, for a DHCP lease.
+  assertions = [
+    {
+      assertion = host ? ip || config.services.openssh.listenAddresses != [ ];
+      message = ''
+        Host "${hostname}" has no `ip` in lib/net.nix and sets no
+        `services.openssh.listenAddresses` of its own, so sshd would listen on
+        every address it holds. Give it an `ip`, or bind its addresses in its
+        host config, as hosts/gate does.
+      '';
+    }
+  ];
+
   services.openssh = {
     enable = true;
 
@@ -20,29 +36,29 @@ in
     openFirewall = false;
 
     # Bind the address this host is reached on, rather than every address it
-    # holds. modules/firewall.nix already scopes port 22 per interface, so this
-    # is the second layer, not the first: bound to 0.0.0.0, sshd is one
-    # firewall mistake away from every network the host can see. On gate that
-    # includes the internet, and the ways the ruleset could fail open are not
+    # holds. Bound to 0.0.0.0, sshd on gate is one firewall mistake away from
+    # the internet, and the ways the ruleset could fail open are not
     # hypothetical: this file's `openFirewall` default, an interface whose
     # meaning changed under its name (see `sshInterfaces` on gate in
-    # lib/net.nix), or a ruleset flushed while debugging.
+    # lib/net.nix), or a ruleset flushed while debugging. Bound like this, the
+    # only address the internet can send to is gate's WAN one, and sshd does
+    # not hold it.
     #
-    # Hosts with no `ip` in lib/net.nix are not covered here. That is gate,
-    # which holds an address in every segment and binds them itself, in
-    # hosts/gate/routing.nix and hosts/gate/wireguard.nix, alongside the rules
-    # that open each one.
+    # This is not per-interface scoping, and does not replace the firewall's.
+    # Linux accepts a packet for any local address on any interface, so a
+    # device on iot or guest can still address 192.168.10.1 directly, and on
+    # gate's LAN side modules/firewall.nix is still the only thing that stops
+    # it. So is the ISP's own equipment, gate's next hop on `wan`.
+    #
+    # Hosts with no `ip` in lib/net.nix bind their own addresses, and the
+    # assertion below holds them to it. That is gate, which holds an address in
+    # every segment and binds them in hosts/gate/routing.nix and
+    # hosts/gate/wireguard.nix, alongside the rules that open each one.
     #
     # Loopback is not bound, so `ssh localhost` stops working. Nothing in the
-    # fleet uses it.
-    listenAddresses = lib.optionals (host ? ip) [
-      {
-        addr = host.ip;
-        # No port: sshd then listens on everything in `ports`, so the port
-        # stays stated once.
-        port = null;
-      }
-    ];
+    # fleet uses it. No `port` either: sshd then listens on everything in
+    # `ports`, so the port stays stated once.
+    listenAddresses = lib.optionals (host ? ip) [ { addr = host.ip; } ];
 
     settings = {
       PasswordAuthentication = false;

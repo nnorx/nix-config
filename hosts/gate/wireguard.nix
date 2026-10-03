@@ -125,7 +125,21 @@ in
         ${toString knownGrants} mean anything. An unknown grant would otherwise
         render no rule and fail silently closed.
       '';
-    }) grants;
+    }) grants
+    ++ [
+      {
+        # lib/net.nix says so in prose; this says it at eval. Listed there, the
+        # tunnel would also be bound twice, once by ./routing.nix from
+        # `sshInterfaces` and once below.
+        assertion = !(builtins.elem tunnel net.hosts.gate.sshInterfaces);
+        message = ''
+          lib/net.nix lists ${tunnel} in gate's `sshInterfaces`, which would open
+          SSH to every peer on the tunnel, the phone included. SSH over the
+          tunnel is granted per peer, in `grants` in hosts/gate/wireguard.nix.
+          Take ${tunnel} out of that list.
+        '';
+      }
+    ];
 
   # Restart what holds each key when it changes. The units read these files at
   # start, and their definitions do not change when only a secret does, so a
@@ -168,12 +182,7 @@ in
   # whoever holds the grant: the per-peer input rule below decides who may
   # reach it, as `sshInterfaces` does on the LAN. The sysctl in modules/ssh.nix
   # lets sshd bind it whether or not wg0 is up yet.
-  services.openssh.listenAddresses = [
-    {
-      addr = vpn.gateway;
-      port = null;
-    }
-  ];
+  services.openssh.listenAddresses = [ { addr = vpn.gateway; } ];
 
   networking.firewall = {
     # WireGuard answers nothing without a valid key, so the WAN port scan in
