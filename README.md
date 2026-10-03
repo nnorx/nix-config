@@ -43,7 +43,7 @@ fails the build if that file stops agreeing with itself.
 ## Layout
 
 ```
-flake.nix              Inputs, hosts, installer images, dev shells
+flake.nix              Inputs, hosts, installer images
 lib/net.nix            Network topology: segments, addresses, NICs, ports
 lib/ssh-keys.nix       Admin machines' SSH public keys, one per machine
 lib/wireguard-keys.nix WireGuard public keys: gate and each remote peer
@@ -300,6 +300,11 @@ After that, `hms` applies changes and `nfu && hms` updates everything first.
 
 Package lists live in `home/common-tools.nix` and `home/dev-tools.nix` rather
 than being mirrored here, where they would rot.
+
+Per-project toolchains are not here. Each project carries its own `flake.nix`
+and an `.envrc` with `use flake`, and direnv with nix-direnv loads it on `cd`,
+so a project pins its own versions without touching every machine's profile.
+Run `direnv allow` once in a fresh clone.
 
 ## Commands
 
