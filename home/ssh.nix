@@ -64,6 +64,10 @@ let
   # loader act on before the first line (BASH_ENV, LD_PRELOAD) is beyond this
   # script; that rests on Claude Code not taking `VAR=x fleet-ssh` for
   # fleet-ssh.
+  #
+  # -F reads the config this file writes and skips the system's. Debian's
+  # /etc/ssh/ssh_config, on WSL, sets GSSAPIAuthentication, which nixpkgs'
+  # OpenSSH does not know, so every call warned.
   fleetSsh = pkgs.writeShellApplication {
     name = "fleet-ssh";
     runtimeInputs = [ pkgs.openssh ];
@@ -88,6 +92,7 @@ let
         . "$agent"
       fi
       exec ssh \
+        -F "${config.home.homeDirectory}/.ssh/config" \
         -o BatchMode=yes \
         -o ProxyCommand=none \
         -o PermitLocalCommand=no \
