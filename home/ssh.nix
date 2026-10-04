@@ -94,16 +94,116 @@ let
       exec ssh \
         -F "${config.home.homeDirectory}/.ssh/config" \
         -o BatchMode=yes \
+        -o ConnectTimeout=10 \
         -o ProxyCommand=none \
         -o PermitLocalCommand=no \
         -o ClearAllForwardings=yes \
         -- "$host" "$@"
     '';
   };
+
+  # Every fleet host's `host-status` (modules/host-status.nix) at once, with
+  # each running revision compared against main on GitHub. gate-vpn is the same
+  # host as gate, so it is asked only when named, which is the way to reach
+  # gate from away from home.
+  #
+  # Calls fleet-ssh, so inside Claude Code's sandbox it reaches nothing. Claude
+  # runs `fleet-ssh <host> host-status` per host instead.
+  fleetStatus = pkgs.writeShellApplication {
+    name = "fleet-status";
+    runtimeInputs = [
+      fleetSsh
+      pkgs.coreutils
+      pkgs.curl
+      pkgs.gawk
+      pkgs.gnused
+      pkgs.jq
+    ];
+    text = ''
+      known="${lib.concatStringsSep " " (builtins.attrNames fleet)}"
+      if [ "$#" -gt 0 ]; then
+        hosts="$*"
+      else
+        hosts="${lib.concatStringsSep " " (lib.remove "gate-vpn" (builtins.attrNames fleet))}"
+      fi
+      for host in $hosts; do
+        case " $known " in
+          *" $host "*) ;;
+          *)
+            echo "fleet-status: $host is not a fleet host   hosts: $known" >&2
+            exit 64
+            ;;
+        esac
+      done
+
+      out=$(mktemp -d)
+      trap 'rm -rf "$out"' EXIT
+
+      # In parallel, so one host that is down costs its own timeout rather
+      # than adding it to everyone else's.
+      for host in $hosts; do
+        fleet-ssh "$host" host-status >"$out/$host" 2>"$out/$host.err" &
+      done
+      wait
+
+      # How far a revision is behind main, from GitHub's public API, which
+      # needs no token. Anything that is not a full commit hash is not asked
+      # about: a dirty tree's revision, or "unknown" from a host that predates
+      # host-status's revision line.
+      behind() {
+        local rev=$1 status count
+        if ! [[ $rev =~ ^[0-9a-f]{40}$ ]]; then
+          echo "$rev"
+          return
+        fi
+        if ! read -r status count < <(curl -fsS --max-time 15 \
+          "https://api.github.com/repos/nnorx/nix-config/compare/$rev...main" |
+          jq -r '"\(.status) \(.ahead_by)"'); then
+          echo "''${rev:0:7} (main unknown)"
+          return
+        fi
+        case $status in
+          identical) echo "''${rev:0:7} main" ;;
+          ahead) echo "''${rev:0:7} $count behind" ;;
+          *) echo "''${rev:0:7} $status" ;;
+        esac
+      }
+
+      # Prints one fact from a host's output, by key.
+      get() { awk -F '\t' -v k="$2" '$1 == k { print $2 }' "$out/$1"; }
+
+      row='%-9s %-18s %-16s %-36s %s\n'
+      # shellcheck disable=SC2059
+      printf "$row" HOST REVISION ROOT UPGRADE FAILED
+      for host in $hosts; do
+        if [ ! -s "$out/$host" ]; then
+          # The first line of ssh's complaint, with any address masked, since
+          # this output may land in a transcript.
+          why=$(head -n 1 "$out/$host.err" | sed -E 's/([0-9]{1,3}\.){3}[0-9]{1,3}/<addr>/g')
+          case $why in
+            *"command not found"*) why="no host-status yet; it arrives with this host's next deploy" ;;
+            *"Permission denied"*) why="unreachable: $why (agent empty? ssh-add ~/.ssh/id_ed25519_pis)" ;;
+            *) why="unreachable: ''${why:-no output}" ;;
+          esac
+          printf '%-9s %s\n' "$host" "$why"
+          continue
+        fi
+        # shellcheck disable=SC2059
+        printf "$row" "$host" \
+          "$(behind "$(get "$host" revision)")" \
+          "$(get "$host" root)" \
+          "$(get "$host" upgrade)" \
+          "$(get "$host" failed)"
+      done
+    '';
+  };
 in
 {
   # Linux only, like the rest of this file: the Mac is not an admin machine.
-  home.packages = lib.optionals pkgs.stdenv.isLinux [ fleetSsh ];
+  home.packages = lib.optionals pkgs.stdenv.isLinux [
+    fleetSsh
+    fleetStatus
+  ];
 
   # `ssh core4`, `ssh gate` and so on, from any admin machine. The login user
   # is the hostname, as hosts/common makes it.

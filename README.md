@@ -323,6 +323,7 @@ Run `direnv allow` once in a fresh clone.
 | `nix flake check --all-systems --no-build` | What CI runs |
 | `nix fmt` | Format, also a CI gate |
 | `pr-handoff` / `pr-handoff merge <N>` | Publish or squash-merge a PR that Claude prepared, after showing what it will send |
+| `fleet-status [host...]` | Every fleet host's running revision against main, root device, last upgrade and failed units (Linux dev hosts) |
 | `vulnix-scan` / `vulnix-scan-system` | CVE scan the HM closure or the running system |
 | `nix build .#packages.aarch64-linux.<host>-installer` | Pi SD image |
 | `nix build .#packages.x86_64-linux.recovery-iso` | Headless x86 rescue ISO |
