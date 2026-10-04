@@ -140,46 +140,57 @@ let
       trap 'rm -rf "$out"' EXIT
 
       # In parallel, so one host that is down costs its own timeout rather
-      # than adding it to everyone else's.
+      # than adding it to everyone else's. ConnectTimeout in fleet-ssh covers
+      # only connecting; this covers a host that accepts the session and then
+      # hangs, such as one whose root device is failing.
       for host in $hosts; do
-        fleet-ssh "$host" host-status >"$out/$host" 2>"$out/$host.err" &
+        timeout 30 fleet-ssh "$host" host-status >"$out/$host" 2>"$out/$host.err" &
       done
       wait
 
-      # How far a revision is behind main, from GitHub's public API, which
-      # needs no token. Anything that is not a full commit hash is not asked
-      # about: a dirty tree's revision, or "unknown" from a host that predates
-      # host-status's revision line.
+      # Where a revision stands against main, from GitHub's public API, which
+      # needs no token. In compare/<rev>...main, "ahead" means main is ahead,
+      # so the host is behind, and "behind" means the host runs commits main
+      # does not have yet. Anything that is not a full commit hash is not
+      # asked about: a dirty tree's revision, or "unknown".
       behind() {
-        local rev=$1 status count
+        local rev=$1 code status ahead behind
         if ! [[ $rev =~ ^[0-9a-f]{40}$ ]]; then
-          echo "$rev"
+          echo "''${rev:0:12}"
           return
         fi
-        if ! read -r status count < <(curl -fsS --max-time 15 \
-          "https://api.github.com/repos/nnorx/nix-config/compare/$rev...main" |
-          jq -r '"\(.status) \(.ahead_by)"'); then
-          echo "''${rev:0:7} (main unknown)"
-          return
-        fi
+        code=$(curl -sS --max-time 15 -o "$out/compare.json" -w '%{http_code}' \
+          "https://api.github.com/repos/nnorx/nix-config/compare/$rev...main") || code=000
+        case $code in
+          200) ;;
+          404) echo "''${rev:0:7} not on GitHub" && return ;;
+          403 | 429) echo "''${rev:0:7} (rate limited)" && return ;;
+          *) echo "''${rev:0:7} (main unknown)" && return ;;
+        esac
+        read -r status ahead behind < <(jq -r '"\(.status) \(.ahead_by) \(.behind_by)"' "$out/compare.json")
         case $status in
           identical) echo "''${rev:0:7} main" ;;
-          ahead) echo "''${rev:0:7} $count behind" ;;
-          *) echo "''${rev:0:7} $status" ;;
+          ahead) echo "''${rev:0:7} $ahead behind" ;;
+          behind) echo "''${rev:0:7} $behind ahead" ;;
+          *) echo "''${rev:0:7} $behind ahead, $ahead behind" ;;
         esac
       }
 
       # Prints one fact from a host's output, by key.
       get() { awk -F '\t' -v k="$2" '$1 == k { print $2 }' "$out/$1"; }
 
-      row='%-9s %-18s %-16s %-36s %s\n'
+      row='%-9s %-26s %-16s %-24s %s\n'
       # shellcheck disable=SC2059
       printf "$row" HOST REVISION ROOT UPGRADE FAILED
       for host in $hosts; do
         if [ ! -s "$out/$host" ]; then
-          # The first line of ssh's complaint, with any address masked, since
-          # this output may land in a transcript.
-          why=$(head -n 1 "$out/$host.err" | sed -E 's/([0-9]{1,3}\.){3}[0-9]{1,3}/<addr>/g')
+          # The last line of ssh's complaint, which names the cause where the
+          # first can be a warning banner, with any address masked, since this
+          # output may land in a transcript.
+          why=$(tail -n 1 "$out/$host.err" | sed -E 's/([0-9]{1,3}\.){3}[0-9]{1,3}/<addr>/g')
+          if ! [ -s "$out/$host.err" ] && ! [ -s "$out/$host" ]; then
+            why="no answer within 30 seconds"
+          fi
           case $why in
             *"command not found"*) why="no host-status yet; it arrives with this host's next deploy" ;;
             *"Permission denied"*) why="unreachable: $why (agent empty? ssh-add ~/.ssh/id_ed25519_pis)" ;;

@@ -28,10 +28,16 @@ let
       failed=$(systemctl --failed --no-legend --plain | awk '{ printf "%s ", $1 }')
       field failed "''${failed:-none}"
 
+      # From the journal rather than the unit's state, which systemd resets on
+      # every boot: the upgrade reboots for a new kernel, and a host that
+      # rebooted after a failed run would otherwise show nothing wrong.
       if [ "$(systemctl show nixos-upgrade.service -p LoadState --value)" = loaded ]; then
-        result=$(systemctl show nixos-upgrade.service -p Result --value)
-        at=$(systemctl show nixos-upgrade.service -p ExecMainExitTimestamp --value)
-        field upgrade "$result ''${at:-never}"
+        field upgrade "$(journalctl -u nixos-upgrade.service -o short-iso -q --no-pager --since -14days |
+          awk '/: Failed with result |Finished / {
+                 at = substr($1, 1, 16); sub("T", " ", at)
+                 result = ($0 ~ /Failed with result/) ? "failed" : "success"
+               }
+               END { if (result) print result, at; else print "none in 14 days" }')"
       else
         field upgrade manual
       fi
