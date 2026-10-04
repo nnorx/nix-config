@@ -102,7 +102,14 @@ in
   };
 
   # pimon collector — allow the collector port only from other Pis
-  networking.firewall.extraCommands = lib.concatMapStrings (h: ''
-    iptables -A nixos-fw -p tcp --dport ${toString net.ports.pimon} -s ${net.hosts.${h}.ip} -j nixos-fw-accept
-  '') agentHosts;
+  networking.firewall.extraCommands =
+    lib.concatMapStrings (h: ''
+      iptables -A nixos-fw -p tcp --dport ${toString net.ports.pimon} -s ${net.hosts.${h}.ip} -j nixos-fw-accept
+    '') agentHosts
+    # Govee lights answer Home Assistant's scan and report status here. Only
+    # from iot, where the lights are and whence gate lets this one port
+    # through; see hosts/gate/govee.nix.
+    + ''
+      iptables -A nixos-fw -p udp --dport ${toString net.ports.goveeReply} -s ${net.segments.iot.subnet} -j nixos-fw-accept
+    '';
 }

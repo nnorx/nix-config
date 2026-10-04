@@ -398,7 +398,8 @@ in
       # iot gets DNS to the Pis and nothing else. It is on the fleet resolvers
       # so its lookups are filtered and visible in AdGuard, which is most of
       # the point of having an iot segment, but it has no business reaching
-      # anything else in servers.
+      # anything else in servers. The one exception is Govee's LAN API with
+      # Home Assistant on core5, in ./govee.nix.
       extraForwardRules = lib.mkBefore ''
         iifname ${nftSet (quoted deniedUpstream)} oifname "${wan}" ip daddr ${nftSet upstreamPrivate} drop comment "only trusted reaches upstream management"
         iifname "${trustedBr}" oifname "${trunk}" accept comment "trusted reaches servers"
