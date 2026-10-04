@@ -141,8 +141,10 @@ of Home Assistant, and running it as root would put git and ssh on the network
 as root. Its other properties, and the ruleset that stops a compromised core5
 from erasing history, are the UniFi copy's, described in [unifi.md](unifi.md).
 
-**Alerts.** As with UniFi, a failed run sends a push notification and a day
-without a successful one alerts from healthchecks.io (`modules/alerts.nix`).
+**Alerts.** As with UniFi, a failed run sends a push notification, a day
+without a successful one alerts from healthchecks.io (`modules/alerts.nix`),
+and a newest backup more than two days old fails the run, so Home Assistant
+quietly no longer backing up is caught too.
 
 ### Restoring
 

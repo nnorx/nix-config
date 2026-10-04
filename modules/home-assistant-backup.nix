@@ -48,6 +48,10 @@
         Settings > System > Backups. See docs/home-assistant.md.
     '';
 
+    # Home Assistant backs up daily, so two days without a new file means it
+    # stopped.
+    maxAgeDays = 2;
+
     # A settings-only backup is a few MB. One with the recorder database grows
     # without bound, and every version stays in the repo's history.
     maxMiB = 50;

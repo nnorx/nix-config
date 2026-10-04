@@ -272,9 +272,10 @@ catches a timer that never fired or a host that is off. Both services are
 hosted, so they still work when the house is down. Only the host's and unit's
 names leave the host.
 
-Each covered host needs two secrets, and evaluation fails without them, so a
-host is never deployed into the activation failure a missing sops key causes.
-From the repo, in your own terminal:
+Each covered host needs two secrets, and evaluation fails without them. sops-nix
+would only notice when the system is built, after CI, which only evaluates, had
+let the change merge, and the Pis would then stop upgrading with nothing
+installed yet to say so. From the repo, in your own terminal:
 
 ```bash
 # One random topic for the whole fleet: one subscription on the phone.

@@ -36,5 +36,9 @@
       The controller's own backup schedule is what fills it:
         Settings > System > Backups. See docs/unifi.md.
     '';
+
+    # The controller's schedule is daily, so two days without a new file
+    # means it stopped. A schedule changed in its UI must change this too.
+    maxAgeDays = 2;
   };
 }

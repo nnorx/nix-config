@@ -23,12 +23,20 @@
 #                          only access control ntfy.sh has, so it is random
 #                          and secret.
 #   healthchecks-ping-key  The project's ping key. Checks are named
-#                          <host>-<unit> and created by their first ping.
+#                          <host>-<unit> and created by their first ping, so
+#                          a unit is watched for silence only from its first
+#                          success after it is covered.
 #
 # A host that names a unit here without the matching secret fails evaluation.
 # The check reads the sops file's key names, which sops leaves in plaintext.
-# Without it the host would activate, sops-nix would fail on the missing key,
-# and every secret on the host, the deploy key included, would go with it.
+# sops-nix would catch the missing key too, but only when the system is built,
+# and CI only evaluates: the change would merge, cache.yml would fail to build
+# the Pis, and their upgrades would stop with nothing yet installed to say so.
+#
+# A failed upgrade notifies at default priority rather than high. It can fail
+# by design, when it starts before cache.yml has finished, and it retries the
+# next night; a night with no successful upgrade still alerts from
+# healthchecks.io.
 {
   config,
   lib,
@@ -42,16 +50,30 @@ let
   failure = lib.unique (cfg.failure ++ upgrade);
   heartbeat = lib.unique (cfg.heartbeat ++ upgrade);
 
+  # A top-level key, at the start of a line, and not a longer key ending in it.
   sopsFile = config.sops.defaultSopsFile;
-  hasSecret = key: builtins.match "(.*\n)?${key}:.*" (builtins.readFile sopsFile) != null;
+  hasSecret =
+    key:
+    let
+      text = builtins.readFile sopsFile;
+    in
+    lib.hasPrefix "${key}:" text || lib.hasInfix "\n${key}:" text;
   needs = key: units: {
     assertion = units == [ ] || hasSecret key;
     message = ''
       fleetAlerts on ${hostname} covers ${toString units}, but secrets/${baseNameOf (toString sopsFile)}
-      has no `${key}`. See modules/alerts.nix, and add it before this reaches
-      the host: a missing key fails every secret on it at activation.
+      has no `${key}`. See modules/alerts.nix and the README's "Alerts" for
+      the command that adds it.
     '';
   };
+
+  # A misspelt name, or one with `.service`, would otherwise define an empty
+  # stub unit that carries the hook while the real unit goes uncovered.
+  realService =
+    unit: !(lib.hasSuffix ".service" unit) && config.systemd.services.${unit}.serviceConfig ? ExecStart;
+
+  # Units whose failure notifies at default priority rather than high.
+  quiet = upgrade;
 
   # curl reads its URL from a config on stdin rather than its arguments, so
   # the secret part never appears in the process list. Both secrets arrive as
@@ -73,8 +95,13 @@ let
     };
 
   notify = post "alert-notify" ''
+    priority=high
+    quiet=" ${toString quiet} "
+    case $quiet in
+      *" $unit "*) priority=default ;;
+    esac
     post "$(<"$CREDENTIALS_DIRECTORY/ntfy-url")" \
-      -H "Title: ${hostname}: $unit failed" -H "Priority: high" -H "Tags: warning" \
+      -H "Title: ${hostname}: $unit failed" -H "Priority: $priority" -H "Tags: warning" \
       -d "$unit failed on ${hostname}. journalctl -u $unit there has the details."
   '';
 
@@ -121,7 +148,14 @@ in
       assertions = [
         (needs "ntfy-url" failure)
         (needs "healthchecks-ping-key" heartbeat)
-      ];
+      ]
+      ++ map (unit: {
+        assertion = realService unit;
+        message = ''
+          fleetAlerts on ${hostname} names "${unit}", which is not a service
+          with an ExecStart. Use the service's name without `.service`.
+        '';
+      }) (lib.unique (failure ++ heartbeat));
     }
 
     (lib.mkIf (failure != [ ]) {
