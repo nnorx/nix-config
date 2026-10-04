@@ -24,6 +24,7 @@
     ./desktop.nix
     ./dev.nix
     ./vpn.nix
+    ./claude.nix
     ../../modules/baseline.nix
     ../../modules/docker.nix
   ];
@@ -66,14 +67,14 @@
   users.users.nick = {
     isNormalUser = true;
     hashedPasswordFile = config.sops.secrets.user-password-hash.path;
-    # `docker` is root-equivalent: anyone in it can start a container that
-    # mounts /. That sidesteps the sudo password for this user, the same
-    # trade Docker Desktop makes on WSL. Rootless Docker avoids it if that
-    # ever matters more than convenience.
+    # Not in `docker`, which is root-equivalent. Claude Code's sandbox opens
+    # every Unix socket on Linux so that nix can reach its daemon
+    # (home/claude.nix), and group membership is what decides which sockets
+    # that exposes. `sudo docker` for the occasional use; rootless Docker is
+    # the alternative if that gets old.
     extraGroups = [
       "wheel"
       "networkmanager"
-      "docker"
     ];
     shell = pkgs.zsh;
   };

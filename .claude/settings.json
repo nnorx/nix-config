@@ -1,0 +1,42 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(nix eval:*)",
+      "Bash(nix build:*)",
+      "Bash(nix path-info:*)",
+      "Bash(nix flake check:*)",
+      "Bash(nix flake metadata:*)",
+      "Bash(nix flake show:*)",
+      "Bash(nix fmt:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)"
+    ],
+    "deny": [
+      "Bash(sudo:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(nixos-rebuild:*)",
+      "Bash(darwin-rebuild:*)",
+      "Bash(home-manager switch:*)",
+      "Bash(nix run home-manager:*)",
+      "Bash(deploy-guard:*)",
+      "Bash(nrs:*)",
+      "Bash(nrb:*)",
+      "Bash(hms:*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r '.tool_input.file_path // empty'); case \"$f\" in *.nix) command -v nixfmt >/dev/null && { nixfmt \"$f\" || exit 2; } ;; esac; exit 0"
+          }
+        ]
+      }
+    ]
+  }
+}

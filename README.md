@@ -47,6 +47,7 @@ flake.nix              Inputs, hosts, installer images
 lib/net.nix            Network topology: segments, addresses, NICs, ports
 lib/ssh-keys.nix       Admin machines' SSH public keys, one per machine
 lib/wireguard-keys.nix WireGuard public keys: gate and each remote peer
+lib/claude-sandbox.nix Claude Code's sandbox policy, in user and managed settings
 .sops.yaml             Which age keys can decrypt which secrets
 secrets/               Per-host encrypted secrets
 
@@ -286,6 +287,7 @@ Three Home Manager profiles:
 | `home/common.nix` | every host, including the Pis and gate | zsh/bash + starship, git, nano, tmux, CLI tools, vulnix |
 | `home/default.nix` | WSL (`nick`), macOS (`nicknorcross`), and forge through NixOS | common, plus Node, Rust, Docker CLI, direnv, keychain ssh-agent, Claude Code |
 | `home/darwin.nix` | macOS only | GNU coreutils |
+| `home/wsl.nix` | WSL only | What Claude Code's sandbox hides on WSL: interop, Docker Desktop and WSLg sockets |
 
 First run on a new machine:
 

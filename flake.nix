@@ -432,11 +432,12 @@
 
       # Home Manager configurations for different machines
       homeConfigurations = {
-        # WSL configuration (also works on most Linux systems)
+        # WSL configuration
         "nick" = mkHome {
           system = "x86_64-linux";
           username = "nick";
           homeDirectory = "/home/nick";
+          extraModules = [ ./home/wsl.nix ];
         };
 
         # Raspberry Pi 5 configuration (common profile — no dev tools)
