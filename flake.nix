@@ -15,7 +15,12 @@
     };
 
     # Hardware-specific NixOS modules (Pi 3B, 4, etc.)
-    nixos-hardware.url = "github:NixOS/nixos-hardware";
+    # Its modules use the host's nixpkgs. Its own is only for its tests, and
+    # without this the lock pins a copy nothing here uses.
+    nixos-hardware = {
+      url = "github:NixOS/nixos-hardware";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
 
     # Raspberry Pi 5 support (boot firmware, kernel, config.txt management)
     # Uses its own pinned nixpkgs fork — do NOT add nixpkgs.follows
