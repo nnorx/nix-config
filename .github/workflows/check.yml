@@ -16,41 +16,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history, so preflight has origin/main and the commit it
+          # compares against.
+          fetch-depth: 0
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # main @ 2026-09-02
         with:
           diagnostic-endpoint: ""
 
-      # --all-systems, because the runner is x86_64 and nix silently skips
-      # aarch64 outputs without it: core4, core5 and lifeline were never
-      # evaluated here, and a broken Pi config surfaced only in cache.yml,
-      # after merge. Evaluation needs no aarch64 builder.
+      # The same command a change is checked with locally: formatting, flake
+      # check across all systems, every host's toplevel and every Home Manager
+      # config evaluated, and which of them the change touches, written to the
+      # run's summary. Evaluation only, so it needs no aarch64 builder and
+      # cannot turn into a multi-hour build. scripts/preflight.sh says why
+      # each step is there.
       #
-      # --no-build keeps this an evaluation gate, so adding a `checks` output
-      # later cannot turn it into a multi-hour aarch64 build.
-      - run: nix flake check --all-systems --no-build
-
-      # `nix flake check` does not force each nixosConfiguration's toplevel, so
-      # the step above passes a host whose config cannot be evaluated at all.
-      # Observed on the branch that moves the login password into sops: with
-      # `secrets/gate.yaml` missing, flake check reported
-      # `✅ nixosConfigurations.gate` while evaluating that host's toplevel
-      # failed outright with "Path 'secrets/gate.yaml' does not exist in Git
-      # repository". A green tick on a config that cannot build is the same
-      # class of gap #66 closed for aarch64, in a different place.
-      #
-      # This is still evaluation only, so it needs no aarch64 builder and
-      # cannot turn into a multi-hour build. The host list comes from the flake
-      # rather than being written out, so a new host is covered on the commit
-      # that adds it.
-      - name: Evaluate every host's toplevel
-        run: |
-          hosts=$(nix eval --raw --apply \
-            'cfgs: builtins.concatStringsSep " " (builtins.attrNames cfgs)' \
-            .#nixosConfigurations)
-          for host in $hosts; do
-            echo "==> $host"
-            nix eval --raw ".#nixosConfigurations.$host.config.system.build.toplevel.drvPath"
-            echo
-          done
-
-      - run: nix fmt -- --ci .
+      # On a pull request HEAD is the merge commit, so its merge-base with
+      # origin/main is the base branch's tip, and the summary says what
+      # merging would change.
+      - run: nix run .#preflight
