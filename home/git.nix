@@ -22,6 +22,10 @@
       push.default = "current";
       push.autoSetupRemote = true;
 
+      # Merged PRs have their branches deleted, so prune the leftover
+      # origin/<branch> refs on every fetch.
+      fetch.prune = true;
+
       # Better diffs
       diff.algorithm = "histogram";
       diff.colorMoved = "default";
