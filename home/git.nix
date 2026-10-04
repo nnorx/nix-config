@@ -98,7 +98,13 @@
 
         # Useful combos
         sync = "!git fetch --all --prune && git pull --rebase";
-        cleanup = "!git branch --merged | grep -v '\\*\\|main\\|master' | xargs -n 1 git branch -d";
+
+        # Deletes local branches whose remote branch is gone. Not `branch
+        # --merged`: PRs are squash-merged, so a merged branch is never an
+        # ancestor of main and that never matched one. -D for the same
+        # reason, since git cannot tell such a branch was merged. A branch
+        # that was never pushed has no upstream and is left alone.
+        cleanup = "!git fetch --prune && git for-each-ref --format='%(refname:short) %(upstream:track)' refs/heads | awk '$2 == \"[gone]\" { print $1 }' | while read -r b; do git branch -D \"$b\"; done";
 
         # Show last commit
         last = "log -1 HEAD --stat";
