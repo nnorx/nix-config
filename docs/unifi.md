@@ -121,9 +121,10 @@ schedule, and age uses a fresh ephemeral key per run, so the same file encrypts
 differently every time. Comparing ciphertext would re-commit an already-pushed
 backup every day.
 
-**Known gap: a silent stop.** Nothing alerts on the unit failing.
-`systemctl status unifi-backup` on core5 is the manual check until the Phase 8
-monitoring work in [router.md](router.md) covers it.
+**Alerts.** A failed run sends a push notification, and each successful run
+pings healthchecks.io, which alerts if a day passes without one, so a push that
+quietly stopped happening is caught too (`modules/alerts.nix`).
+`systemctl status unifi-backup` on core5 has the details.
 
 Whether the repo can stand in for that check is not yet confirmed. If the
 controller writes a byte-different file on every run, as it probably does since

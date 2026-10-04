@@ -70,6 +70,7 @@ modules/
   home-assistant.nix   Home Assistant, native, from unstable (core5 only)
   home-assistant-backup.nix  Its state, pushed off-box (core5 only)
   offbox-push.nix      Both pushes: newest backup, age-encrypted, to a private repo
+  alerts.nix           Push notifications and heartbeats for the jobs above and upgrades
   pimon.nix            Monitoring agent or collector
   firewall.nix         Default-deny. SSH scoped per interface, never globally
   ssh.nix              Key-only auth, modern crypto
@@ -260,6 +261,41 @@ sops updatekeys secrets/<host>.yaml
 
 The failure mode if you skip this is an unrelated-looking deploy error much
 later, not a clear message at the point of the mistake.
+
+## Alerts
+
+[`modules/alerts.nix`](modules/alerts.nix) covers the jobs that otherwise fail
+only into the journal: each Pi's automatic upgrade and core5's off-box
+backups. A failure sends a push notification through ntfy.sh, and each success
+pings healthchecks.io, which alerts when a job goes a day without one. That
+catches a timer that never fired or a host that is off. Both services are
+hosted, so they still work when the house is down. Only the host's and unit's
+names leave the host.
+
+Each covered host needs two secrets, and evaluation fails without them, so a
+host is never deployed into the activation failure a missing sops key causes.
+From the repo, in your own terminal:
+
+```bash
+# One random topic for the whole fleet: one subscription on the phone.
+topic=$(openssl rand -hex 16)
+for h in core4 lifeline core5; do
+  printf '"https://ntfy.sh/%s"' "$topic" | sops set --value-stdin secrets/$h.yaml '["ntfy-url"]'
+done
+echo "subscribe the ntfy app to: $topic"
+
+# The healthchecks.io project's ping key, from its settings page.
+read -rs key
+for h in core4 lifeline core5; do
+  printf '"%s"' "$key" | sops set --value-stdin secrets/$h.yaml '["healthchecks-ping-key"]'
+done
+unset topic key
+```
+
+Checks appear in healthchecks.io on their first ping, named `<host>-<unit>`,
+with its default one-day period. Point the project's notifications at the same
+ntfy topic so both kinds of alert arrive in one place. To cover another unit,
+add it to `fleetAlerts.failure` or `fleetAlerts.heartbeat` in its host.
 
 ## CI and the binary cache
 

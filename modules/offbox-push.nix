@@ -321,6 +321,13 @@ in
       mode = "0400";
     };
 
+    # A push fails loudly, but only into the journal, and a backup that
+    # stopped weeks ago is found at the moment it is needed. Every job reports
+    # failure as it happens and success every day, so silence alerts too
+    # (modules/alerts.nix).
+    fleetAlerts.failure = lib.attrNames cfg;
+    fleetAlerts.heartbeat = lib.attrNames cfg;
+
     systemd.services = lib.mapAttrs (name: job: {
       inherit (job) description;
       after = [ "network-online.target" ];
