@@ -25,6 +25,15 @@ concurrency:
   group: cache-${{ github.ref }}
   cancel-in-progress: false
 
+# The DeterminateSystems installer exports OpenTelemetry traces and logs to its
+# vendor by default, debug lines included. GitHub masks secrets only in the
+# workflow log, so whatever the action logs reaches that endpoint unmasked.
+# Nothing secret is logged today, but that rests on upstream code, and this job
+# holds the Cachix push token every host trusts. `diagnostic-endpoint: ""` on
+# the installer step turns off the installer binary's separate report.
+env:
+  OTEL_SDK_DISABLED: "true"
+
 jobs:
   build:
     runs-on: ubuntu-24.04-arm
@@ -37,6 +46,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - uses: DeterminateSystems/nix-installer-action@b67ad2f0e8376a0bc947db191e4484285b6f5b56 # main @ 2026-09-02
+        with:
+          diagnostic-endpoint: ""
 
       - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
         with:
