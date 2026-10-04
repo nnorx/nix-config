@@ -290,6 +290,15 @@
     "lifeline"
   ];
 
+  # Public resolvers, for what must not depend on the fleet's own: AdGuard's
+  # bootstrap and fallback, core5, and the guest segment. Two operators, so
+  # one outage does not take both, and not Google: keeping it out of the DNS
+  # path is one of the reasons this fleet exists.
+  publicResolvers = [
+    "1.1.1.1" # Cloudflare
+    "9.9.9.9" # Quad9
+  ];
+
   # Hosts running a pimon agent that report to the collector on core5. Named
   # rather than derived from `hosts`: address presence is not the same fact as
   # running an agent, and core5's firewall opens a port per entry.

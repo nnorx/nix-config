@@ -77,12 +77,8 @@ in
 
   # Public resolvers rather than the fleet's own. Deliberate as far as it goes:
   # core5 runs the pimon collector, so pointing it at core4 or lifeline would
-  # make monitoring depend on the thing it monitors. Two operators, and not
-  # Google.
-  networking.nameservers = [
-    "1.1.1.1" # Cloudflare
-    "9.9.9.9" # Quad9
-  ];
+  # make monitoring depend on the thing it monitors.
+  networking.nameservers = net.publicResolvers;
 
   # UniFi controller — LAN interface only. The switch and AP need all four:
   # the UI for us, inform for device state, STUN to stay reachable, and

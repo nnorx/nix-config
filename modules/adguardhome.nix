@@ -8,14 +8,6 @@
   adminUser,
   upstreamDns,
   fallbackDns ? [ ],
-  # Used only to resolve the *names* of DoH/DoT upstreams, before any resolver
-  # is available. Two operators rather than two addresses from one, so a single
-  # provider outage does not take bootstrap with it. Not Google: keeping them
-  # out of the DNS path is one of the reasons this fleet exists.
-  bootstrapDns ? [
-    "1.1.1.1" # Cloudflare
-    "9.9.9.9" # Quad9
-  ],
   cacheEnabled ? false,
   cacheOptimistic ? cacheEnabled,
   dnssecEnabled ? false,
@@ -112,7 +104,9 @@ in
 
         upstream_dns = upstreamDns;
         fallback_dns = fallbackDns;
-        bootstrap_dns = bootstrapDns;
+        # Used only to resolve the *names* of DoH/DoT upstreams, before any
+        # resolver is available.
+        bootstrap_dns = net.publicResolvers;
 
         cache_enabled = cacheEnabled;
         # Answer from cache immediately and refresh behind it, so an upstream
