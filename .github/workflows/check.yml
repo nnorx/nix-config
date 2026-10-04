@@ -1,11 +1,24 @@
 name: Check
 on: [push, pull_request]
+
+# The DeterminateSystems actions export OpenTelemetry traces and logs to their
+# vendor by default, debug lines included. GitHub masks secrets only in the
+# workflow log, so whatever an action logs reaches that endpoint unmasked.
+# Nothing secret is logged today, but that rests on upstream code, and the
+# other workflows hold the Cachix and flake-update tokens. Off everywhere, so
+# no workflow is the exception. `diagnostic-endpoint: ""` on the installer
+# step turns off the installer binary's separate report.
+env:
+  OTEL_SDK_DISABLED: "true"
+
 jobs:
   check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: DeterminateSystems/nix-installer-action@b67ad2f0e8376a0bc947db191e4484285b6f5b56 # main @ 2026-09-02
+        with:
+          diagnostic-endpoint: ""
 
       # --all-systems, because the runner is x86_64 and nix silently skips
       # aarch64 outputs without it: core4, core5 and lifeline were never
