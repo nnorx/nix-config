@@ -96,7 +96,11 @@ Publishing is Nick's too. gh's login lives outside the sandbox, so commands
 cannot push, open a PR or comment, and that is deliberate: a token in reach
 of commands could merge to main as Nick, which deploys the Pis. Do not look
 for a way to authenticate. When asked for a PR, commit, write the title and
-body, and give Nick the commands to push and open it. The repo is public, so
+body to `.git/pr-handoff/<branch>.md` (title on the first line), and ask
+Nick to run `pr-handoff`, which shows him what it will publish before
+pushing (`home/pr-handoff.nix`). For a squash merge, write
+`<branch>.squash.md` the same way and ask for `pr-handoff merge <number>`.
+The core plugin's pr-handoff skill has the details. The repo is public, so
 PR and CI state can be read without a token from `api.github.com`.
 
 Read-only diagnostics on a host go through `fleet-ssh <host> <command>`, the
