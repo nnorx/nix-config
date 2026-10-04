@@ -330,6 +330,11 @@
     unifiStun = 3478; # UDP, keeps devices reachable behind NAT
     unifiDiscovery = 10001; # UDP, device discovery
 
+    # Home Assistant's frontend and API, on core5. Phones on trusted reach it,
+    # which gate's "trusted reaches servers" rule already allows. No WireGuard
+    # peer does: nothing in hosts/gate/wireguard.nix grants it.
+    homeAssistant = 8123;
+
     # WireGuard on gate's WAN, which every peer's config names. 443 rather
     # than 51820, because restrictive Wi-Fi blocks unusual UDP ports more often
     # than the one HTTP/3 uses.
