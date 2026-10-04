@@ -12,10 +12,7 @@ in
     (import ../../modules/adguardhome.nix {
       adminUser = "core4";
       upstreamDns = [ "127.0.0.1:${toString net.ports.unbound}" ];
-      fallbackDns = [
-        "1.1.1.1" # Used only if local Unbound is unreachable
-        "9.9.9.9" # Quad9, not Google: different operator, same redundancy
-      ];
+      fallbackDns = net.publicResolvers; # Used only if local Unbound is unreachable
       cacheEnabled = false; # Unbound handles caching
       dnssecEnabled = false; # Unbound handles DNSSEC
     })

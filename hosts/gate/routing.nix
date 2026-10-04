@@ -161,15 +161,7 @@ let
   publicResolverSegments = [ "guest" ];
   usesFleetResolvers = name: !(builtins.elem name publicResolverSegments);
 
-  resolversFor =
-    name:
-    if usesFleetResolvers name then
-      fleetResolvers
-    else
-      [
-        "1.1.1.1"
-        "9.9.9.9"
-      ];
+  resolversFor = name: if usesFleetResolvers name then fleetResolvers else net.publicResolvers;
 
   # Where a client is told to use the fleet's resolvers, catch it doing
   # otherwise. A device with DNS hardcoded to 8.8.8.8 ignores everything Kea
