@@ -18,6 +18,7 @@ in
     ../../modules/unifi.nix
     ../../modules/unifi-backup.nix
     ../../modules/home-assistant.nix
+    ../../modules/home-assistant-backup.nix
     (import ../../modules/pimon.nix {
       mode = "collector";
       bind = "0.0.0.0";
