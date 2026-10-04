@@ -267,6 +267,7 @@ later, not a clear message at the point of the mistake.
 | `check.yml` | every push and PR | `nix flake check --all-systems --no-build`, then `nix fmt -- --ci .` |
 | `cache.yml` | push to `main` | Builds every Pi's system closure on native aarch64 runners, pushes to Cachix |
 | `update-flake.yml` | Mondays 12:00 UTC | Opens a PR bumping `flake.lock` |
+| `image-updates.yml` | Tuesdays 12:00 UTC | Keeps an `images` issue open while a pinned container image is behind its registry |
 
 **Run `nix fmt` before pushing.** The check gate fails on formatting and says so
 nowhere else.
