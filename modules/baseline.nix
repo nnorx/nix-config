@@ -62,7 +62,7 @@
     # minute would otherwise count as outside.
     #
     # Anything that must not be interrupted by a reboot runs after `upper`.
-    # modules/unifi-backup.nix asserts that it does.
+    # modules/offbox-push.nix asserts that it does.
     rebootWindow = {
       lower = "02:30";
       upper = "06:00";

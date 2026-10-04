@@ -173,9 +173,10 @@ One at a time, weeks apart, now that the house is boring.
       since core5's firewall opens a port per `pimonAgents` entry and reads that
       attribute. Decide what the address would mean first.
 
-      Include `unifi-backup.service` on core5 in whatever alerts. It fails
-      loudly, but only into the journal, and a backup that stopped weeks ago is
-      discovered at exactly the moment it is needed. docs/unifi.md defers its
+      Include `unifi-backup.service` and `home-assistant-backup.service` on
+      core5 in whatever alerts. They fail loudly, but only into the journal,
+      and a backup that stopped weeks ago is discovered at exactly the moment
+      it is needed. docs/unifi.md and docs/home-assistant.md defer their
       silent-failure gap to this item, so this is where that deferral is
       tracked.
 - [x] **Inbound remote access.** The one with clear payoff: SSH into the fleet

@@ -72,7 +72,9 @@ This is state that lives outside the flake and is not reproducible from Nix.
 [`modules/unifi-backup.nix`](../modules/unifi-backup.nix) takes the newest file
 the controller wrote, encrypts it to the `nick` age recipient, and pushes it to
 a private repo. A daily timer on core5, and a no-op when the newest backup is
-one it has already pushed.
+one it has already pushed. The mechanics are in
+[`modules/offbox-push.nix`](../modules/offbox-push.nix), shared with
+[Home Assistant's copy](home-assistant.md#backups).
 
 It does not make a backup of its own. The controller's `.unf` is the format its
 restore flow expects, and a `mongodump` would be a second, unsupported path
