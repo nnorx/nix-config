@@ -52,7 +52,17 @@ let
       lib.concatMapStringsSep " " lib.escapeShellArg (lib.splitString "\n" (lib.removeSuffix "\n" text))
     } >&2";
 
-  stagedPath = name: job: "/var/lib/${name}/staged.${job.extension}";
+  # In the unit's PrivateTmp, which the stage step and the push share and
+  # systemd deletes when the unit stops. The push removes it too, but a push
+  # killed by its timeout or a reboot never runs its trap, and a plaintext copy
+  # in the StateDirectory would outlive it.
+  stagedPath = job: "/tmp/staged.${job.extension}";
+
+  # RandomizedDelaySec, in minutes, so the reboot-window assertion can count it.
+  randomDelayMin = 20;
+
+  # "HH:MM" to minutes after midnight. toIntBase10, since toInt refuses "07".
+  minutesOf = t: lib.toIntBase10 (lib.substring 0 2 t) * 60 + lib.toIntBase10 (lib.substring 3 2 t);
 
   # Finds the newest backup and leaves its path in `newest`, or exits with the
   # reason. Runs in the push itself, or in the stage step for a job whose
@@ -89,7 +99,7 @@ let
       size=$(stat -c %s "''${newest}")
       if [ "''${size}" -gt ${toString (job.maxMiB * 1024 * 1024)} ]; then
         echo "''${newest} is ''${size} bytes, over the ${toString job.maxMiB} MiB limit." >&2
-        ${echoLines job.oversizeHint}
+        ${lib.optionalString (job.oversizeHint != "") (echoLines job.oversizeHint)}
         exit 1
       fi
     '';
@@ -110,8 +120,8 @@ let
       text = select job + ''
 
         # Through a temporary name, so the push never reads a partial copy.
-        install -o ${job.user} -m 0400 "''${newest}" ${stagedPath name job}.tmp
-        mv ${stagedPath name job}.tmp ${stagedPath name job}
+        install -o ${job.user} -m 0400 "''${newest}" ${stagedPath job}.tmp
+        mv ${stagedPath job}.tmp ${stagedPath job}
       '';
     };
 
@@ -145,8 +155,13 @@ let
         if job.stage then
           ''
             # The stage step put it here, readable by this user, and it is
-            # this run's to remove.
-            snapshot=${stagedPath name job}
+            # this run's to remove. Only the unit runs that step, so run by
+            # hand there is nothing here to push.
+            snapshot=${stagedPath job}
+            if [ ! -f "''${snapshot}" ]; then
+              echo "nothing staged at ''${snapshot}. Start ${name}.service rather than this script, so the stage step runs first." >&2
+              exit 1
+            fi
           ''
         else
           select job
@@ -163,7 +178,8 @@ let
         trap 'rm -f "''${snapshot}"' EXIT
         hash=$(sha256sum "''${snapshot}" | cut -d' ' -f1)
 
-        # Repeats WorkingDirectory= on purpose, so the script also runs by hand.
+        # Repeats WorkingDirectory= on purpose, so the script also runs by hand,
+        # for a job without a stage step.
         cd ${workDir}
         if [ ! -d repo/.git ]; then
           git clone --branch ${branch} ${repoUrl} repo
@@ -347,15 +363,12 @@ in
     # day the off-box copy lags a day. Nothing corrupts, since the next run
     # cleans the working copy, but the assertion below keeps the two apart if
     # the window moves.
-    #
-    # Start time only: RandomizedDelaySec can add 20 minutes, so leave a margin
-    # after the window rather than sitting on its edge.
     systemd.timers = lib.mapAttrs (name: job: {
       description = "${job.description}, daily";
       wantedBy = [ "timers.target" ];
       timerConfig = {
         OnCalendar = job.at;
-        RandomizedDelaySec = "20m";
+        RandomizedDelaySec = "${toString randomDelayMin}m";
         Persistent = true;
       };
     }) cfg;
@@ -366,14 +379,20 @@ in
         let
           upgrade = config.system.autoUpgrade;
           window = upgrade.rebootWindow;
-          insideWindow = job.at >= window.lower && job.at < window.upper;
+
+          # The start can land anywhere from `at` to `at` plus the random
+          # delay, so that whole span has to miss the window, not just `at`.
+          # A window that spans midnight is not supported.
+          start = minutesOf job.at;
+          overlaps = start < minutesOf window.upper && start + randomDelayMin >= minutesOf window.lower;
         in
         {
-          assertion = !(upgrade.enable && upgrade.allowReboot && window != null && insideWindow);
+          assertion = !(upgrade.enable && upgrade.allowReboot && window != null && overlaps);
           message = ''
-            offboxPush.${name} starts at ${job.at}, inside the automatic upgrade
-            reboot window (${window.lower}-${window.upper}). A reboot there kills
-            the push mid-way. Move it after the window.
+            offboxPush.${name} starts between ${job.at} and ${toString randomDelayMin}
+            minutes later, which reaches the automatic upgrade reboot window
+            (${window.lower}-${window.upper}). A reboot there kills the push
+            mid-way. Move it after the window.
           '';
         }
       ) cfg

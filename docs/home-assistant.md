@@ -123,6 +123,12 @@ automatic backups as follows:
 ssh core5 'sudo ls -l /var/lib/hass/backups; systemctl status home-assistant-backup'
 ```
 
+**Check the size too.** Home Assistant rewrites files under `.storage` all the
+time, so no two daily backups match and each one is a new commit, kept for
+good. At a few MB that is about a GB a year in `homelab-state`, and in core5's
+clone of it. If the first backup is over about 1 MB, revisit the daily
+schedule.
+
 **Only automatic backups are pushed**, by their filename. A manual backup taken
 before a risky change may include the database or Home Assistant's own
 encryption, so it stays local. Leave the automatic backup's name at its
@@ -161,10 +167,20 @@ backup, or a newer one:
    `install -d -o hass -g hass -m 0700 /var/lib/hass && systemd-tmpfiles --create`.
    The unit does not create its own directory, and Home Assistant will not
    start without the include files tmpfiles seeds.
-3. For a rollback, roll core5 back to the generation that took the backup.
+3. For a rollback, first stop main from undoing it. core5's 05:00 upgrade
+   builds main, so the next one would bring the newer version back, migrate
+   the restored data forward again, and push that as `latest`. Revert the
+   `flake.lock` bump that brought the newer version. Then roll core5 back to
+   the generation that took the backup. If the revert is not merged yet, run
+   `systemctl stop nixos-upgrade.timer` after the rollback, not before it,
+   since a generation switch may start the timer again. Stopping it holds only
+   until core5 next reboots.
 4. Start `home-assistant`. With an empty directory it opens onboarding, which
    offers to restore from an uploaded backup. Upload `restore.tar`.
-5. Start the timer again.
+5. Start the timer again after Home Assistant's next 06:15 backup, not before.
+   The timer catches up on a missed 07:00 as soon as it starts, and until then
+   the newest file in `/var/lib/hass/backups` may be the one just uploaded,
+   which would go off-box as today's `latest`.
 
 **A backup nobody has restored is not a backup.** This path has not been
 drilled yet.
