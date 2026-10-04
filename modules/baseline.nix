@@ -1,5 +1,12 @@
 # System hardening and maintenance baseline for every host
-{ lib, ... }:
+{ config, ... }:
+let
+  # flake.nix's nixConfig has to be a literal attrset there, but nothing stops
+  # another file importing the flake and reading it, so the cache list is
+  # written once. Importing flake.nix only reads its top-level attrset; its
+  # inputs are not fetched and its outputs are not evaluated.
+  flakeCaches = (import ../flake.nix).nixConfig;
+in
 {
   # Automatic NixOS upgrades from the flake. Shared settings only: nothing here
   # turns them on. hosts/common/pi.nix does, for the Pis and nothing else.
@@ -69,6 +76,31 @@
     };
   };
 
+  # Deploy shortcuts, on every host built from this flake, forge included.
+  # They deploy what the automatic upgrade does, from the same flake, so the two
+  # cannot disagree about where main lives. nixos-rebuild resolves the flake
+  # attribute from the hostname when #name is omitted, so one string is correct
+  # on every host.
+  #
+  # --refresh matters: `github:` refs are cached for an hour by default, so
+  # without it you can silently deploy a stale main. --accept-flake-config is
+  # redundant once nix.settings below has put the caches in nix.conf, but is
+  # still needed on a freshly flashed host, and costs nothing here.
+  #
+  # nrb (boot) is for changes that reconfigure the interface you are connected
+  # over, such as a static IP moving or gate's routing, where switch would pull
+  # the network out from under the session mid-activation.
+  environment.shellAliases =
+    let
+      rebuild =
+        action:
+        "sudo nixos-rebuild ${action} --flake ${config.system.autoUpgrade.flake} --accept-flake-config --refresh";
+    in
+    {
+      nrs = rebuild "switch";
+      nrb = rebuild "boot";
+    };
+
   # Nix garbage collection — keeps SD cards from filling up, and bounds how
   # many generations gate's ESP has to hold
   nix.gc = {
@@ -78,20 +110,14 @@
   };
 
   # Binary caches, baked into each host's nix.conf so they apply to every user
-  # and every nix invocation. The same list lives in flake.nix's nixConfig, but
-  # that form is client-supplied: Nix ignores it for anyone outside
-  # trusted-users, and only honours it with --accept-flake-config. Relying on
-  # the flake copy alone means a host silently compiles instead of substituting
-  # — which for linux_rpi4 is 9-15 hours on a Pi 4.
+  # and every nix invocation. flake.nix's nixConfig declares them too, but that
+  # form is client-supplied: Nix ignores it for anyone outside trusted-users,
+  # and only honours it with --accept-flake-config. Relying on it alone means a
+  # host silently compiles instead of substituting, which for linux_rpi4 is
+  # 9-15 hours on a Pi 4. So the list is read from there and written here.
   nix.settings = {
-    substituters = [
-      "https://nixos-raspberrypi.cachix.org"
-      "https://nnorx-nix-config.cachix.org"
-    ];
-    trusted-public-keys = [
-      "nixos-raspberrypi.cachix.org-1:4iMO9LXa8BqhU+Rpg6LQKiGa2lsNh/j2oiYLNOQ5sPI="
-      "nnorx-nix-config.cachix.org-1:/vn4K3PMf39c802pIvdiQ8ErecC5eTFuXxQ6/g6Sqro="
-    ];
+    substituters = flakeCaches.extra-substituters;
+    trusted-public-keys = flakeCaches.extra-trusted-public-keys;
   };
 
   # Enable flakes and the nix command

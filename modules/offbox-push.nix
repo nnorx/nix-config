@@ -26,11 +26,20 @@ let
   repoUrl = "git@github.com:nnorx/homelab-state.git";
   branch = "main";
 
-  # The `nick` recipient from .sops.yaml. Duplicated rather than read from
-  # there because Nix has no YAML parser and .sops.yaml is consumed by the sops
-  # CLI, not by the module system. Same trade as the binary-cache list in
-  # flake.nix and modules/baseline.nix: two copies, and they must agree.
-  ageRecipient = "age1cl5fnqpulemu5gnf2ws3y7smjp70xcaa2xlsg8xsv4ss02v0t9dqt9j56c";
+  # The `nick` recipient, read from its anchor in .sops.yaml so there is one
+  # copy. Nix has no YAML parser, but the anchor line is plain text. Anything
+  # other than exactly one match fails evaluation, rather than encrypting the
+  # backups to a key nobody holds.
+  ageRecipient =
+    let
+      matches = lib.filter lib.isList (
+        builtins.split "&nick (age1[0-9a-z]+)" (builtins.readFile ../.sops.yaml)
+      );
+    in
+    if lib.length matches == 1 then
+      lib.head (lib.head matches)
+    else
+      throw "modules/offbox-push.nix: expected one `&nick age1...` anchor in .sops.yaml, found ${toString (lib.length matches)}";
 
   # GitHub's published host keys, from https://api.github.com/meta, pinned
   # rather than accepted on first use. A backup job that trusts whatever
