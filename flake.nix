@@ -68,13 +68,13 @@
     };
   };
 
-  # Binary caches. Nix requires nixConfig to be a literal attrset — it cannot be
-  # computed — so this list is duplicated in modules/baseline.nix and the two
-  # must be kept in sync. baseline.nix is the one that matters on the hosts:
-  # settings from a flake are client-supplied, so Nix discards them for any user
-  # not in trusted-users, and honours them only with --accept-flake-config.
-  # This copy covers evaluating the flake from a workstation, and a freshly
-  # flashed host whose nix.conf does not yet know about these.
+  # Binary caches. Nix requires nixConfig to be a literal attrset, so this is
+  # the one place the list is written, and modules/baseline.nix imports this
+  # file to read it. baseline.nix is what matters on the hosts: settings from a
+  # flake are client-supplied, so Nix discards them for any user not in
+  # trusted-users, and honours them only with --accept-flake-config. This form
+  # covers evaluating the flake from a workstation, and a freshly flashed host
+  # whose nix.conf does not yet know about these.
   nixConfig = {
     extra-substituters = [
       "https://nixos-raspberrypi.cachix.org"

@@ -93,13 +93,6 @@
   services.power-profiles-daemon.enable = true;
   services.fwupd.enable = true;
 
-  # nrs/nrb match the fleet's: deploy main from GitHub. The attribute is
-  # resolved from the hostname.
-  environment.shellAliases = {
-    nrs = "sudo nixos-rebuild switch --flake github:nnorx/nix-config --accept-flake-config --refresh";
-    nrb = "sudo nixos-rebuild boot --flake github:nnorx/nix-config --accept-flake-config --refresh";
-  };
-
   # `hms` elsewhere runs standalone Home Manager, which here would find the
   # WSL `homeConfigurations.nick` by username and fight the embedded copy over
   # the same files. On this host Home Manager is part of the system, so `hms`
