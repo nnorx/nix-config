@@ -225,5 +225,13 @@ detection: something that notices a host's booted root device or running
 generation is not the expected one and says so.
 
 That is a monitoring requirement, tracked in Phase 8 of [router.md](router.md).
+Until something watches for it, `fleet-status` on an admin machine is the
+manual check: it prints each host's running revision against main and its root
+device. A Pi still behind main after a night whose upgrade it reports as a
+success, or a root on `mmcblk0` where NVMe was expected, is the signature to
+look for. Behind main during the day only means merges are waiting for that
+night. It has to come from outside: the
+fallback boots a generation that predates any check added to the host since.
+
 For the EEPROM `BOOT_ORDER` that makes the fallback work, see
 [pi-install.md](pi-install.md).

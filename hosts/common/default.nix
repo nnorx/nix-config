@@ -20,6 +20,7 @@ in
     ../../modules/firewall.nix
     ../../modules/fail2ban.nix
     ../../modules/net-assertions.nix
+    ../../modules/host-status.nix
   ];
 
   # mkDefault so a host installed from a later release can keep its own. This

@@ -102,7 +102,10 @@ one command that runs outside the sandbox (`home/ssh.nix`); plain `ssh` has no
 route out of it. Keep each call to that single command: a pipe, a redirect or
 `&&` keeps the whole call inside the sandbox, so filter on the remote side.
 After a reboot the agent is empty until Nick runs `ssh-add`, and hosts refuse
-the key until then.
+the key until then. `fleet-ssh <host> host-status` is the first question to
+ask a host: its running revision, root device, last upgrade and failed units
+(`modules/host-status.nix`). Nick's `fleet-status` asks every host at once,
+but it calls fleet-ssh itself, so it reaches nothing from the sandbox.
 
 - On forge, Nick can try a branch before merging with `hms`, which builds the
   local checkout.
