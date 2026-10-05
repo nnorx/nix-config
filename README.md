@@ -294,7 +294,13 @@ unset topic key
 ```
 
 Checks appear in healthchecks.io on their first ping, named `<host>-<unit>`,
-with its default one-day period. Point the project's notifications at the same
+with its default one-day period. Raise each one's grace from the default hour
+to 6 hours when it appears, since a ping cannot set it. Healthy gaps run past
+25 hours: the timers keep local time, so the night the clocks go back is 25
+hours long; the backups add up to 20 minutes of random delay; and an upgrade
+pings when it finishes, which a large download onto an SD card can push back
+by an hour or more. A night with no success still alerts, about 30 hours after
+the last one. Point the project's notifications at the same
 ntfy topic so both kinds of alert arrive in one place. To cover another unit,
 add it to `fleetAlerts.failure` or `fleetAlerts.heartbeat` in its host.
 

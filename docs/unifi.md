@@ -130,7 +130,8 @@ that stopped writing backups is caught as well: a newest backup more than two
 days old fails the run. `systemctl status unifi-backup` on core5 has the
 details.
 
-Whether the repo can stand in for that check is not yet confirmed. If the
+Whether the repo's commit history could also show a stopped pipeline is not
+yet confirmed. If the
 controller writes a byte-different file on every run, as it probably does since
 the archive records when it was made, every scheduled run produces a commit,
 and a repo quiet for longer than one interval means the pipeline is broken. If

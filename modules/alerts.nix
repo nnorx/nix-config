@@ -25,7 +25,8 @@
 #   healthchecks-ping-key  The project's ping key. Checks are named
 #                          <host>-<unit> and created by their first ping, so
 #                          a unit is watched for silence only from its first
-#                          success after it is covered.
+#                          success after it is covered. Each needs its grace
+#                          raised by hand to 6 hours (README "Alerts").
 #
 # A host that names a unit here without the matching secret fails evaluation.
 # The check reads the sops file's key names, which sops leaves in plaintext.
@@ -42,6 +43,7 @@
   lib,
   pkgs,
   hostname,
+  net,
   ...
 }:
 let
@@ -52,12 +54,8 @@ let
 
   # A top-level key, at the start of a line, and not a longer key ending in it.
   sopsFile = config.sops.defaultSopsFile;
-  hasSecret =
-    key:
-    let
-      text = builtins.readFile sopsFile;
-    in
-    lib.hasPrefix "${key}:" text || lib.hasInfix "\n${key}:" text;
+  sopsText = builtins.readFile sopsFile;
+  hasSecret = key: lib.hasPrefix "${key}:" sopsText || lib.hasInfix "\n${key}:" sopsText;
   needs = key: units: {
     assertion = units == [ ] || hasSecret key;
     message = ''
@@ -79,6 +77,13 @@ let
   # the secret part never appears in the process list. Both secrets arrive as
   # systemd credentials, so the services run as a dynamic user that can read
   # nothing else.
+  #
+  # core4 and lifeline resolve through their own AdGuard, so an upgrade that
+  # leaves it down would also swallow the alert saying so. When curl cannot
+  # resolve the name (exit 6), the request is tried again over DNS-over-HTTPS
+  # to the public resolvers, addressed by IP, which needs no lookup of its own.
+  # Both operators in lib/net.nix serve it at /dns-query.
+  dohUrls = map (ip: "https://${ip}/dns-query") net.publicResolvers;
   post =
     name: text:
     pkgs.writeShellApplication {
@@ -86,9 +91,19 @@ let
       runtimeInputs = [ pkgs.curl ];
       text = ''
         unit=''${1%.service}
-        post() {
+        send() {
           printf 'url = "%s"\n' "$1" |
             curl -fsS --max-time 30 --retry 5 --retry-all-errors -o /dev/null -K - "''${@:2}"
+        }
+        post() {
+          local status=0
+          send "$@" || status=$?
+          if [ "$status" -eq 6 ]; then
+            for doh in ${lib.escapeShellArgs dohUrls}; do
+              send "$@" --doh-url "$doh" && return 0
+            done
+          fi
+          return "$status"
         }
       ''
       + text;
