@@ -20,7 +20,7 @@ jobs:
           # Full history, so preflight has origin/main and the commit it
           # compares against.
           fetch-depth: 0
-      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # main @ 2026-09-02
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # main @ 2026-09-09
         with:
           diagnostic-endpoint: ""
 
