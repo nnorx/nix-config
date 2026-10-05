@@ -31,7 +31,8 @@ jobs:
       # cannot turn into a multi-hour build. scripts/preflight.sh says why
       # each step is there.
       #
-      # On a pull request HEAD is the merge commit, so its merge-base with
-      # origin/main is the base branch's tip, and the summary says what
-      # merging would change.
-      - run: nix run .#preflight
+      # On a pull request HEAD is the merge commit, and the base is the tip of
+      # the branch it targets, which for a stacked PR is not main, so the
+      # summary says what merging this PR would change. On a push there is no
+      # base branch, and preflight compares with where the branch left main.
+      - run: nix run .#preflight -- ${GITHUB_BASE_REF:+--base "origin/$GITHUB_BASE_REF"}

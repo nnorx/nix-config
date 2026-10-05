@@ -290,6 +290,7 @@
                   jq
                   coreutils
                   gawk
+                  gnused
                 ];
                 runtimeEnv.PREFLIGHT_EVAL = "${./scripts/preflight-eval.nix}";
                 text = builtins.readFile ./scripts/preflight.sh;

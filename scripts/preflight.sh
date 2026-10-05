@@ -3,18 +3,19 @@
 # the shebang, errexit, nounset and pipefail. PREFLIGHT_EVAL names
 # preflight-eval.nix in the store.
 #
-#   1. Formatting, as CI checks it. Files that were not formatted get
-#      formatted, and the run fails so the change is looked at.
-#   2. `nix flake check --all-systems --no-build`. --all-systems, or nix skips
+#   1. `nix flake check --all-systems --no-build`. --all-systems, or nix skips
 #      the aarch64 hosts on an x86 machine; --no-build, so this stays an
 #      evaluation and never a multi-hour Pi kernel build.
-#   3. Every host's toplevel and every Home Manager config, evaluated. flake
+#   2. Every host's toplevel and every Home Manager config, evaluated. flake
 #      check alone does neither: it passes a host whose toplevel cannot
 #      evaluate (a missing sops file did exactly that), and it skips
 #      homeConfigurations, so a broken WSL or macOS profile looked green.
-#   4. Which of them the change actually touches, against a base: by default
+#   3. Which of them the change actually touches, against a base: by default
 #      where this branch left origin/main. That answers whether merging
 #      changes the Pis, which upgrade from main the same night.
+#   4. Formatting, as CI checks it. Last, so a formatting slip never hides an
+#      evaluation error or the table above. Files that were not formatted get
+#      formatted, and the run fails so the change is looked at.
 #
 # Uses the nix on PATH rather than one of its own, so it talks to the daemon in
 # the way everything else on the machine does.
@@ -50,11 +51,13 @@ if [[ -z $base ]]; then
       echo "preflight: no merge-base with origin/main; fetch it, or pass --base" >&2
       exit 1
     }
-  # On main itself, with nothing uncommitted, the merge-base is HEAD and the
-  # comparison would be a commit with itself. The parent is the question worth
-  # asking there. With uncommitted changes, HEAD is the right base already.
-  if [[ $base == "$(git rev-parse HEAD)" ]] && git diff --quiet HEAD; then
-    base=$(git rev-parse HEAD^)
+  # On main itself, clean and level with origin/main, the comparison would be
+  # a commit with itself, and the question worth asking is what the last
+  # commit changed. Anywhere else, HEAD as the base is the honest answer: a
+  # fresh branch with nothing on it changes nothing.
+  if [[ $(git symbolic-ref --quiet --short HEAD || true) == main &&
+    $base == "$(git rev-parse HEAD)" ]] && git diff --quiet HEAD; then
+    base=$(git rev-parse --verify --quiet 'HEAD^') || base=$(git rev-parse HEAD)
   fi
 fi
 base=$(git rev-parse --verify "$base^{commit}")
@@ -67,9 +70,6 @@ if [[ -n $untracked ]]; then
   while IFS= read -r path; do echo "   $path"; done <<<"$untracked"
 fi
 
-step "format"
-nix fmt -- --ci .
-
 step "flake check"
 nix flake check --all-systems --no-build
 
@@ -81,49 +81,80 @@ step "evaluate every host and home config, and compare with ${base:0:12}"
 head_json=$(evaluate "git+file://$root")
 
 # The base failing to evaluate is not this change's fault, and says nothing
-# about it. Everything is then reported as new rather than the run failing.
-if ! base_json=$(evaluate "git+file://$root?rev=$base" 2>/dev/null); then
-  echo "!! The base did not evaluate; everything below is reported as new."
+# about it, so the run goes on. But the comparison is then unknown, not "new",
+# and the table says so rather than flagging every host.
+base_ok=true
+base_err=$(mktemp)
+trap 'rm -f "$base_err"' EXIT
+if ! base_json=$(evaluate "git+file://$root?rev=$base" 2>"$base_err"); then
+  base_ok=false
   base_json='{"hosts": {}, "homes": {}}'
+  echo "!! The base did not evaluate, so what this changes is unknown. Its error ends:"
+  tail -n 15 "$base_err" | sed 's/^/   /'
 fi
 
-# One line per config: name, kind, changed/unchanged/new, and for hosts
-# whether they upgrade themselves.
-report=$(jq -rn --argjson head "$head_json" --argjson base "$base_json" '
-  def state($h; $b): if $b == null then "new" elif $h == $b then "unchanged" else "changed" end;
-  ($head.hosts | to_entries[] | [.key, "host", state(.value.drv; $base.hosts[.key].drv),
-     (if .value.autoUpgrade then "auto" else "manual" end)]),
-  ($head.homes | to_entries[] | [.key, "home", state(.value; $base.homes[.key]), "-"])
-  | @tsv')
-
-echo
-printf '%-14s %-5s %-10s %s\n' NAME KIND STATE DEPLOY
-while IFS=$'\t' read -r name kind state deploy; do
-  printf '%-14s %-5s %-10s %s\n' "$name" "$kind" "$state" "$deploy"
-done <<<"$report"
+# One line per config in either side: name, kind, state, and for hosts how the
+# deployed config, which is the base, gets updated. Tonight's upgrade runs on
+# what the host runs now, so a change that turns its upgrade off still
+# reaches it once, and a host new in this change has nothing deployed yet.
+report=$(jq -rn --argjson head "$head_json" --argjson base "$base_json" --argjson ok "$base_ok" '
+  def state($h; $b):
+    if $ok | not then "unknown"
+    elif $h == null then "removed"
+    elif $b == null then "new"
+    elif $h == $b then "unchanged"
+    else "changed" end;
+  (($head.hosts + $base.hosts | keys[]) as $k
+    | [$k, "host", state($head.hosts[$k].drv; $base.hosts[$k].drv),
+       (if ($ok | not) then "?"
+        elif $base.hosts[$k] == null then "-"
+        elif $base.hosts[$k].autoUpgrade then "auto"
+        else "manual" end)]
+    | @tsv),
+  (($head.homes + $base.homes | keys[]) as $k
+    | [$k, "home", state($head.homes[$k]; $base.homes[$k]), "-"]
+    | @tsv)')
 
 auto_changed=$(awk -F'\t' '$2 == "host" && $3 != "unchanged" && $4 == "auto" { printf "%s ", $1 }' <<<"$report")
-echo
-if [[ -n $auto_changed ]]; then
-  echo "Merging changes hosts that upgrade from main tonight: $auto_changed"
+if ! $base_ok; then
+  verdict="The base did not evaluate, so which hosts this reaches tonight is unknown."
+elif [[ -n $auto_changed ]]; then
+  verdict="Merging changes hosts that upgrade from main tonight: $auto_changed"
 else
-  echo "Merging changes no host that upgrades itself."
+  verdict="Merging changes no host that upgrades itself."
 fi
 
-if [[ -n ${GITHUB_STEP_SUMMARY:-} ]]; then
-  {
+# Prints the table and the verdict, as plain text or, with `md`, as Markdown.
+render() {
+  local name kind state deploy
+  if [[ $1 == md ]]; then
     echo "### What this changes, against ${base:0:12}"
     echo
     echo "| Config | Kind | State | Deploy |"
     echo "|---|---|---|---|"
-    while IFS=$'\t' read -r name kind state deploy; do
+  else
+    printf '%-14s %-5s %-10s %s\n' NAME KIND STATE DEPLOY
+  fi
+  while IFS=$'\t' read -r name kind state deploy; do
+    if [[ $1 == md ]]; then
       echo "| $name | $kind | $state | $deploy |"
-    done <<<"$report"
-    echo
-    if [[ -n $auto_changed ]]; then
-      echo "**Merging changes hosts that upgrade from main tonight:** $auto_changed"
     else
-      echo "Merging changes no host that upgrades itself."
+      printf '%-14s %-5s %-10s %s\n' "$name" "$kind" "$state" "$deploy"
     fi
-  } >>"$GITHUB_STEP_SUMMARY"
+  done <<<"$report"
+  echo
+  if [[ $1 == md && $verdict != "Merging changes no host"* ]]; then
+    echo "**$verdict**"
+  else
+    echo "$verdict"
+  fi
+}
+
+echo
+render text
+if [[ -n ${GITHUB_STEP_SUMMARY:-} ]]; then
+  render md >>"$GITHUB_STEP_SUMMARY"
 fi
+
+step "format"
+nix fmt -- --ci .
