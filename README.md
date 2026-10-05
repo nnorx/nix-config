@@ -82,6 +82,7 @@ modules/
 home/                  Home Manager. common.nix everywhere, default.nix on dev
                        hosts (adds dev-tools, ssh agent, Claude Code)
 docs/                  Runbooks, see below
+scripts/               preflight, the check every change gets
 .github/workflows/     Evaluation gate, binary cache builds, weekly lock bumps
 ```
 
@@ -264,12 +265,14 @@ later, not a clear message at the point of the mistake.
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `check.yml` | every push and PR | `nix flake check --all-systems --no-build`, then `nix fmt -- --ci .` |
+| `check.yml` | every push and PR | `nix run .#preflight`, and its table of what the change touches in the run's summary |
 | `cache.yml` | push to `main` | Builds every Pi's system closure on native aarch64 runners, pushes to Cachix |
 | `update-flake.yml` | Mondays 12:00 UTC | Opens a PR bumping `flake.lock` |
 
-**Run `nix fmt` before pushing.** The check gate fails on formatting and says so
-nowhere else.
+**Run `nix run .#preflight` before pushing.** It is exactly what the check gate
+runs: formatting, `nix flake check`, every host's toplevel and every Home
+Manager config evaluated, and a table of which of them the change touches,
+with the Pis, which upgrade from main that night, called out.
 
 `cache.yml` exists because `linux_rpi4` is in no public cache. Without it a
 kernel bump costs each Pi 4 roughly 9 to 15 hours of compiling, separately, with
@@ -320,8 +323,8 @@ Run `direnv allow` once in a fresh clone.
 | `hms` | Apply Home Manager config |
 | `nfu` | `nix flake update` |
 | `ngc` | Garbage collect, 30+ days |
-| `nix flake check --all-systems --no-build` | What CI runs |
-| `nix fmt` | Format, also a CI gate |
+| `nix run .#preflight` | What CI runs: format, check, evaluate everything, report what changed |
+| `nix fmt` | Format alone |
 | `pr-handoff` / `pr-handoff merge <N>` | Publish or squash-merge a PR that Claude prepared, after showing what it will send |
 | `vulnix-scan` / `vulnix-scan-system` | CVE scan the HM closure or the running system |
 | `nix build .#packages.aarch64-linux.<host>-installer` | Pi SD image |

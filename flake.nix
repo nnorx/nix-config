@@ -274,6 +274,32 @@
       # Formatter for `nix fmt`
       formatter = forAllSystems ({ pkgs, ... }: pkgs.nixfmt-tree);
 
+      # `nix run .#preflight`: every check a change needs, and what CI runs.
+      # See scripts/preflight.sh.
+      apps = forAllSystems (
+        { pkgs, ... }:
+        {
+          preflight = {
+            type = "app";
+            meta.description = "Format, flake check, evaluate every config, and report what a change touches";
+            program = pkgs.lib.getExe (
+              pkgs.writeShellApplication {
+                name = "preflight";
+                runtimeInputs = with pkgs; [
+                  git
+                  jq
+                  coreutils
+                  gawk
+                  gnused
+                ];
+                runtimeEnv.PREFLIGHT_EVAL = "${./scripts/preflight-eval.nix}";
+                text = builtins.readFile ./scripts/preflight.sh;
+              }
+            );
+          };
+        }
+      );
+
       # Installer image for Pi 5 — includes SSH key for headless access
       # Build with: nix build .#packages.aarch64-linux.core5-installer --accept-flake-config
       packages.aarch64-linux.core5-installer =

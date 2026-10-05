@@ -8,16 +8,15 @@ before changing it.
 
 ## Checking a change
 
-- `nix fmt` formats with nixfmt-tree. CI runs `nix fmt -- --ci .`. In the
-  sandbox, pass `-- --no-cache`: treefmt's cache is outside what commands
-  may write.
-- `nix flake check --all-systems --no-build`.
-- Also evaluate the toplevel of every host you touched, because `flake check`
-  passes a host whose toplevel cannot evaluate at all:
-  `nix eval --raw .#nixosConfigurations.<host>.config.system.build.toplevel.drvPath`.
-- For anything under `home/`, evaluate both Home Manager configs, `nick` (WSL)
-  and `nicknorcross` (macOS), since either can break alone:
-  `.#homeConfigurations.<name>.activationPackage.drvPath`.
+- `nix run .#preflight` is the check, and what CI runs. It formats, runs
+  `nix flake check --all-systems --no-build`, evaluates every host's toplevel
+  and every Home Manager config (flake check does neither), and prints which
+  of them the change touches against where the branch left `origin/main`,
+  including whether that reaches a host that upgrades itself. It takes a few
+  minutes; `--base <rev>` compares against something else. It works in the
+  sandbox. `scripts/preflight.sh` says what each step is for.
+- To format alone, `nix fmt -- --no-cache` in the sandbox: treefmt's cache is
+  outside what commands may write.
 - The x86 hosts, gate and forge, can be built locally with `nix build
   --no-link`; most of the closure comes from caches.
 - The flake only sees files git tracks. `git add` a new file before evaluating.
@@ -37,17 +36,12 @@ before changing it.
   generated files need (`modules/baseline.nix`), but the daemon ignores that
   option from anyone but a trusted user, and on forge only root is.
 - Every commit changes every host's toplevel, through
-  `system.configurationRevision`. To tell whether a change really touches a
-  host, pin the revision and compare the two sides, with `<ref>` as
-  `git+file://$PWD?ref=main` and then `git+file://$PWD`, the working tree.
-  (`path:$PWD` fails in the sandbox, on the placeholders it mounts in
-  `.claude/`.)
-
-  ```
-  nix eval --impure --raw --expr 'let c = (builtins.getFlake "<ref>").nixosConfigurations.<host>; in (c.extendModules { modules = [ { system.configurationRevision = c.pkgs.lib.mkForce "pinned"; } ]; }).config.system.build.toplevel.drvPath'
-  ```
-
-  This is how a PR says whether merging changes the Pis.
+  `system.configurationRevision`, so preflight compares toplevels with the
+  revision pinned (`scripts/preflight-eval.nix`). Its table is how a PR says
+  whether merging changes the Pis, and CI writes the same table to the run's
+  summary. If you build such a comparison by hand, use `git+file://$PWD`:
+  `path:$PWD` fails in the sandbox, on the placeholders it mounts in
+  `.claude/`.
 
 ## Invariants
 
@@ -115,7 +109,7 @@ the key until then.
 - **Merging to main deploys the Pis that night.** They upgrade automatically
   from `github:nnorx/nix-config`. A merged change to addressing or interfaces
   reaches them unattended, possibly before gate is deployed to match. Check
-  with the pinned comparison above, and say so in the PR when it applies.
+  with preflight's table, and say so in the PR when it applies.
 - A change to the interface a deploy runs over needs `nrb` and a reboot, not
   `nrs`. gate has no fallback router, so its risky reboots and its firewall
   changes go behind `deploy-guard` (`docs/recovery.md`).
