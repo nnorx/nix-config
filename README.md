@@ -275,17 +275,21 @@ names leave the host.
 Each covered host needs two secrets, and evaluation fails without them. sops-nix
 would only notice when the system is built, after CI, which only evaluates, had
 let the change merge, and the Pis would then stop upgrading with nothing
-installed yet to say so. From the repo, in your own terminal:
+installed yet to say so. From the repo, in your own terminal, inside `nix
+shell nixpkgs#sops nixpkgs#openssl` if either is missing. The first half makes
+one random topic for the whole fleet, so the phone needs one subscription, and
+prints it: note it before the end clears it. At `read`, paste the
+healthchecks.io project's ping key, from its settings page; it does not echo.
+The block has no comments, since interactive zsh runs a pasted `#` line as a
+command.
 
 ```bash
-# One random topic for the whole fleet: one subscription on the phone.
 topic=$(openssl rand -hex 16)
 for h in core4 lifeline core5; do
   printf '"https://ntfy.sh/%s"' "$topic" | sops set --value-stdin secrets/$h.yaml '["ntfy-url"]'
 done
 echo "subscribe the ntfy app to: $topic"
 
-# The healthchecks.io project's ping key, from its settings page.
 read -rs key
 for h in core4 lifeline core5; do
   printf '"%s"' "$key" | sops set --value-stdin secrets/$h.yaml '["healthchecks-ping-key"]'
