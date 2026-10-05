@@ -161,6 +161,13 @@ drilled yet.
 
 ## Upgrading
 
+The `image-updates` workflow checks both pins against their registries every
+Tuesday and keeps an issue labelled `images` open while either is behind: a
+tag rebuilt since it was pinned, which is how base-image security fixes
+arrive, or a newer controller release. A newer MongoDB line is listed there
+but does not count, since it is a database change to make on purpose. The
+workflow never moves a pin.
+
 Change the digest in `modules/unifi.nix`. Get the new one with:
 
 ```bash

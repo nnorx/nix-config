@@ -268,6 +268,7 @@ later, not a clear message at the point of the mistake.
 | `check.yml` | every push and PR | `nix run .#preflight`, and its table of what the change touches in the run's summary |
 | `cache.yml` | push to `main` | Builds every Pi's system closure on native aarch64 runners, pushes to Cachix |
 | `update-flake.yml` | Mondays 12:00 UTC | Opens a PR bumping `flake.lock` |
+| `image-updates.yml` | Tuesdays 12:00 UTC | Keeps an `images` issue open while a pinned container image is behind its registry |
 
 **Run `nix run .#preflight` before pushing.** It is exactly what the check gate
 runs: formatting, `nix flake check`, every host's toplevel and every Home

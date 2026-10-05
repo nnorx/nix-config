@@ -1,0 +1,75 @@
+name: Image updates
+
+# Compares every pinned container image with its registry, weekly
+# (scripts/image-updates.sh), and keeps the answer in one issue: opened when
+# something is behind, updated while it stays behind, closed once everything
+# matches. Dependabot cannot do this, since the pins live in Nix.
+#
+# It never changes a pin. Moving either image runs one-way database
+# migrations, so that stays a PR someone reads first (docs/unifi.md,
+# "Upgrading").
+
+on:
+  schedule:
+    - cron: "0 12 * * 2" # Tuesdays 12:00 UTC, the day after the lock bump
+  workflow_dispatch:
+
+# See check.yml. This job holds only its own GITHUB_TOKEN, scoped below.
+env:
+  OTEL_SDK_DISABLED: "true"
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # main @ 2026-09-09
+        with:
+          diagnostic-endpoint: ""
+
+      # The image list comes from every host's evaluated config rather than a
+      # list kept here, so a container added to any host is covered by the
+      # commit that adds it. skopeo comes from the flake's own nixpkgs.
+      #
+      # A registry that cannot be read fails the run, rather than letting the
+      # next step close the issue on a partial answer.
+      - name: Compare the pins with their registries
+        id: compare
+        run: |
+          nix eval --json .#nixosConfigurations --apply \
+            'cfgs: builtins.concatLists (map (c: map (x: x.image) (builtins.attrValues c.config.virtualisation.oci-containers.containers)) (builtins.attrValues cfgs))' |
+            jq -r 'unique[]' >images.txt
+          status=0
+          nix shell --inputs-from . nixpkgs#skopeo nixpkgs#jq \
+            -c bash scripts/image-updates.sh <images.txt >report.md || status=$?
+          cat report.md >>"$GITHUB_STEP_SUMMARY"
+          echo "status=$status" >>"$GITHUB_OUTPUT"
+          [ "$status" -ne 1 ]
+
+      - name: Open, update or close the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STATUS: ${{ steps.compare.outputs.status }}
+        run: |
+          open=$(gh issue list --state open --label images --json number --jq '.[0].number // empty')
+          if [ "$STATUS" = 2 ]; then
+            {
+              echo "Found by [this run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID) on $(date -u +%F)."
+              echo
+              cat report.md
+              echo
+              echo "The pins are in \`modules/unifi.nix\`. Read \"Upgrading\" in docs/unifi.md before moving one: both images run one-way database migrations."
+            } >body.md
+            if [ -n "$open" ]; then
+              gh issue edit "$open" --body-file body.md
+            else
+              gh label create images --color ededed --description "Pinned container images" --force
+              gh issue create --title "Container images behind their registries" --label images --body-file body.md
+            fi
+          elif [ -n "$open" ]; then
+            gh issue close "$open" --comment "Every pinned image matches its registry as of $(date -u +%F)."
+          fi
