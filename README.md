@@ -190,7 +190,8 @@ which would otherwise win.
 
 gate has two entries, `gate` at home and `gate-vpn` over WireGuard. The second
 checks gate's host key under the home address, so a machine that trusts gate
-at home trusts it through the tunnel too.
+at home trusts it through the tunnel too. `fleet-status` asks `gate-vpn` on
+its own while forge's tunnel is up.
 
 ## Remote access
 
