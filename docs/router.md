@@ -173,12 +173,13 @@ One at a time, weeks apart, now that the house is boring.
       since core5's firewall opens a port per `pimonAgents` entry and reads that
       attribute. Decide what the address would mean first.
 
-      Include `unifi-backup.service` and `home-assistant-backup.service` on
-      core5 in whatever alerts. They fail loudly, but only into the journal,
-      and a backup that stopped weeks ago is discovered at exactly the moment
-      it is needed. docs/unifi.md and docs/home-assistant.md defer their
-      silent-failure gap to this item, so this is where that deferral is
-      tracked.
+      Alerting no longer waits on this. `modules/alerts.nix` sends a push
+      notification when the Pis' upgrades or core5's off-box backups fail,
+      and pings healthchecks.io on each success, so a job that stops running
+      alerts too. Both are hosted, so they work with the house down. Whatever
+      stack lands here can add to `fleetAlerts` rather than replace it. The
+      questions above (WAN state, conntrack, DHCP pools, DNS failure ratios)
+      are still open, and so is the wrong-boot check.
 - [x] **Inbound remote access.** The one with clear payoff: SSH into the fleet
       and filtered DNS from a hotel. Designed 2026-10-01, built 2026-10-02:
       gate's half in #97 (hosts/gate/wireguard.nix), forge's profiles after it

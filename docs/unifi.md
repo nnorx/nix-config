@@ -83,7 +83,9 @@ a file that already exists off the host that holds the original.
 
 **It depends on the controller's own schedule**, and the schedule's interval
 bounds how stale the off-box copy can be: on a monthly schedule, a change made
-on the 2nd is not off the box until the 1st of the following month. Until the
+on the 2nd is not off the box until the 1st of the following month. The
+schedule is daily, and `maxAgeDays` in `modules/unifi-backup.nix` assumes so:
+change the two together. Until the
 first scheduled run, `config/data/backup/autobackup/` is empty and the unit
 fails loudly saying so, rather than exiting cleanly on nothing.
 
@@ -121,11 +123,15 @@ schedule, and age uses a fresh ephemeral key per run, so the same file encrypts
 differently every time. Comparing ciphertext would re-commit an already-pushed
 backup every day.
 
-**Known gap: a silent stop.** Nothing alerts on the unit failing.
-`systemctl status unifi-backup` on core5 is the manual check until the Phase 8
-monitoring work in [router.md](router.md) covers it.
+**Alerts.** A failed run sends a push notification, and each successful run
+pings healthchecks.io, which alerts if a day passes without one, so a push that
+quietly stopped happening is caught too (`modules/alerts.nix`). A controller
+that stopped writing backups is caught as well: a newest backup more than two
+days old fails the run. `systemctl status unifi-backup` on core5 has the
+details.
 
-Whether the repo can stand in for that check is not yet confirmed. If the
+Whether the repo's commit history could also show a stopped pipeline is not
+yet confirmed. If the
 controller writes a byte-different file on every run, as it probably does since
 the archive records when it was made, every scheduled run produces a commit,
 and a repo quiet for longer than one interval means the pipeline is broken. If

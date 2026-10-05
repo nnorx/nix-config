@@ -21,6 +21,7 @@ in
     ../../modules/fail2ban.nix
     ../../modules/net-assertions.nix
     ../../modules/host-status.nix
+    ../../modules/alerts.nix
   ];
 
   # mkDefault so a host installed from a later release can keep its own. This

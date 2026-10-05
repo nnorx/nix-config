@@ -70,6 +70,7 @@ modules/
   home-assistant.nix   Home Assistant, native, from unstable (core5 only)
   home-assistant-backup.nix  Its state, pushed off-box (core5 only)
   offbox-push.nix      Both pushes: newest backup, age-encrypted, to a private repo
+  alerts.nix           Push notifications and heartbeats for the jobs above and upgrades
   pimon.nix            Monitoring agent or collector
   firewall.nix         Default-deny. SSH scoped per interface, never globally
   ssh.nix              Key-only auth, modern crypto
@@ -260,6 +261,52 @@ sops updatekeys secrets/<host>.yaml
 
 The failure mode if you skip this is an unrelated-looking deploy error much
 later, not a clear message at the point of the mistake.
+
+## Alerts
+
+[`modules/alerts.nix`](modules/alerts.nix) covers the jobs that otherwise fail
+only into the journal: each Pi's automatic upgrade and core5's off-box
+backups. A failure sends a push notification through ntfy.sh, and each success
+pings healthchecks.io, which alerts when a job goes a day without one. That
+catches a timer that never fired or a host that is off. Both services are
+hosted, so they still work when the house is down. Only the host's and unit's
+names leave the host.
+
+Each covered host needs two secrets, and evaluation fails without them. sops-nix
+would only notice when the system is built, after CI, which only evaluates, had
+let the change merge, and the Pis would then stop upgrading with nothing
+installed yet to say so. From the repo, in your own terminal, inside `nix
+shell nixpkgs#sops nixpkgs#openssl` if either is missing. The first half makes
+one random topic for the whole fleet, so the phone needs one subscription, and
+prints it: note it before the end clears it. At `read`, paste the
+healthchecks.io project's ping key, from its settings page; it does not echo.
+The block has no comments, since interactive zsh runs a pasted `#` line as a
+command.
+
+```bash
+topic=$(openssl rand -hex 16)
+for h in core4 lifeline core5; do
+  printf '"https://ntfy.sh/%s"' "$topic" | sops set --value-stdin secrets/$h.yaml '["ntfy-url"]'
+done
+echo "subscribe the ntfy app to: $topic"
+
+read -rs key
+for h in core4 lifeline core5; do
+  printf '"%s"' "$key" | sops set --value-stdin secrets/$h.yaml '["healthchecks-ping-key"]'
+done
+unset topic key
+```
+
+Checks appear in healthchecks.io on their first ping, named `<host>-<unit>`,
+with its default one-day period. Raise each one's grace from the default hour
+to 6 hours when it appears, since a ping cannot set it. Healthy gaps run past
+25 hours: the timers keep local time, so the night the clocks go back is 25
+hours long; the backups add up to 20 minutes of random delay; and an upgrade
+pings when it finishes, which a large download onto an SD card can push back
+by an hour or more. A night with no success still alerts, about 30 hours after
+the last one. Point the project's notifications at the same
+ntfy topic so both kinds of alert arrive in one place. To cover another unit,
+add it to `fleetAlerts.failure` or `fleetAlerts.heartbeat` in its host.
 
 ## CI and the binary cache
 

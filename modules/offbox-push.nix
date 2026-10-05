@@ -100,6 +100,19 @@ let
         exit 1
       fi
     ''
+    + lib.optionalString (job.maxAgeDays != null) ''
+
+      # The heartbeat (modules/alerts.nix) proves this ran, not that the
+      # application still writes backups: with nothing new, a run finds the
+      # file it pushed before and exits as a success. A newest backup past
+      # this age fails the run instead, which notifies and withholds the ping.
+      age=$(( $(date +%s) - $(stat -c %Y "''${newest}") ))
+      if [ "''${age}" -gt ${toString (job.maxAgeDays * 86400)} ]; then
+        echo "the newest backup, ''${newest}, is $(( age / 86400 )) days old, over the ${toString job.maxAgeDays}-day limit." >&2
+        ${echoLines job.emptyHint}
+        exit 1
+      fi
+    ''
     + lib.optionalString (job.maxMiB != null) ''
 
       # Every version stays in the repo's history for good, and GitHub refuses
@@ -292,6 +305,14 @@ let
           type = lib.types.lines;
           description = "Printed when there is no backup to push.";
         };
+        maxAgeDays = lib.mkOption {
+          type = lib.types.nullOr lib.types.ints.positive;
+          default = null;
+          description = ''
+            Fail when the newest backup is older than this many days, or null
+            for no check. Set it from the application's own backup schedule.
+          '';
+        };
         maxMiB = lib.mkOption {
           type = lib.types.nullOr lib.types.ints.positive;
           default = null;
@@ -320,6 +341,13 @@ in
       owner = hostname;
       mode = "0400";
     };
+
+    # A push fails loudly, but only into the journal, and a backup that
+    # stopped weeks ago is found at the moment it is needed. Every job reports
+    # failure as it happens and success every day, so silence alerts too
+    # (modules/alerts.nix).
+    fleetAlerts.failure = lib.attrNames cfg;
+    fleetAlerts.heartbeat = lib.attrNames cfg;
 
     systemd.services = lib.mapAttrs (name: job: {
       inherit (job) description;
