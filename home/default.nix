@@ -10,5 +10,6 @@
     ./ssh.nix # keychain-managed ssh-agent (dev hosts only)
     ./claude.nix # Claude Code settings + personal skills marketplace
     ./pr-handoff.nix # Publishes the PRs Claude prepares
+    ./agents-status.nix # What each background agent's branch needs next
   ];
 }

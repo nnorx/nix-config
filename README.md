@@ -376,6 +376,8 @@ Run `direnv allow` once in a fresh clone.
 | `nix run .#preflight` | What CI runs: format, check, evaluate everything, report what changed |
 | `nix fmt` | Format alone |
 | `pr-handoff` / `pr-handoff merge <N>` | Publish or squash-merge a PR that Claude prepared, after showing what it will send |
+| `claude --bg -w <name> "<task>"` | Start a background agent in its own worktree. `claude agents` lists them (Enter opens one, ← goes back), `claude attach <name>` opens one from the shell, `claude rm <id>` removes one once its PR has merged |
+| `agents-status [--offline]` | Each agent branch's handoff, PR and checks, conflicts with main and with each other, and what to merge next |
 | `fleet-status [host...]` | Every fleet host's running revision against main, root device, last upgrade and failed units (Linux dev hosts) |
 | `vulnix-scan` / `vulnix-scan-system` | CVE scan the HM closure or the running system |
 | `nix build .#packages.aarch64-linux.<host>-installer` | Pi SD image |
