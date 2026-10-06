@@ -175,6 +175,12 @@ in
     # core.hooksPath, since .git/config is out of a command's reach.
     programs.git.settings.core.hooksPath = lib.mkIf pkgs.stdenv.isLinux "${pkgs.emptyDirectory}";
 
+    # `claude --worktree` checks each background agent out under
+    # .claude/worktrees/ in the repo it was started from, which would
+    # otherwise show as untracked there. Here rather than in git.nix for the
+    # same reason as above: only these machines run Claude.
+    programs.git.ignores = [ ".claude/worktrees/" ];
+
     home.activation.claudeSettings = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
       settings="$HOME/.claude/settings.json"
       mkdir -p "$HOME/.claude"
