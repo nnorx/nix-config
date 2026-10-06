@@ -104,8 +104,11 @@ let
 
   # Every fleet host's `host-status` (modules/host-status.nix) at once, with
   # each running revision compared against main on GitHub. gate-vpn is the same
-  # host as gate, so it is asked only when named, which is the way to reach
-  # gate from away from home.
+  # host as gate, so only one of them is asked: gate-vpn while either of forge's
+  # profiles is up, since gate's home address does not route through the tunnel,
+  # and gate otherwise. `wg-home` is the interface both profiles share
+  # (hosts/forge/vpn.nix), and NetworkManager removes it when they are down.
+  # Named hosts are asked as named.
   #
   # Calls fleet-ssh, so inside Claude Code's sandbox it reaches nothing. Claude
   # runs `fleet-ssh <host> host-status` per host instead.
@@ -124,7 +127,15 @@ let
       if [ "$#" -gt 0 ]; then
         hosts="$*"
       else
-        hosts="${lib.concatStringsSep " " (lib.remove "gate-vpn" (builtins.attrNames fleet))}"
+        gate="gate"
+        if [ -e /sys/class/net/wg-home ]; then
+          gate="gate-vpn"
+        fi
+        hosts="${
+          lib.concatStringsSep " " (
+            map (h: if h == "gate" then "$gate" else h) (lib.remove "gate-vpn" (builtins.attrNames fleet))
+          )
+        }"
       fi
       for host in $hosts; do
         case " $known " in

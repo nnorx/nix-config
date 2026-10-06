@@ -106,6 +106,9 @@ the key until then. `fleet-ssh <host> host-status` is the first question to
 ask a host: its running revision, root device, last upgrade and failed units
 (`modules/host-status.nix`). Nick's `fleet-status` asks every host at once,
 but it calls fleet-ssh itself, so it reaches nothing from the sandbox.
+Away from home, with one of forge's tunnel profiles up (`/sys/class/net/wg-home`
+exists), gate is `gate-vpn`: `gate` is its home address, which the tunnel
+does not carry. The servers keep their names either way.
 
 - On forge, Nick can try a branch before merging with `hms`, which builds the
   local checkout.
