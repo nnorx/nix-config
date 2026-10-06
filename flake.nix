@@ -23,7 +23,12 @@
     };
 
     # Raspberry Pi 5 support (boot firmware, kernel, config.txt management)
-    # Uses its own pinned nixpkgs fork — do NOT add nixpkgs.follows
+    #
+    # No nixpkgs.follows. Its kernel and firmware are built from its own
+    # nixpkgs pin and served from its cache; following ours would make the
+    # Pi 5 kernel ours to compile. core5's userland comes from our nixpkgs
+    # anyway, passed to its nixosSystem (see core5 below), and that does not
+    # move the kernel.
     nixos-raspberrypi.url = "github:nvmd/nixos-raspberrypi/main";
 
     # Declarative partitioning, used once, by nixos-anywhere, to lay out forge's
@@ -153,9 +158,8 @@
       # builds it.
       #
       # Shared as pieces rather than behind one helper because core5 cannot go
-      # through mkHost: it is built by `nixos-raspberrypi.lib.nixosSystem`
-      # against that flake's own pinned nixpkgs, so it resolves to a different
-      # nixpkgs revision than the other three, and that wrapper sets
+      # through mkHost: it is built by `nixos-raspberrypi.lib.nixosSystem`,
+      # which adds that flake's overlays to the package set and sets
       # `nixpkgs.hostPlatform` itself, so it must not be handed the `system`
       # argument mkHost passes.
       #
@@ -376,9 +380,17 @@
       # NixOS configurations: the Pis, the router, and the laptop
       nixosConfigurations = {
         # Pi 5 uses nixos-raspberrypi for boot firmware + kernel support
-        # Not mkPi. core5's nixosSystem comes from nixos-raspberrypi and
-        # evaluates against that flake's nixpkgs; see fleetModules above. It
-        # shares the fleet's specialArgs and modules, but not the call.
+        # Not mkPi. core5's nixosSystem comes from nixos-raspberrypi; see
+        # fleetModules above. It shares the fleet's specialArgs and modules,
+        # but not the call.
+        #
+        # `inherit nixpkgs` puts core5 on the fleet's nixpkgs. The wrapper
+        # defaults to its own pin, which only moves when upstream bumps it; by
+        # 2026-10 that had left core5 two months behind the other hosts. The
+        # kernel and firmware still come from `nixos-raspberrypi.packages`,
+        # built from that pin and cached upstream. What this costs is the
+        # page-size-16k overlay: its jemalloc reaches rustc, so Rust programs
+        # and a few others miss cache.nixos.org and cache.yml builds them.
         #
         # `nixos-raspberrypi` is deliberately absent from specialArgs: the
         # wrapper injects it and its own value wins the merge.
@@ -391,6 +403,7 @@
             system = "aarch64-linux";
           in
           nixos-raspberrypi.lib.nixosSystem {
+            inherit nixpkgs;
             specialArgs = fleetSpecialArgs { inherit hostname system; };
             modules = [
               (

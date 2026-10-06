@@ -335,7 +335,9 @@ advice and never fails the check. The rules are in
 
 `cache.yml` exists because `linux_rpi4` is in no public cache. Without it a
 kernel bump costs each Pi 4 roughly 9 to 15 hours of compiling, separately, with
-no shared output between them. The caches are written once, in `flake.nix`'s
+no shared output between them. It also builds what core5's 16K page size moves
+off cache.nixos.org: rustc's jemalloc, and so the Rust toolchain and programs
+built with it, in a job of its own. The caches are written once, in `flake.nix`'s
 `nixConfig`, and applied in two ways, both needed: as flake settings, which
 are client-supplied, so Nix ignores them for anyone outside `trusted-users`, and
 through `modules/baseline.nix`, which reads that list and is what actually

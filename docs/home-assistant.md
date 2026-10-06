@@ -23,9 +23,9 @@ Both decided on evidence; the module header has the detail.
 Assistant is free software that Hydra builds, so the nixpkgs module gives a
 declarative config and a closure CI can cache, with no Docker in the path.
 
-**The package comes from `unstable`, not core5's own package set.** core5
-evaluates against nixos-raspberrypi's nixpkgs, which replaces ffmpeg with
-Raspberry Pi's fork. Home Assistant links ffmpeg, so on that package set it and
+**The package comes from `unstable`, not core5's own package set.** core5's
+package set carries nixos-raspberrypi's overlays, one of which replaces ffmpeg
+with Raspberry Pi's fork. Home Assistant links ffmpeg, so on that package set it and
 several of its Python dependencies miss cache.nixos.org and CI would rebuild
 them. `unstable` carries no overlay and substitutes. The only thing built is the
 Home Assistant package itself, with its test suite switched off.
