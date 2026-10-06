@@ -99,6 +99,16 @@ comment = "Cabal metadata for Haskell yaml, see [yaml-0.11.11.2]."
 ["go-1.24.13-linux-amd64-bootstrap"]
 comment = "Stage-0 Go bootstrap binary used only to build the runtime Go. Not on PATH, not executed by user code."
 
+# The same bootstrap for the Pis, the 32-bit x86 builds, and the Mac.
+["go-1.24.13-linux-arm64-bootstrap"]
+comment = "Stage-0 Go bootstrap, see [go-1.24.13-linux-amd64-bootstrap]."
+
+["go-1.24.13-linux-386-bootstrap"]
+comment = "Stage-0 Go bootstrap, see [go-1.24.13-linux-amd64-bootstrap]."
+
+["go-1.24.13-darwin-arm64-bootstrap"]
+comment = "Stage-0 Go bootstrap, see [go-1.24.13-linux-amd64-bootstrap]."
+
 ["python-2.7.18.12"]
 comment = "Python 2 pulled in as a build helper by older nixpkgs build scripts. Not on PATH; not runnable as `python`."
 
@@ -121,6 +131,10 @@ comment = "Bootstrap-chain GCC. Not the runtime GCC."
 # locals. The Pis are aarch64, so "x86_64 only" does not cover it. It holds
 # because the fix shipped in GCC 14, and NVD's range has no upper bound.
 ["gcc-15.2.0"]
+cve = ["CVE-2023-4039"]
+comment = "Disputed aarch64 stack-protector gap, fixed upstream before GCC 15."
+
+["gcc-15.3.0"]
 cve = ["CVE-2023-4039"]
 comment = "Disputed aarch64 stack-protector gap, fixed upstream before GCC 15."
 
