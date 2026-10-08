@@ -10,11 +10,16 @@ before changing it.
 
 - `nix run .#preflight` is the check, and what CI runs. It formats, runs
   `nix flake check --all-systems --no-build`, evaluates every host's toplevel
-  and every Home Manager config (flake check does neither), and prints which
-  of them the change touches against where the branch left `origin/main`,
-  including whether that reaches a host that upgrades itself. It takes a few
-  minutes; `--base <rev>` compares against something else. It works in the
-  sandbox. `scripts/preflight.sh` says what each step is for.
+  and every Home Manager config (flake check does neither), and prints a
+  brief against where the branch left `origin/main`: which configs the change
+  touches, and per host whether it reboots tonight, changes its boot path,
+  networking or logins, which services restart, and which packages move. Its
+  verdict, `routine`, `review` or `be there`, says whether merging needs Nick
+  at hand that night; quote it in the PR body. It takes a few minutes;
+  `--base <rev>` compares against something else, `--head <rev>` briefs a
+  commit without checking it out, and `--json <file>` writes the brief for
+  tools. It works in the sandbox. `scripts/preflight.sh` says what each step is
+  for, and `scripts/preflight-brief.jq` holds the rules.
 - To format alone, `nix fmt -- --no-cache` in the sandbox: treefmt's cache is
   outside what commands may write.
 - The x86 hosts, gate and forge, can be built locally with `nix build
@@ -37,8 +42,8 @@ before changing it.
   option from anyone but a trusted user, and on forge only root is.
 - Every commit changes every host's toplevel, through
   `system.configurationRevision`, so preflight compares toplevels with the
-  revision pinned (`scripts/preflight-eval.nix`). Its table is how a PR says
-  whether merging changes the Pis, and CI writes the same table to the run's
+  revision pinned (`scripts/preflight-eval.nix`). Its brief is how a PR says
+  whether merging changes the Pis, and CI writes the same brief to the run's
   summary. If you build such a comparison by hand, use `git+file://$PWD`:
   `path:$PWD` fails in the sandbox, on the placeholders it mounts in
   `.claude/`.
@@ -115,7 +120,7 @@ does not carry. The servers keep their names either way.
 - **Merging to main deploys the Pis that night.** They upgrade automatically
   from `github:nnorx/nix-config`. A merged change to addressing or interfaces
   reaches them unattended, possibly before gate is deployed to match. Check
-  with preflight's table, and say so in the PR when it applies.
+  with preflight's brief, and say so in the PR when it applies.
 - A change to the interface a deploy runs over needs `nrb` and a reboot, not
   `nrs`. gate has no fallback router, so its risky reboots and its firewall
   changes go behind `deploy-guard` (`docs/recovery.md`).

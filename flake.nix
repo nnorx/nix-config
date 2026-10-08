@@ -289,10 +289,12 @@
                   git
                   jq
                   coreutils
-                  gawk
                   gnused
                 ];
-                runtimeEnv.PREFLIGHT_EVAL = "${./scripts/preflight-eval.nix}";
+                runtimeEnv = {
+                  PREFLIGHT_EVAL = "${./scripts/preflight-eval.nix}";
+                  PREFLIGHT_BRIEF = "${./scripts/preflight-brief.jq}";
+                };
                 text = builtins.readFile ./scripts/preflight.sh;
               }
             );
