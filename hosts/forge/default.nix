@@ -25,6 +25,7 @@
     ./dev.nix
     ./vpn.nix
     ./claude.nix
+    ./night-shift.nix
     ../../modules/baseline.nix
     ../../modules/docker.nix
   ];
