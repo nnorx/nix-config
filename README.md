@@ -313,15 +313,20 @@ add it to `fleetAlerts.failure` or `fleetAlerts.heartbeat` in its host.
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `check.yml` | every push and PR | `nix run .#preflight`, and its table of what the change touches in the run's summary |
+| `check.yml` | every push and PR | `nix run .#preflight`, and its brief on what the change touches in the run's summary |
 | `cache.yml` | push to `main` | Builds every Pi's system closure on native aarch64 runners, pushes to Cachix |
 | `update-flake.yml` | Mondays 12:00 UTC | Opens a PR bumping `flake.lock` |
 | `image-updates.yml` | Tuesdays 12:00 UTC | Keeps an `images` issue open while a pinned container image is behind its registry |
 
 **Run `nix run .#preflight` before pushing.** It is exactly what the check gate
 runs: formatting, `nix flake check`, every host's toplevel and every Home
-Manager config evaluated, and a table of which of them the change touches,
-with the Pis, which upgrade from main that night, called out.
+Manager config evaluated, and a brief on which of them the change touches.
+For each host it says whether merging reboots it that night, changes its boot
+path, networking or logins, which services restart and which packages move,
+and it ends on a verdict: `routine`, `review`, or `be there`, for a change to
+merge only when someone can be at home while the Pis upgrade. The verdict is
+advice and never fails the check. The rules are in
+[`scripts/preflight-brief.jq`](scripts/preflight-brief.jq).
 
 `cache.yml` exists because `linux_rpi4` is in no public cache. Without it a
 kernel bump costs each Pi 4 roughly 9 to 15 hours of compiling, separately, with
