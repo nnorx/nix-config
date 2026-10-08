@@ -47,6 +47,8 @@ stall_hours=${NIGHT_SHIFT_STALL_HOURS:-4}
 state_dir=${XDG_STATE_HOME:-$HOME/.local/state}/night-shift
 shopt -s nullglob
 
+now() { date -u +%FT%TZ; }
+
 # Read once and never exported, so the agents started below do not inherit
 # it. It reaches curl through a file descriptor rather than the command line,
 # which any of Nick's processes could read from /proc.
@@ -56,15 +58,21 @@ load_key() {
   key=$(<"$NIGHT_SHIFT_KEY_FILE")
 }
 
-# gql <query> [variables json]: the response's data, or die with its error.
+# gql <query> [variables json]: the response's data. Exits 1 when Linear
+# cannot be reached and 2 when it answers with an error, such as an issue
+# that no longer exists, so a caller can tell "gone" from "offline".
 gql() {
   local body out
   body=$(jq -nc --arg q "$1" --argjson v "${2:-"{}"}" '{query: $q, variables: $v}')
-  out=$(curl -sS --max-time 30 -K <(printf 'header = "Authorization: %s"\n' "$key") \
+  if ! out=$(curl -sS --max-time 30 -K <(printf 'header = "Authorization: %s"\n' "$key") \
     -H 'Content-Type: application/json' --data-binary "$body" \
-    https://api.linear.app/graphql) || die "Linear did not answer"
+    https://api.linear.app/graphql); then
+    echo "night-shift: Linear did not answer" >&2
+    exit 1
+  fi
   if jq -e '.errors' <<<"$out" >/dev/null; then
-    die "Linear: $(jq -r '.errors | map(.message) | join("; ")' <<<"$out")"
+    echo "night-shift: Linear: $(jq -r '.errors | map(.message) | join("; ")' <<<"$out")" >&2
+    exit 2
   fi
   jq -c '.data' <<<"$out"
 }
@@ -80,13 +88,15 @@ notify() {
     echo "night-shift: ntfy failed for: $1" >&2
 }
 
-ISSUE_FIELDS='id identifier title description url priority createdAt
-  state { type }
+# One issue in full. The whole history, in whatever order Linear returns it,
+# so the check on who queued it does not depend on the order.
+ISSUE_FIELDS='id identifier title description url
+  state { name type }
   creator { id }
   team { states { nodes { id name } } }
   labels { nodes { name parent { name } } }
   comments(first: 100) { nodes { body createdAt user { id } } }
-  history(first: 50) { nodes { createdAt actorId toState { name } } }'
+  history(first: 250) { pageInfo { hasNextPage } nodes { createdAt actorId toState { name } } }'
 
 issue() {
   gql "query(\$id: String!) { issue(id: \$id) { $ISSUE_FIELDS } }" \
@@ -120,31 +130,40 @@ stop_issue() {
 # Nick's comments, oldest first, after <since> when given, without this
 # script's own.
 answers() {
-  jq -r --arg since "${2:-}" --arg me "$viewer" '
+  jq -r --arg since "${2:-}" --arg me "$viewer" --arg marker "$MARKER" '
     [.comments.nodes[]
-     | select(.user.id == $me and (.body | startswith("**Night shift**") | not))
+     | select(.user.id == $me and (.body | startswith($marker) | not))
      | select($since == "" or .createdAt > $since)]
     | sort_by(.createdAt)
     | map("[\(.createdAt[:16] | sub("T"; " "))] \(.body)") | join("\n\n")' <<<"$1"
 }
 
-common_dir() {
-  git -C "$1" rev-parse --path-format=absolute --git-common-dir
-}
-
-save() {
-  jq -n "$@" >"$state_dir/$ident.json.tmp"
-  mv "$state_dir/$ident.json.tmp" "$state_dir/$ident.json"
-}
-
 result_path() {
-  echo "$(common_dir "$1")/night-shift/$2.md"
+  echo "$(git -C "$1" rev-parse --path-format=absolute --git-common-dir)/night-shift/$2.md"
+}
+
+# Keeps a result that has been read, or that turned up too late, out of the
+# way of the next one.
+archive() {
+  [[ ! -f $1 ]] || mv "$1" "$1.$(date +%s)"
+}
+
+# update <state file> <jq filter> [jq args...]
+update() {
+  local f=$1 filter=$2
+  shift 2
+  jq "$@" "$filter" "$f" >"$f.tmp"
+  mv "$f.tmp" "$f"
+}
+
+closed() {
+  [[ $(jq -r .state.type <<<"$1") == completed || $(jq -r .state.type <<<"$1") == canceled ]]
 }
 
 prompt_new() {
   local issue=$1 repo=$2 wt=$3 branch=$4 base=$5 result=$6 comments
   comments=$(answers "$issue")
-  cat <<EOF
+  cat <<EOP
 You are the night shift: an unattended Claude Code session working on a task
 Nick queued in Linear. Nobody is watching. He reads what you leave when he is
 next at his desk, often the next morning.
@@ -183,25 +202,43 @@ Write $result, then end your turn:
 
 Nick answers in Linear, and you will be resumed in this session with his
 answer, so do not wait for one here.
-EOF
+EOP
 }
 
 prompt_resume() {
   local issue=$1 since=$2 result=$3 new lead=" without a new comment."
   new=$(answers "$issue" "$since")
-  [[ -z $new ]] || lead=", with these comments since you stopped:"
-  cat <<EOF
+  [[ -z $new ]] || lead=", with these comments since you last heard from him:"
+  cat <<EOP
 Nick re-queued $(jq -r .identifier <<<"$issue") in Linear$lead
 
 ${new}
 
 Carry on under the same rules. When you finish or stop again, write $result
 the same way, and end your turn.
-EOF
+EOP
 }
 
 slug() {
   tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | sed 's/^-//' | cut -c1-32 | sed 's/-$//'
+}
+
+# Runs a command with what Claude Code's sandbox denies hidden: forge's sops
+# secrets, the age key, the session bus and other sockets, the ssh agent, and
+# gh's login. The brief evaluates the agent's branch, which is code the agent
+# wrote, and evaluation can read files; without this it would read them as
+# Nick, outside the sandbox the agent was held to.
+confined() {
+  local args=(--dev-bind / /) p
+  for p in /run/secrets.d /run/user /tmp/.X11-unix "$HOME/.config/sops" "$HOME/.config/gh" \
+    "$HOME/.ssh/agent" /tmp/org.chromium.Chromium.*; do
+    if [[ -d $p ]]; then
+      args+=(--tmpfs "$p")
+    elif [[ -e $p ]]; then
+      args+=(--ro-bind /dev/null "$p")
+    fi
+  done
+  bwrap "${args[@]}" -- "$@"
 }
 
 # The verdict and its findings from preflight's brief, for repos that have it.
@@ -209,7 +246,7 @@ brief() {
   local repo=$1 branch=$2 out
   [[ -f $repo/scripts/preflight-brief.jq ]] || return 0
   out=$(mktemp)
-  if (cd "$repo" && nix run .#preflight -- --head "$branch" --json "$out" </dev/null >/dev/null 2>&1); then
+  if (cd "$repo" && confined nix run .#preflight -- --head "$branch" --json "$out" </dev/null >/dev/null 2>&1); then
     jq -r '"**Preflight: \(.verdict.level).** \(.verdict.text)",
       (.hosts | to_entries[] | .key as $h | .value.findings[]
         | select(.level != "note") | "- \($h), \(.level): \(.text)"),
@@ -220,145 +257,189 @@ brief() {
   rm -f "$out"
 }
 
-# Takes back every issue whose agent wrote its result, or went quiet.
-finish() {
-  local f ident repo wt branch name started result kind body i verdict level
-  for f in "$state_dir"/*.json; do
-    [[ $(jq -r .phase "$f") == running ]] || continue
-    ident=$(jq -r .ident "$f")
-    repo=$(jq -r .repo "$f")
-    wt=$(jq -r .worktree "$f")
-    branch=$(jq -r .branch "$f")
-    name=$(jq -r .name "$f")
-    started=$(jq -r .started "$f")
-    result=$(result_path "$repo" "$ident")
+# One running issue: take its result back to Linear, or flag it as quiet.
+finish_one() {
+  local f=$1 id ident repo wt branch name started result kind body i rc=0 verdict level
+  [[ $(jq -r .phase "$f") == running ]] || return 0
+  id=$(jq -r .id "$f")
+  ident=$(jq -r .ident "$f")
+  repo=$(jq -r .repo "$f")
+  wt=$(jq -r .worktree "$f")
+  branch=$(jq -r .branch "$f")
+  name=$(jq -r .name "$f")
+  started=$(jq -r .started "$f")
+  result=$(result_path "$repo" "$ident")
 
-    if [[ -f $result ]]; then
-      i=$(issue "$(jq -r .id "$f")")
-      kind=$(head -n 1 "$result" | tr -d '[:space:]')
-      body=$(tail -n +2 "$result")
-      if [[ $kind == handoff ]]; then
-        verdict=$(brief "$repo" "$branch")
-        # "be there" from "**Preflight: be there.** ...", for the push.
-        level=$(sed -nE '1s/^\*\*Preflight: ([^.]*)\..*/ (\1)/p' <<<"$verdict")
-        stop_issue "$i" "$READY" "Handoff ready on \`$branch\`.
+  if [[ ! -f $result ]] && (($(date +%s) - $(date -d "$started" +%s) <= stall_hours * 3600)); then
+    return 0
+  fi
+  i=$(issue "$id") || rc=$?
+  if ((rc == 2)) || { ((rc == 0)) && closed "$i"; }; then
+    # Deleted, done or canceled while the agent worked: leave it closed.
+    archive "$result"
+    rm "$f"
+    echo "night-shift: forgot $ident, closed while running"
+    return 0
+  fi
+  ((rc == 0)) || return "$rc"
+
+  if [[ ! -f $result ]]; then
+    stop_issue "$i" "$NEEDS" "No result after $stall_hours hours. \`claude attach $name\` shows where it is; move this back to $QUEUED to nudge it." \
+      "$ident went quiet"
+  else
+    kind=$(head -n 1 "$result" | tr -d '[:space:]')
+    body=$(tail -n +2 "$result")
+    if [[ $kind == handoff ]]; then
+      verdict=$(brief "$repo" "$branch")
+      # "be there" from "**Preflight: be there.** ...", for the push.
+      level=$(sed -nE '1s/^\*\*Preflight: ([^.]*)\..*/ (\1)/p' <<<"$verdict")
+      stop_issue "$i" "$READY" "Handoff ready on \`$branch\`.
 
 $body
 ${verdict:+
 $verdict
 }
 To publish: \`cd $wt && pr-handoff\`. To talk to the agent: \`claude attach $name\`." \
-          "$ident handoff ready$level"
-      else
-        stop_issue "$i" "$NEEDS" "The agent stopped and needs you.
+        "$ident handoff ready$level"
+    else
+      stop_issue "$i" "$NEEDS" "The agent stopped and needs you.
 
 $body
 
 Answer in a comment and move this back to $QUEUED to resume it, or \`claude attach $name\`." \
-          "$ident needs you"
-      fi
-      mv "$result" "$result.$(date +%s)"
-      jq --arg now "$(date -u +%FT%TZ)" '.phase = "waiting" | .since = $now' "$f" >"$f.tmp" && mv "$f.tmp" "$f"
-
-    elif (($(date +%s) - $(date -d "$started" +%s) > stall_hours * 3600)); then
-      i=$(issue "$(jq -r .id "$f")")
-      stop_issue "$i" "$NEEDS" "No result after $stall_hours hours. \`claude attach $name\` shows where it is; move this back to $QUEUED to nudge it." \
-        "$ident went quiet"
-      jq --arg now "$(date -u +%FT%TZ)" '.phase = "waiting" | .since = $now' "$f" >"$f.tmp" && mv "$f.tmp" "$f"
+        "$ident needs you"
     fi
-  done
+    archive "$result"
+  fi
+  update "$f" '.phase = "waiting"'
 }
 
-# Forgets issues Nick has closed, done or canceled. Their worktrees stay for
-# `claude rm` or git's cleanup, since one may hold work not yet published.
+# One queued issue: start an agent on it, or resume the one it had.
+start_one() {
+  local id=$1 i ident queuer f label repo base name wt branch session result
+  i=$(issue "$id")
+  [[ $(jq -r .state.name <<<"$i") == "$QUEUED" ]] || return 0
+  ident=$(jq -r .identifier <<<"$i")
+  f=$state_dir/$ident.json
+
+  # Whoever last moved it into Queued, or created it there. Anything synced
+  # in from elsewhere, a public repo's issues say, can reach the state; only
+  # Nick's own hand starts an agent.
+  if [[ $(jq -r .history.pageInfo.hasNextPage <<<"$i") == true ]]; then
+    stop_issue "$i" "$NEEDS" "Not started: its history is too long to tell who queued it. Start it with \`claude\` instead." "$ident was not started"
+    return 0
+  fi
+  queuer=$(jq -r --arg q "$QUEUED" \
+    '([.history.nodes[] | select(.toState.name == $q)] | max_by(.createdAt) | .actorId) // .creator.id' <<<"$i")
+  if [[ $queuer != "$viewer" ]]; then
+    stop_issue "$i" "$NEEDS" "Not started: only issues you move to $QUEUED yourself are taken." "$ident was not queued by you"
+    return 0
+  fi
+
+  if [[ -f $f && $(jq -r .phase "$f") == running ]]; then
+    # Moved back by hand while its agent still works: it already has it.
+    move "$i" "$RUNNING"
+    return 0
+  fi
+
+  if [[ -f $f ]]; then
+    repo=$(jq -r .repo "$f")
+    wt=$(jq -r .worktree "$f")
+    session=$(jq -r .session "$f")
+    result=$(result_path "$repo" "$ident")
+    # A result written after the agent was marked quiet is stale now.
+    archive "$result"
+    if ! (cd "$wt" && claude --bg --resume "$session" --permission-mode auto </dev/null \
+      "$(prompt_resume "$i" "$(jq -r .since "$f")" "$result")") >/dev/null; then
+      stop_issue "$i" "$NEEDS" "Could not resume the session in \`$wt\`." "$ident did not resume"
+      return 0
+    fi
+    # shellcheck disable=SC2016 # jq's variables, not the shell's
+    update "$f" '.phase = "running" | .started = $now | .since = $now' --arg now "$(now)"
+  else
+    label=$(jq -r '[.labels.nodes[] | select(.parent.name == "repo") | .name] | first // ""' <<<"$i")
+    repo=$projects/$label
+    if [[ ! $label =~ ^[A-Za-z0-9._-]+$ ]] || ! git -C "$repo" remote get-url origin >/dev/null 2>&1; then
+      stop_issue "$i" "$NEEDS" "Not started: give it a \`repo\` label naming a repository in $projects with an \`origin\`." "$ident has no repo"
+      return 0
+    fi
+    # Offline, say: leave it queued for the next run.
+    git -C "$repo" fetch --quiet origin || die "$ident: could not fetch $label; trying again next run"
+    base=$(git -C "$repo" symbolic-ref --quiet --short refs/remotes/origin/HEAD || echo origin/main)
+    name="${ident,,}-$(jq -r .title <<<"$i" | slug)"
+    wt=$repo/.claude/worktrees/$name
+    branch=worktree-$name
+    if ! git -C "$repo" worktree add --quiet -b "$branch" "$wt" "$base"; then
+      stop_issue "$i" "$NEEDS" "Not started: could not make the worktree \`$wt\` on \`$branch\`. One may be left from an earlier run." "$ident has no worktree"
+      return 0
+    fi
+    result=$(result_path "$repo" "$ident")
+    mkdir -p "$(dirname "$result")"
+    session=$(cat /proc/sys/kernel/random/uuid)
+    if ! (cd "$wt" && claude --bg -n "$name" --session-id "$session" --permission-mode auto </dev/null \
+      "$(prompt_new "$i" "$repo" "$wt" "$branch" "$base" "$result")") >/dev/null; then
+      stop_issue "$i" "$NEEDS" "Not started: \`claude --bg\` failed in \`$wt\`." "$ident did not start"
+      return 0
+    fi
+    # since: when the agent last heard from Nick, so a resume passes on
+    # every comment made after it, including those made while it worked.
+    jq -n --arg id "$id" --arg ident "$ident" --arg repo "$repo" --arg worktree "$wt" \
+      --arg branch "$branch" --arg name "$name" --arg session "$session" --arg now "$(now)" \
+      '{id: $id, ident: $ident, repo: $repo, worktree: $worktree, branch: $branch,
+        name: $name, session: $session, phase: "running", started: $now, since: $now}' >"$f.tmp"
+    mv "$f.tmp" "$f"
+  fi
+  move "$i" "$RUNNING"
+  echo "night-shift: started $ident"
+}
+
+# Forgets waiting issues Nick has closed. Their worktrees stay for `claude rm`
+# or git's cleanup, since one may hold work not yet published. Only an answer
+# from Linear counts: offline, nothing is forgotten.
 tidy() {
-  local f type
+  local f i rc
   for f in "$state_dir"/*.json; do
     [[ $(jq -r .phase "$f") == waiting ]] || continue
-    # Linear answers a deleted issue with an error, which is the same as gone.
-    type=$(issue "$(jq -r .id "$f")" | jq -r '.state.type // "gone"') || type=gone
-    if [[ $type == completed || $type == canceled || $type == gone ]]; then
+    rc=0
+    i=$(issue "$(jq -r .id "$f")") || rc=$?
+    if ((rc == 2)) || { ((rc == 0)) && closed "$i"; }; then
       rm "$f"
-      echo "night-shift: forgot $(basename "$f" .json), $type"
+      echo "night-shift: forgot $(basename "$f" .json)"
     fi
   done
 }
 
-# Starts or resumes queued issues while slots are free.
-start() {
-  local running=0 queued i ident queuer label repo base name wt branch session result since
+running() {
   local states=("$state_dir"/*.json)
   if ((${#states[@]})); then
-    running=$(jq -s '[.[] | select(.phase == "running")] | length' "${states[@]}")
+    jq -s '[.[] | select(.phase == "running")] | length' "${states[@]}"
+  else
+    echo 0
   fi
-  queued=$(gql "query(\$s: String!) { issues(first: 50, filter: {state: {name: {eq: \$s}}}) { nodes { $ISSUE_FIELDS } } }" \
+}
+
+# Each issue is handled in a process of its own, so one that fails, a deleted
+# issue or a repo that will not fetch, costs that issue a warning and not the
+# whole run. The children get no copy of the lock's descriptor: an agent
+# holding one would keep every later run out for as long as it lives.
+child() {
+  "$BASH" -euo pipefail "$0" "$@" 9>&- || echo "night-shift: $1 ${*: -1} failed; next run tries again" >&2
+}
+
+run() {
+  local f queued id
+  for f in "$state_dir"/*.json; do
+    child _finish "$viewer" "$f"
+  done
+  tidy
+  # shellcheck disable=SC2016 # GraphQL's variables, not the shell's
+  queued=$(gql 'query($s: String!) { issues(first: 50, filter: {state: {name: {eq: $s}}}) { nodes { id priority createdAt } } }' \
     "$(jq -nc --arg s "$QUEUED" '{s: $s}')" |
-    jq -c '.issues.nodes | sort_by((if .priority == 0 then 5 else .priority end), .createdAt) | .[]')
-
-  while IFS= read -r i; do
-    [[ -n $i ]] || continue
-    ((running < max)) || break
-    ident=$(jq -r .identifier <<<"$i")
-
-    # Whoever last moved it into Queued, or created it there. Anything synced
-    # in from elsewhere, a public repo's issues say, can reach the state; only
-    # Nick's own hand starts an agent.
-    queuer=$(jq -r --arg q "$QUEUED" \
-      '([.history.nodes[] | select(.toState.name == $q)] | max_by(.createdAt) | .actorId) // .creator.id' <<<"$i")
-    if [[ $queuer != "$viewer" ]]; then
-      stop_issue "$i" "$NEEDS" "Not started: only issues you move to $QUEUED yourself are taken." "$ident was not queued by you"
-      continue
-    fi
-
-    if [[ -f $state_dir/$ident.json ]]; then
-      repo=$(jq -r .repo "$state_dir/$ident.json")
-      wt=$(jq -r .worktree "$state_dir/$ident.json")
-      session=$(jq -r .session "$state_dir/$ident.json")
-      since=$(jq -r .since "$state_dir/$ident.json")
-      result=$(result_path "$repo" "$ident")
-      (cd "$wt" && claude --bg --resume "$session" --permission-mode auto </dev/null \
-        "$(prompt_resume "$i" "$since" "$result")") >/dev/null ||
-        {
-          stop_issue "$i" "$NEEDS" "Could not resume the session in \`$wt\`." "$ident did not resume"
-          continue
-        }
-      jq --arg now "$(date -u +%FT%TZ)" '.phase = "running" | .started = $now' \
-        "$state_dir/$ident.json" >"$state_dir/$ident.json.tmp" && mv "$state_dir/$ident.json.tmp" "$state_dir/$ident.json"
-    else
-      label=$(jq -r '[.labels.nodes[] | select(.parent.name == "repo") | .name] | first // ""' <<<"$i")
-      repo=$projects/$label
-      if [[ ! $label =~ ^[A-Za-z0-9._-]+$ ]] || ! git -C "$repo" rev-parse --git-dir >/dev/null 2>&1; then
-        stop_issue "$i" "$NEEDS" "Not started: give it a \`repo\` label naming a repository in $projects." "$ident has no repo"
-        continue
-      fi
-      git -C "$repo" fetch --quiet origin
-      base=$(git -C "$repo" symbolic-ref --quiet --short refs/remotes/origin/HEAD || echo origin/main)
-      name="${ident,,}-$(jq -r .title <<<"$i" | slug)"
-      wt=$repo/.claude/worktrees/$name
-      branch=worktree-$name
-      if ! git -C "$repo" worktree add --quiet -b "$branch" "$wt" "$base"; then
-        stop_issue "$i" "$NEEDS" "Not started: could not make the worktree \`$wt\` on \`$branch\`. One may be left from an earlier run." "$ident has no worktree"
-        continue
-      fi
-      result=$(result_path "$repo" "$ident")
-      mkdir -p "$(dirname "$result")"
-      session=$(cat /proc/sys/kernel/random/uuid)
-      if ! (cd "$wt" && claude --bg -n "$name" --session-id "$session" --permission-mode auto </dev/null \
-        "$(prompt_new "$i" "$repo" "$wt" "$branch" "$base" "$result")") >/dev/null; then
-        stop_issue "$i" "$NEEDS" "Not started: \`claude --bg\` failed in \`$wt\`." "$ident did not start"
-        continue
-      fi
-      # shellcheck disable=SC2016 # jq's variables, not the shell's
-      save --arg id "$(jq -r .id <<<"$i")" --arg ident "$ident" --arg repo "$repo" \
-        --arg worktree "$wt" --arg branch "$branch" --arg name "$name" --arg session "$session" \
-        --arg now "$(date -u +%FT%TZ)" \
-        '{id: $id, ident: $ident, repo: $repo, worktree: $worktree, branch: $branch,
-          name: $name, session: $session, phase: "running", started: $now, since: $now}'
-    fi
-    move "$i" "$RUNNING"
-    running=$((running + 1))
-    echo "night-shift: started $ident"
-  done <<<"$queued"
+    jq -r '.issues.nodes | sort_by((if .priority == 0 then 5 else .priority end), .createdAt) | .[].id')
+  for id in $queued; do
+    (($(running) < max)) || break
+    child _start "$viewer" "$id"
+  done
 }
 
 check() {
@@ -393,7 +474,6 @@ check() {
     echo "ntfy: no topic, so no pushes"
   fi
 }
-
 status() {
   local any=""
   for f in "$state_dir"/*.json; do
@@ -403,6 +483,7 @@ status() {
   [[ -n $any ]] || echo "nothing yet"
 }
 
+viewer=""
 case ${1-} in
   run)
     mkdir -p "$state_dir"
@@ -414,9 +495,14 @@ case ${1-} in
     }
     load_key
     viewer=$(gql 'query { viewer { id } }' | jq -r .viewer.id)
-    finish
-    tidy
-    start
+    run
+    ;;
+  # The per-issue halves of a run, each in its own process (child above).
+  _finish | _start)
+    [[ $# -eq 3 ]] || usage
+    load_key
+    viewer=$2
+    if [[ $1 == _finish ]]; then finish_one "$3"; else start_one "$3"; fi
     ;;
   check)
     load_key

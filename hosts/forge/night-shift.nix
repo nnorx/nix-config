@@ -52,6 +52,7 @@ let
       pkgs.coreutils
       pkgs.gnused
       pkgs.util-linux # flock
+      pkgs.bubblewrap # preflight on an agent's branch, confined like the agent
     ];
     runtimeEnv = {
       NIGHT_SHIFT_KEY_FILE = config.sops.secrets.linear-api-key.path;

@@ -80,7 +80,9 @@ the issue lands in `Needs you` with what failed, and the journal has the rest.
   your comments, nothing else.
 - **Handoff ready:** the comment says what changed, what the agent verified,
   and for nix-config, preflight's verdict on the branch, worked out by the
-  dispatcher rather than taken from the agent. Publish with the command in the
+  dispatcher rather than taken from the agent. Evaluating the branch runs code
+  the agent wrote, so that preflight runs under bubblewrap with the same
+  secrets hidden as in Claude's sandbox. Publish with the command in the
   comment, `cd <worktree> && pr-handoff`.
 - **Needs you:** the agent's questions are in the comment. Answer in a comment
   and move the issue back to `Queued`; the same session resumes with your
