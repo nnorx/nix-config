@@ -289,7 +289,6 @@
                   git
                   jq
                   coreutils
-                  gawk
                   gnused
                 ];
                 runtimeEnv = {

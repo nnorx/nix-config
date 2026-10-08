@@ -66,13 +66,29 @@ let
       # sshd_config, authorized keys, networkd files and the rest of /etc.
       etc = lib.mapAttrs (_: e: "${e.source}") (enabled c.environment.etc);
 
-      # Who can log in, and with which keys. mutableUsers is off, so a user
-      # dropped here is deleted on activation.
-      users = lib.mapAttrs (_: u: {
-        inherit (u) uid;
-        groups = u.extraGroups;
-        keys = u.openssh.authorizedKeys.keys;
-      }) (lib.filterAttrs (_: u: u.isNormalUser || u.openssh.authorizedKeys.keys != [ ]) c.users.users);
+      # Who can log in, and how. mutableUsers is off, so a user dropped here is
+      # deleted on activation. root is always listed, so losing its last key
+      # reads as a key change rather than as root being deleted. Key files
+      # are compared by content, since their paths move with every commit;
+      # the password only by a hash of how it is set, never the value.
+      users =
+        lib.mapAttrs
+          (_: u: {
+            inherit (u) uid;
+            groups = u.extraGroups;
+            keys = u.openssh.authorizedKeys.keys;
+            keyFiles = map (
+              f: builtins.hashString "sha256" (builtins.readFile f)
+            ) u.openssh.authorizedKeys.keyFiles;
+            password = builtins.hashString "sha256" (
+              builtins.toJSON { inherit (u) hashedPassword hashedPasswordFile password; }
+            );
+          })
+          (
+            lib.filterAttrs (
+              _: u: u.isNormalUser || u.uid == 0 || u.openssh.authorizedKeys.keys != [ ]
+            ) c.users.users
+          );
 
       # Named first when versions move, ahead of the build closure's long tail.
       packages = map (p: p.pname or (builtins.parseDrvName p.name).name) c.environment.systemPackages;

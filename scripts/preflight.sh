@@ -78,6 +78,10 @@ if [[ -z $base ]]; then
     $base == "$(git rev-parse HEAD)" ]] && git diff --quiet HEAD; then
     base=$(git rev-parse --verify --quiet 'HEAD^') || base=$(git rev-parse HEAD)
   fi
+  # The same for --head naming main, or any commit already on it.
+  if [[ -n $head && $base == "$head" ]]; then
+    base=$(git rev-parse --verify --quiet "$head^") || base=$head
+  fi
 fi
 base=$(git rev-parse --verify "$base^{commit}")
 

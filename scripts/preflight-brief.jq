@@ -57,7 +57,17 @@ def state($h; $b):
   else "changed" end;
 
 def network_unit:
-  test("^(network-addresses-|network-setup|network-link-|systemd-networkd|wireguard-|wg-quick-|kea-|dhcpcd|NetworkManager)");
+  test("^(network-addresses-|network-setup|network-link-|systemd-networkd|wireguard-|wg-quick-|kea-|dhcpcd|NetworkManager)|-netdev\\.service$");
+
+# Files in /etc that change how a host reaches anything: networkd's, name
+# resolution, and sysctls, ip_forward among them.
+def network_etc:
+  startswith("systemd/network/") or startswith("sysctl.d/")
+  or . == "hosts" or . == "resolv.conf" or . == "resolvconf.conf";
+
+# What decides who can log in besides sshd and the users themselves.
+def access_etc:
+  IN("ssh/sshd_config", "sudoers", "pam.d/sshd", "pam.d/login", "pam.d/sudo");
 
 def svc: sub("\\.service$"; "");
 
@@ -109,14 +119,14 @@ def host_brief($name; $b; $h):
   | [$b.boot | keys[] | select($b.boot[.] != $h.boot[.])] as $bp
   | ($auto and $b.allowReboot and ($rb | length > 0)) as $reboots
   | ($u | all_of) as $touched
-  | ([$touched[] | select(network_unit)] + [$etc[] | select(startswith("systemd/network/"))]) as $net
+  | ([$touched[] | select(network_unit)] + [$etc[] | select(network_etc)]) as $net
   | diffmap($b.users; $h.users) as $users
   # Keys are compared by content, through users: under another nixpkgs the
   # same authorized_keys text lands at a new path.
   | ([$touched[] | select(. == "sshd.service" or . == "sshd.socket") | "sshd"]
-    + [$etc[] | select(. == "ssh/sshd_config") | "/etc/\(.)"]
+    + [$etc[] | select(access_etc) | "/etc/\(.)"]
     + [$users.removed[] | "\(.) removed, so deleted on activation"]
-    + [$users.changed[] | "\(.)'s keys or groups"]) as $access
+    + [$users.changed[] | "\(.)'s keys, groups or password"]) as $access
   | ([$rb[] | {
         kernel: (if $b.kernelVersion != $h.kernelVersion
           then "kernel \($b.kernelVersion) → \($h.kernelVersion)"
@@ -131,7 +141,9 @@ def host_brief($name; $b; $h):
       findings: [
         if $rb == [] then empty
         elif $reboots then finding("be there"; "reboot";
-          "Reboots tonight, unattended, for the \($what). It upgrades at \($b.upgradeAt) and reboots only between \($b.rebootWindow.lower) and \($b.rebootWindow.upper).")
+          "Reboots tonight, unattended, for the \($what). It upgrades at \($b.upgradeAt) and "
+          + if $b.rebootWindow == null then "reboots as soon as that finishes."
+            else "reboots only between \($b.rebootWindow.lower) and \($b.rebootWindow.upper)." end)
         elif $auto then finding("review"; "reboot";
           "Runs the new \($what) only from its next reboot, since it never reboots itself.")
         else finding("note"; "reboot"; "The \($what) change takes a reboot: deploy with nrb\($guarded), then reboot.")
@@ -172,8 +184,10 @@ def host_brief($name; $b; $h):
         ([$touched[] | select(. == "firewall.service" or . == "nftables.service")] as $fw
           | if $fw == [] then empty
             elif $guard then finding("review"; "firewall"; "Firewall rules change (\($fw | join(", "))). Deploy them behind deploy-guard.")
-            elif $auto then finding("review"; "firewall";
-              "Firewall rules change (\($fw | join(", "))), applied tonight. Check SSH is still allowed on the interface you reach it over.")
+            # A firewall that drops SSH locks the host out as surely as a bad
+            # key, and nobody is there to pull the card.
+            elif $auto then finding("be there"; "firewall";
+              "Firewall rules change (\($fw | join(", "))), applied tonight, unattended. If SSH stops being allowed on the interface you reach it over, the host is locked out.")
             else finding("note"; "firewall"; "Firewall rules change (\($fw | join(", "))).")
             end),
 
@@ -231,9 +245,14 @@ def model:
       [$configs[] | select(.kind == "host" and .state == "changed") | .name] as $changed
       | reduce $changed[] as $k ({}; .[$k] = host_brief($k; $base.hosts[$k]; $head.hosts[$k]))
     else {} end) as $hosts
-  | (if $ok then plan_findings($hosts) else [] end) as $plan
+  # A host taken out of the flake still upgrades from main each night, and
+  # from tonight finds nothing to upgrade to.
+  | ([$configs[] | select(.kind == "host" and .deploy == "auto" and .state == "removed") | .name]) as $orphans
+  | (if $ok then plan_findings($hosts) else [] end
+     + if $orphans == [] then [] else [finding("review"; "removed";
+         "\($orphans | join(", ")) \(if ($orphans | length) == 1 then "is removed but still upgrades" else "are removed but still upgrade" end) from main, so every nightly upgrade fails from tonight. Turn the upgrade off on the host first, or retire it.")] end) as $plan
   | ([$hosts | to_entries[] | .key as $k | .value.findings[] | . + {host: $k}] + $plan) as $all
-  | ([$configs[] | select(.kind == "host" and .deploy == "auto" and .state != "unchanged") | .name]) as $tonight
+  | ([$configs[] | select(.kind == "host" and .deploy == "auto" and (.state == "changed" or .state == "new")) | .name]) as $tonight
   | {
       base: $rev,
       configs: $configs,
@@ -250,7 +269,7 @@ def model:
             + ". docs/recovery.md has the way back."}
         elif $tonight == [] then
           if any($all[]; .level == "review")
-          then {level: "review", text: "Merging changes no host that upgrades itself. The review lines are for deploying by hand."}
+          then {level: "review", text: "Merging changes no host that upgrades itself, but read the review lines first."}
           else {level: "routine", text: "Merging changes no host that upgrades itself."} end
         elif any($all[]; .level == "review") then
           {level: "review", text: "\($tonight | subject("takes"; "take")) this tonight. Nothing needs you at hand, but read the review lines first."}
