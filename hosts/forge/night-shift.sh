@@ -160,6 +160,15 @@ closed() {
   [[ $(jq -r .state.type <<<"$1") == completed || $(jq -r .state.type <<<"$1") == canceled ]]
 }
 
+# session_of <name> <worktree>: the session id of the background agent with
+# that name in that worktree, or nothing. `claude --bg` picks the id itself and
+# ignores --session-id, so this asks its roster rather than choosing one.
+session_of() {
+  claude agents --json --all </dev/null 2>/dev/null |
+    jq -r --arg n "$1" --arg wt "$2" \
+      'map(select(.name == $n and .cwd == $wt)) | last | .sessionId // empty' || true
+}
+
 prompt_new() {
   local issue=$1 repo=$2 wt=$3 branch=$4 base=$5 result=$6 comments
   comments=$(answers "$issue")
@@ -345,7 +354,14 @@ start_one() {
   if [[ -f $f ]]; then
     repo=$(jq -r .repo "$f")
     wt=$(jq -r .worktree "$f")
-    session=$(jq -r .session "$f")
+    # The roster first; the id saved at start covers a roster that has
+    # forgotten the session.
+    session=$(session_of "$(jq -r .name "$f")" "$wt")
+    [[ -n $session ]] || session=$(jq -r '.session // empty' "$f")
+    if [[ -z $session ]]; then
+      stop_issue "$i" "$NEEDS" "Could not find the agent's session to resume in \`$wt\`." "$ident did not resume"
+      return 0
+    fi
     result=$(result_path "$repo" "$ident")
     # A result written after the agent was marked quiet is stale now.
     archive "$result"
@@ -375,12 +391,13 @@ start_one() {
     fi
     result=$(result_path "$repo" "$ident")
     mkdir -p "$(dirname "$result")"
-    session=$(cat /proc/sys/kernel/random/uuid)
-    if ! (cd "$wt" && claude --bg -n "$name" --session-id "$session" --permission-mode auto </dev/null \
+    if ! (cd "$wt" && claude --bg -n "$name" --permission-mode auto </dev/null \
       "$(prompt_new "$i" "$repo" "$wt" "$branch" "$base" "$result")") >/dev/null; then
       stop_issue "$i" "$NEEDS" "Not started: \`claude --bg\` failed in \`$wt\`." "$ident did not start"
       return 0
     fi
+    # May be empty if the roster lags; a resume asks again.
+    session=$(session_of "$name" "$wt")
     # since: when the agent last heard from Nick, so a resume passes on
     # every comment made after it, including those made while it worked.
     jq -n --arg id "$id" --arg ident "$ident" --arg repo "$repo" --arg worktree "$wt" \

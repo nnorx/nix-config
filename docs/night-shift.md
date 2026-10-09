@@ -66,11 +66,16 @@ broke every sandboxed command, a reboot undoes it.
    `journalctl --user -u night-shift` to watch the run.
 
 What only a live run shows, since none of it can be tried from the sandbox:
-`claude --bg` started from a systemd user service with no terminal, with
-`--session-id`, and later `--resume`; the session surviving the service's exit
-(`KillMode = process`); auto mode holding up with nobody to ask; and the agent
-writing its result into the repo's `.git/night-shift/`. If one of them fails,
-the issue lands in `Needs you` with what failed, and the journal has the rest.
+`claude --bg` started from a systemd user service with no terminal, and later
+`--resume`; the session surviving the service's exit (`KillMode = process`);
+auto mode holding up with nobody to ask; and the agent writing its result into
+the repo's `.git/night-shift/`. If one of them fails, the issue lands in
+`Needs you` with what failed, and the journal has the rest.
+
+Each run, systemd logs the agents as "left-over" processes of the unit. That
+is expected: they outlive it on purpose, and so does Claude's background
+daemon, which the first `claude --bg` starts inside the unit and which exits
+when its last session does.
 
 ## Using it
 
