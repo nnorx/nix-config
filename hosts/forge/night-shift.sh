@@ -125,6 +125,7 @@ stop_issue() {
   comment "$1" "$3"
   move "$1" "$2"
   notify "$4" "$(jq -r .title <<<"$1")" "$(jq -r .url <<<"$1")"
+  echo "night-shift: $4"
 }
 
 # Nick's comments, oldest first, after <since> when given, without this
