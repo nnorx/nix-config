@@ -48,7 +48,7 @@ sops decrypt --extract '["ntfy-url"]' secrets/core5.yaml | jq -R . | sops set --
 [[ $(sops decrypt --extract '["ntfy-url"]' secrets/forge.yaml) == $(sops decrypt --extract '["ntfy-url"]' secrets/core5.yaml) ]] && echo "ntfy-url matches"
 ```
 
-Then try the branch with `sudo nixos-rebuild test --flake .#forge` from the
+Then try the branch with `nixos-rebuild test --sudo --flake .#forge` from the
 checkout. `test` is the right first step here: the same change keeps
 `/run/secrets.d` from Claude's sandbox (`hosts/forge/claude.nix`), and if that
 broke every sandboxed command, a reboot undoes it.
