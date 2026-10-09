@@ -83,9 +83,10 @@
   # nixos-hardware enables fprintd, and NixOS then puts pam_fprintd ahead of
   # the password in every PAM service. At the SDDM greeter that stalls a typed
   # password until the fingerprint prompt times out, and a fingerprint login
-  # cannot unlock KWallet, which needs the password. So SDDM takes the password
-  # alone; sudo and the lock screen keep the fingerprint once one is enrolled.
-  security.pam.services.sddm.fprintAuth = false;
+  # skips pam_kwallet5, so KWallet stays locked. SDDM's PAM service is only
+  # `auth substack login`, so the fingerprint comes off `login` (console logins
+  # too); sudo and the lock screen keep it once one is enrolled.
+  security.pam.services.login.fprintAuth = false;
 
   # Both are already defaults from nixos-hardware. Stated so the choice is
   # visible here: power-profiles-daemon is Framework's recommendation on AMD,
