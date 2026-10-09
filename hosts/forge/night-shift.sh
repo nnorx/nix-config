@@ -161,13 +161,14 @@ closed() {
   [[ $(jq -r .state.type <<<"$1") == completed || $(jq -r .state.type <<<"$1") == canceled ]]
 }
 
-# session_of <name> <worktree>: the session id of the background agent with
-# that name in that worktree, or nothing. `claude --bg` picks the id itself and
+# agent <field> <name> <worktree>: a field of the background agent with that
+# name in that worktree, or nothing. `sessionId` is what --resume takes, `id`
+# the short one `claude stop` takes. `claude --bg` picks them itself and
 # ignores --session-id, so this asks its roster rather than choosing one.
-session_of() {
+agent() {
   claude agents --json --all </dev/null 2>/dev/null |
-    jq -r --arg n "$1" --arg wt "$2" \
-      'map(select(.name == $n and .cwd == $wt)) | last | .sessionId // empty' || true
+    jq -r --arg f "$1" --arg n "$2" --arg wt "$3" \
+      'map(select(.name == $n and .cwd == $wt)) | last | .[$f] // empty' || true
 }
 
 prompt_new() {
@@ -326,7 +327,7 @@ Answer in a comment and move this back to $QUEUED to resume it, or \`claude atta
 
 # One queued issue: start an agent on it, or resume the one it had.
 start_one() {
-  local id=$1 i ident queuer f label repo base name wt branch session result
+  local id=$1 i ident queuer f label repo base name wt branch session job result
   i=$(issue "$id")
   [[ $(jq -r .state.name <<<"$i") == "$QUEUED" ]] || return 0
   ident=$(jq -r .identifier <<<"$i")
@@ -355,9 +356,10 @@ start_one() {
   if [[ -f $f ]]; then
     repo=$(jq -r .repo "$f")
     wt=$(jq -r .worktree "$f")
+    name=$(jq -r .name "$f")
     # The roster first; the id saved at start covers a roster that has
     # forgotten the session.
-    session=$(session_of "$(jq -r .name "$f")" "$wt")
+    session=$(agent sessionId "$name" "$wt")
     [[ -n $session ]] || session=$(jq -r '.session // empty' "$f")
     if [[ -z $session ]]; then
       stop_issue "$i" "$NEEDS" "Could not find the agent's session to resume in \`$wt\`." "$ident did not resume"
@@ -366,13 +368,21 @@ start_one() {
     result=$(result_path "$repo" "$ident")
     # A result written after the agent was marked quiet is stale now.
     archive "$result"
-    if ! (cd "$wt" && claude --bg --resume "$session" --permission-mode auto </dev/null \
+    # A finished session keeps its process, and resuming one that is still up
+    # starts a copy under a new id and name. Stopping it first keeps the
+    # conversation and lets --resume continue it under the same id.
+    job=$(agent id "$name" "$wt")
+    [[ -z $job ]] || claude stop "$job" </dev/null >/dev/null 2>&1 || true
+    if ! (cd "$wt" && claude --bg --resume "$session" -n "$name" --permission-mode auto </dev/null \
       "$(prompt_resume "$i" "$(jq -r .since "$f")" "$result")") >/dev/null; then
       stop_issue "$i" "$NEEDS" "Could not resume the session in \`$wt\`." "$ident did not resume"
       return 0
     fi
+    session=$(agent sessionId "$name" "$wt")
     # shellcheck disable=SC2016 # jq's variables, not the shell's
-    update "$f" '.phase = "running" | .started = $now | .since = $now' --arg now "$(now)"
+    update "$f" '.phase = "running" | .started = $now | .since = $now
+      | if $session != "" then .session = $session else . end' \
+      --arg now "$(now)" --arg session "$session"
   else
     label=$(jq -r '[.labels.nodes[] | select(.parent.name == "repo") | .name] | first // ""' <<<"$i")
     repo=$projects/$label
@@ -398,7 +408,7 @@ start_one() {
       return 0
     fi
     # May be empty if the roster lags; a resume asks again.
-    session=$(session_of "$name" "$wt")
+    session=$(agent sessionId "$name" "$wt")
     # since: when the agent last heard from Nick, so a resume passes on
     # every comment made after it, including those made while it worked.
     jq -n --arg id "$id" --arg ident "$ident" --arg repo "$repo" --arg worktree "$wt" \
