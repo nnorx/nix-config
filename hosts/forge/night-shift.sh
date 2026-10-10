@@ -416,7 +416,7 @@ start_one() {
     # mode are saved with it, and passing them again counts as new flags.
     [[ -z ${job:-} ]] || cl stop "$job" </dev/null >/dev/null 2>&1 || true
     if ! out=$(cd "$wt" && cl --bg --resume "$session" </dev/null \
-      "$(prompt_resume "$i" "$(jq -r .since "$f")" "$result")" 2>&1); then
+      "$(prompt_resume "$i" "$(jq -r .since "$f")" "$result")" 2>&1 >/dev/null); then
       stop_issue "$i" "$NEEDS" "Could not resume the session in \`$wt\`." "$ident did not resume"
       return 0
     fi
