@@ -67,15 +67,10 @@ broke every sandboxed command, a reboot undoes it.
 
 What only a live run shows, since none of it can be tried from the sandbox:
 `claude --bg` started from a systemd user service with no terminal, and later
-`--resume`; the session surviving the service's exit (`KillMode = process`);
+`--resume`; the session surviving the service's exit, in a scope of its own;
 auto mode holding up with nobody to ask; and the agent writing its result into
 the repo's `.git/night-shift/`. If one of them fails, the issue lands in
 `Needs you` with what failed, and the journal has the rest.
-
-Each run, systemd logs the agents as "left-over" processes of the unit. That
-is expected: they outlive it on purpose, and so does Claude's background
-daemon, which the first `claude --bg` starts inside the unit and which exits
-when its last session does.
 
 ## Using it
 
@@ -86,15 +81,20 @@ when its last session does.
 - **Handoff ready:** the comment says what changed, what the agent verified,
   and for nix-config, preflight's verdict on the branch, worked out by the
   dispatcher rather than taken from the agent. Evaluating the branch runs code
-  the agent wrote, so that preflight runs under bubblewrap with the same
-  secrets hidden as in Claude's sandbox. Publish with the command in the
+  the agent wrote, with the network on, so that preflight runs under
+  bubblewrap with Claude's sandbox denies and your credentials hidden
+  (`hidden` in `hosts/forge/night-shift.nix`). Publish with the command in the
   comment, `cd <worktree> && pr-handoff`.
 - **Needs you:** the agent's questions are in the comment. Answer in a comment
   and move the issue back to `Queued`; the same session resumes with your
   answer. `claude attach <name>` is the other way in. An agent with no result
   after 4 hours lands here too.
-- **Only you can queue.** An issue someone else moved to `Queued`, or one
-  synced in from a public repo, is sent to `Needs you` untouched.
+- **Re-queue while it runs:** to add something mid-task, comment and move the
+  issue to `Queued`. It stays there, and once the agent's result is in, the
+  result is posted and the session resumed with your comment.
+- **Only your issues, only by you.** An issue someone else created or moved
+  to `Queued`, or one synced in from a public repo, is sent to `Needs you`
+  untouched: the agent is given its description as your task.
 - **Done or canceled** issues are forgotten. Their worktrees are left for
   `claude rm` or the git cleanup.
 - `night-shift status` lists what each agent is doing.

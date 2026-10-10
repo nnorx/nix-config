@@ -7,14 +7,16 @@
 # An issue moves through the team's states:
 #
 #   Queued         Nick put it there. Taken when a slot is free, highest
-#                  priority first, but only if Nick himself moved it there.
+#                  priority first, but only if Nick himself created it and
+#                  moved it there.
 #   Running        An agent has it, in its own worktree and session.
 #   Handoff ready  The agent committed and wrote a PR handoff. The comment
 #                  says what changed, and for nix-config, preflight's verdict.
 #   Needs you      The agent stopped with questions, or went quiet.
 #
 # Moving an issue back to Queued resumes its agent's session, in the same
-# worktree, with Nick's comments since it stopped.
+# worktree, with Nick's comments since it stopped. Moved there while the
+# agent still works, it stays in Queued and is resumed once the result is in.
 #
 # Nothing here publishes, merges or deploys. Agents run in Claude Code's
 # sandbox under Nick's settings; only this script, outside it, talks to Linear.
@@ -58,9 +60,9 @@ load_key() {
   key=$(<"$NIGHT_SHIFT_KEY_FILE")
 }
 
-# gql <query> [variables json]: the response's data. Exits 1 when Linear
-# cannot be reached and 2 when it answers with an error, such as an issue
-# that no longer exists, so a caller can tell "gone" from "offline".
+# gql <query> [variables json]: the response's data. Exits 2 when Linear says
+# what was asked for does not exist, so a caller can tell "gone" from
+# "offline", and 1 on anything else: no answer, a rate limit, its own errors.
 gql() {
   local body out
   body=$(jq -nc --arg q "$1" --argjson v "${2:-"{}"}" '{query: $q, variables: $v}')
@@ -72,7 +74,10 @@ gql() {
   fi
   if jq -e '.errors' <<<"$out" >/dev/null; then
     echo "night-shift: Linear: $(jq -r '.errors | map(.message) | join("; ")' <<<"$out")" >&2
-    exit 2
+    if jq -e '.errors | all(.message | test("not found"; "i"))' <<<"$out" >/dev/null; then
+      exit 2
+    fi
+    exit 1
   fi
   jq -c '.data' <<<"$out"
 }
@@ -157,25 +162,26 @@ update() {
   mv "$f.tmp" "$f"
 }
 
-# claude without the run lock's descriptor. Any claude command can start the
-# background daemon, which would hold the lock, and keep every later run out,
-# for as long as it lives.
+# claude in a scope of its own, outside the unit, and without the run lock's
+# descriptor. Any claude command can start the background daemon, which hosts
+# every agent: in the unit's cgroup, stopping or finishing a run would kill
+# them, and holding the lock it would keep every later run out.
 cl() {
-  claude "$@" 9>&-
+  systemd-run --user --scope --collect --quiet -- claude "$@" 9>&-
 }
 
 closed() {
   [[ $(jq -r .state.type <<<"$1") == completed || $(jq -r .state.type <<<"$1") == canceled ]]
 }
 
-# agent <field> <name> <worktree>: a field of the background agent with that
-# name in that worktree, or nothing. `sessionId` is what --resume takes, `id`
-# the short one `claude stop` takes. `claude --bg` picks them itself and
-# ignores --session-id, so this asks its roster rather than choosing one.
+# agent <name> <worktree>: "<id> <sessionId>" of the background agent with
+# that name in that worktree, or nothing. The session id is what --resume
+# takes, the short id what `claude stop` takes. `claude --bg` picks both itself
+# and ignores --session-id, so this asks its roster rather than choosing one.
 agent() {
   cl agents --json --all </dev/null 2>/dev/null |
-    jq -r --arg f "$1" --arg n "$2" --arg wt "$3" \
-      'map(select(.name == $n and .cwd == $wt)) | last | .[$f] // empty' || true
+    jq -r --arg n "$1" --arg wt "$2" \
+      'map(select(.name == $n and .cwd == $wt)) | last | select(.) | "\(.id) \(.sessionId)"' || true
 }
 
 prompt_new() {
@@ -241,21 +247,23 @@ slug() {
   tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | sed 's/^-//' | cut -c1-32 | sed 's/-$//'
 }
 
-# Runs a command with what Claude Code's sandbox denies hidden: forge's sops
-# secrets, the age key, the session bus and other sockets, the ssh agent, and
-# gh's login. The brief evaluates the agent's branch, which is code the agent
-# wrote, and evaluation can read files; without this it would read them as
-# Nick, outside the sandbox the agent was held to.
+# Runs a command with NIGHT_SHIFT_HIDE's paths hidden, one per line, `~` and
+# globs allowed: what Claude Code's sandbox denies, and Nick's credentials
+# besides (night-shift.nix). The brief evaluates the agent's branch, which is
+# code the agent wrote, with the network on, since evaluation fetches flake
+# inputs; what holds is that there is nothing secret left to read.
 confined() {
-  local args=(--dev-bind / /) p
-  for p in /run/secrets.d /run/user /tmp/.X11-unix "$HOME/.config/sops" "$HOME/.config/gh" \
-    "$HOME/.ssh/agent" /tmp/org.chromium.Chromium.*; do
-    if [[ -d $p ]]; then
-      args+=(--tmpfs "$p")
-    elif [[ -e $p ]]; then
-      args+=(--ro-bind /dev/null "$p")
-    fi
-  done
+  local args=(--dev-bind / /) p q
+  while IFS= read -r p; do
+    [[ -n $p ]] || continue
+    while IFS= read -r q; do
+      if [[ -d $q ]]; then
+        args+=(--tmpfs "$q")
+      else
+        args+=(--ro-bind /dev/null "$q")
+      fi
+    done < <(compgen -G "${p/#\~/$HOME}" || true)
+  done <<<"${NIGHT_SHIFT_HIDE:-}"
   bwrap "${args[@]}" -- "$@"
 }
 
@@ -275,9 +283,9 @@ brief() {
   rm -f "$out"
 }
 
-# report: stop_issue for a result, except that an issue Nick has already
-# moved back to Queued, while its agent worked, stays there. The same run then
-# resumes it with his new comments, rather than leaving them unanswered.
+# report: stop_issue for a result, except that an issue Nick moved back to
+# Queued while its agent worked stays there. The same run then resumes it
+# with his new comments, rather than leaving them unanswered.
 report() {
   if [[ $(jq -r .state.name <<<"$1") == "$QUEUED" ]]; then
     comment "$1" "$3"
@@ -289,7 +297,7 @@ report() {
 
 # One running issue: take its result back to Linear, or flag it as quiet.
 finish_one() {
-  local f=$1 id ident repo wt branch name started result kind body i rc=0 verdict level
+  local f=$1 id ident repo wt branch name started result kind body i rc=0 verdict="" level session=""
   [[ $(jq -r .phase "$f") == running ]] || return 0
   id=$(jq -r .id "$f")
   ident=$(jq -r .ident "$f")
@@ -302,6 +310,18 @@ finish_one() {
 
   if [[ ! -f $result ]] && (($(date +%s) - $(date -d "$started" +%s) <= stall_hours * 3600)); then
     return 0
+  fi
+  if [[ -f $result ]]; then
+    kind=$(head -n 1 "$result" | tr -d '[:space:]')
+    body=$(tail -n +2 "$result")
+    # Preflight first: it takes minutes, and the issue's state is read after
+    # it, so a re-queue made meanwhile counts.
+    [[ $kind != handoff ]] || verdict=$(brief "$repo" "$branch")
+    # The agent has just reported, so the roster surely lists it: keep its id
+    # for a resume after the roster forgets.
+    read -r _ session <<<"$(agent "$name" "$wt")" || true
+    # shellcheck disable=SC2016 # jq's variables, not the shell's
+    [[ -z ${session:-} ]] || update "$f" '.session = $s' --arg s "$session"
   fi
   i=$(issue "$id") || rc=$?
   if ((rc == 2)) || { ((rc == 0)) && closed "$i"; }; then
@@ -317,10 +337,7 @@ finish_one() {
     report "$i" "$NEEDS" "No result after $stall_hours hours. \`claude attach $name\` shows where it is; move this back to $QUEUED to nudge it." \
       "$ident went quiet"
   else
-    kind=$(head -n 1 "$result" | tr -d '[:space:]')
-    body=$(tail -n +2 "$result")
     if [[ $kind == handoff ]]; then
-      verdict=$(brief "$repo" "$branch")
       # "be there" from "**Preflight: be there.** ...", for the push.
       level=$(sed -nE '1s/^\*\*Preflight: ([^.]*)\..*/ (\1)/p' <<<"$verdict")
       report "$i" "$READY" "Handoff ready on \`$branch\`.
@@ -346,7 +363,7 @@ Answer in a comment and move this back to $QUEUED to resume it, or \`claude atta
 
 # One queued issue: start an agent on it, or resume the one it had.
 start_one() {
-  local id=$1 i ident queuer f label repo base name wt branch session job result
+  local id=$1 i ident queuer f label repo base name wt branch session="" job="" result out copy
   i=$(issue "$id")
   [[ $(jq -r .state.name <<<"$i") == "$QUEUED" ]] || return 0
   ident=$(jq -r .identifier <<<"$i")
@@ -365,10 +382,16 @@ start_one() {
     stop_issue "$i" "$NEEDS" "Not started: only issues you move to $QUEUED yourself are taken." "$ident was not queued by you"
     return 0
   fi
+  # The title and description become the agent's task, given as Nick's, so
+  # they must be his too. Synced and teammates' issues are not taken.
+  if [[ $(jq -r '.creator.id // ""' <<<"$i") != "$viewer" ]]; then
+    stop_issue "$i" "$NEEDS" "Not started: only issues you created are taken, since the agent is given the description as your task." "$ident is not yours"
+    return 0
+  fi
 
   if [[ -f $f && $(jq -r .phase "$f") == running ]]; then
-    # Moved back by hand while its agent still works: it already has it.
-    move "$i" "$RUNNING"
+    # Re-queued while its agent works: left in Queued, and resumed with the
+    # new comments once its result is in (report).
     return 0
   fi
 
@@ -376,10 +399,10 @@ start_one() {
     repo=$(jq -r .repo "$f")
     wt=$(jq -r .worktree "$f")
     name=$(jq -r .name "$f")
-    # The roster first; the id saved at start covers a roster that has
+    # The roster first; the id saved earlier covers a roster that has
     # forgotten the session.
-    session=$(agent sessionId "$name" "$wt")
-    [[ -n $session ]] || session=$(jq -r '.session // empty' "$f")
+    read -r job session <<<"$(agent "$name" "$wt")" || true
+    [[ -n ${session:-} ]] || session=$(jq -r '.session // empty' "$f")
     if [[ -z $session ]]; then
       stop_issue "$i" "$NEEDS" "Could not find the agent's session to resume in \`$wt\`." "$ident did not resume"
       return 0
@@ -391,18 +414,24 @@ start_one() {
     # and given no flags; otherwise it starts a copy under a new id. A finished
     # session keeps its process, so stop it first. Its name and permission
     # mode are saved with it, and passing them again counts as new flags.
-    job=$(agent id "$name" "$wt")
-    [[ -z $job ]] || cl stop "$job" </dev/null >/dev/null 2>&1 || true
-    if ! (cd "$wt" && cl --bg --resume "$session" </dev/null \
-      "$(prompt_resume "$i" "$(jq -r .since "$f")" "$result")") >/dev/null; then
+    [[ -z ${job:-} ]] || cl stop "$job" </dev/null >/dev/null 2>&1 || true
+    if ! out=$(cd "$wt" && cl --bg --resume "$session" </dev/null \
+      "$(prompt_resume "$i" "$(jq -r .since "$f")" "$result")" 2>&1); then
       stop_issue "$i" "$NEEDS" "Could not resume the session in \`$wt\`." "$ident did not resume"
       return 0
     fi
-    session=$(agent sessionId "$name" "$wt")
+    echo "$out" >&2
+    # claude says so when it started a copy instead, which would put two
+    # agents in one worktree: stop it and let Nick decide.
+    copy=$(sed -nE 's/.*started a copy as ([0-9a-f]+).*/\1/p' <<<"$out" | head -n 1)
+    if [[ -n $copy ]]; then
+      cl stop "$copy" </dev/null >/dev/null 2>&1 || true
+      stop_issue "$i" "$NEEDS" "Not resumed: claude started a copy ($copy) instead of continuing the session, and the copy was stopped. \`claude attach ${job:-$session}\` opens the original." "$ident did not resume"
+      return 0
+    fi
     # shellcheck disable=SC2016 # jq's variables, not the shell's
-    update "$f" '.phase = "running" | .started = $now | .since = $now
-      | if $session != "" then .session = $session else . end' \
-      --arg now "$(now)" --arg session "$session"
+    update "$f" '.phase = "running" | .started = $now | .since = $now | .session = $s' \
+      --arg now "$(now)" --arg s "$session"
   else
     label=$(jq -r '[.labels.nodes[] | select(.parent.name == "repo") | .name] | first // ""' <<<"$i")
     repo=$projects/$label
@@ -427,8 +456,8 @@ start_one() {
       stop_issue "$i" "$NEEDS" "Not started: \`claude --bg\` failed in \`$wt\`." "$ident did not start"
       return 0
     fi
-    # May be empty if the roster lags; a resume asks again.
-    session=$(agent sessionId "$name" "$wt")
+    # May be empty if the roster lags; finish_one and a resume ask again.
+    read -r _ session <<<"$(agent "$name" "$wt")" || true
     # since: when the agent last heard from Nick, so a resume passes on
     # every comment made after it, including those made while it worked.
     jq -n --arg id "$id" --arg ident "$ident" --arg repo "$repo" --arg worktree "$wt" \
@@ -468,9 +497,8 @@ running() {
 
 # Each issue is handled in a process of its own, so one that fails, a deleted
 # issue or a repo that will not fetch, costs that issue a warning and not the
-# whole run. The children hold the lock too: stopping the unit kills only the
-# main process (KillMode), and a child left finishing an issue must keep the
-# next run off it. Only `claude` goes without (see cl).
+# whole run. They stay in the unit, so stopping it ends them with the run, and
+# hold the lock until then. Only claude leaves (cl).
 child() {
   "$BASH" -euo pipefail "$0" "$@" || echo "night-shift: $1 ${*: -1} failed; next run tries again" >&2
 }

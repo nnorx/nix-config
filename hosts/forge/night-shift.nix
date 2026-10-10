@@ -42,6 +42,27 @@ let
     "ntfy-url"
   ];
 
+  # Hidden from preflight on an agent's branch, which evaluates code the agent
+  # wrote. Claude's sandbox policy, taken from the same file so the two cannot
+  # drift, plus forge's sops secrets (claude.nix) and Nick's credentials:
+  # evaluation runs with the network on, so nothing it could read and send
+  # may be readable.
+  policy = import ../../lib/claude-sandbox.nix {
+    inherit lib;
+    isDarwin = false;
+  };
+  hidden =
+    policy.strict.filesystem.denyRead
+    ++ map (c: c.path) policy.strict.credentials.files
+    ++ [
+      "/run/secrets.d"
+      "~/.ssh"
+      "~/.claude/.credentials.json"
+      "~/.config/gh"
+      "~/.git-credentials"
+      "~/.local/share/kwalletd"
+    ];
+
   night-shift = pkgs.writeShellApplication {
     name = "night-shift";
     runtimeInputs = [
@@ -52,9 +73,11 @@ let
       pkgs.coreutils
       pkgs.gnused
       pkgs.util-linux # flock
-      pkgs.bubblewrap # preflight on an agent's branch, confined like the agent
+      pkgs.bubblewrap # preflight on an agent's branch, confined
+      config.systemd.package # systemd-run, to start claude outside the unit
     ];
     runtimeEnv = {
+      NIGHT_SHIFT_HIDE = lib.concatLines hidden;
       NIGHT_SHIFT_KEY_FILE = config.sops.secrets.linear-api-key.path;
       NIGHT_SHIFT_NTFY_FILE = config.sops.secrets.ntfy-url.path;
       NIGHT_SHIFT_PROJECTS = "${home}/projects";
@@ -102,10 +125,9 @@ in
       ExecStart = "${lib.getExe night-shift} run";
       # A run that finishes agents waits on preflight, minutes per issue.
       TimeoutStartSec = "1h";
-      # The agents outlive the run that started them. The default kills
-      # everything left in the unit's cgroup when the oneshot exits, which
-      # would take `claude --bg`'s sessions with it.
-      KillMode = "process";
+      # KillMode stays the default, so a run ends whole, its children with it.
+      # The agents outlive it because the dispatcher starts claude in a scope
+      # of its own (`cl` in night-shift.sh), outside this unit's cgroup.
     };
   };
 
