@@ -1,5 +1,5 @@
-# The systemd sandboxing every small fleet service starts from, kept in one
-# place so the services that share it cannot drift apart:
+# The systemd sandboxing these fleet services start from, kept in one place so
+# they cannot drift apart:
 #
 #   modules/alerts.nix       the notify and heartbeat oneshots
 #   modules/offbox-push.nix  each backup push
