@@ -640,8 +640,7 @@ $(head -n 10 <<<"$dirty")
   fi
   # No push: Nick merged it himself.
   move "$i" "$completed"
-  rm "$f"
-  echo "night-shift: $ident merged in #$number, moved to $completed"
+  forget "$f" "merged in #$number, moved to $completed"
 }
 
 # Forgets waiting issues Nick has closed, with their issue text and archived

@@ -104,7 +104,8 @@ the repo's `.git/night-shift/`. If one of them fails, the issue lands in
 - **Merged:** after you merge a handoff's PR, the next run moves the issue to
   the team's completed state, with a comment naming the PR, and cleans up:
   the agent's worktree, its branch and the branch's section in
-  `.git/config`, every session in that worktree, and the issue's state file.
+  `.git/config`, every session in that worktree, and the issue's state file,
+  issue text and old results.
   The worktree goes only if the branch's tip is the head the PR merged, and
   nothing in it is uncommitted, and no session there is still working.
   Otherwise all of it stays and the comment says why. Nothing is pushed,
