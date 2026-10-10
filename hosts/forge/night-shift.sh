@@ -741,8 +741,8 @@ check() {
 # timeout or a kill included, in systemd's $SERVICE_RESULT. A run that cannot
 # reach Linear fails without touching any issue, so without this a revoked key
 # or a long outage is silence. One push once `failed_runs` runs in a row have
-# failed, 30 minutes at the timer's pace, so a Wi-Fi drop passes quietly, and
-# no more until a run succeeds. A push that does not go out is tried again
+# failed, 20 minutes after the first at the timer's pace, so a Wi-Fi drop
+# passes quietly, and no more until a run succeeds. A push that does not go out is tried again
 # after the next failure. Runs started from a shell count neither way.
 after_run() {
   local f=$state_dir/failed-runs n="" why
