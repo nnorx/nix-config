@@ -157,6 +157,13 @@ update() {
   mv "$f.tmp" "$f"
 }
 
+# claude without the run lock's descriptor. Any claude command can start the
+# background daemon, which would hold the lock, and keep every later run out,
+# for as long as it lives.
+cl() {
+  claude "$@" 9>&-
+}
+
 closed() {
   [[ $(jq -r .state.type <<<"$1") == completed || $(jq -r .state.type <<<"$1") == canceled ]]
 }
@@ -166,7 +173,7 @@ closed() {
 # the short one `claude stop` takes. `claude --bg` picks them itself and
 # ignores --session-id, so this asks its roster rather than choosing one.
 agent() {
-  claude agents --json --all </dev/null 2>/dev/null |
+  cl agents --json --all </dev/null 2>/dev/null |
     jq -r --arg f "$1" --arg n "$2" --arg wt "$3" \
       'map(select(.name == $n and .cwd == $wt)) | last | .[$f] // empty' || true
 }
@@ -268,6 +275,18 @@ brief() {
   rm -f "$out"
 }
 
+# report: stop_issue for a result, except that an issue Nick has already
+# moved back to Queued, while its agent worked, stays there. The same run then
+# resumes it with his new comments, rather than leaving them unanswered.
+report() {
+  if [[ $(jq -r .state.name <<<"$1") == "$QUEUED" ]]; then
+    comment "$1" "$3"
+    echo "night-shift: $4, left in $QUEUED"
+  else
+    stop_issue "$@"
+  fi
+}
+
 # One running issue: take its result back to Linear, or flag it as quiet.
 finish_one() {
   local f=$1 id ident repo wt branch name started result kind body i rc=0 verdict level
@@ -295,7 +314,7 @@ finish_one() {
   ((rc == 0)) || return "$rc"
 
   if [[ ! -f $result ]]; then
-    stop_issue "$i" "$NEEDS" "No result after $stall_hours hours. \`claude attach $name\` shows where it is; move this back to $QUEUED to nudge it." \
+    report "$i" "$NEEDS" "No result after $stall_hours hours. \`claude attach $name\` shows where it is; move this back to $QUEUED to nudge it." \
       "$ident went quiet"
   else
     kind=$(head -n 1 "$result" | tr -d '[:space:]')
@@ -304,7 +323,7 @@ finish_one() {
       verdict=$(brief "$repo" "$branch")
       # "be there" from "**Preflight: be there.** ...", for the push.
       level=$(sed -nE '1s/^\*\*Preflight: ([^.]*)\..*/ (\1)/p' <<<"$verdict")
-      stop_issue "$i" "$READY" "Handoff ready on \`$branch\`.
+      report "$i" "$READY" "Handoff ready on \`$branch\`.
 
 $body
 ${verdict:+
@@ -313,7 +332,7 @@ $verdict
 To publish: \`cd $wt && pr-handoff\`. To talk to the agent: \`claude attach $name\`." \
         "$ident handoff ready$level"
     else
-      stop_issue "$i" "$NEEDS" "The agent stopped and needs you.
+      report "$i" "$NEEDS" "The agent stopped and needs you.
 
 $body
 
@@ -373,8 +392,8 @@ start_one() {
     # session keeps its process, so stop it first. Its name and permission
     # mode are saved with it, and passing them again counts as new flags.
     job=$(agent id "$name" "$wt")
-    [[ -z $job ]] || claude stop "$job" </dev/null >/dev/null 2>&1 || true
-    if ! (cd "$wt" && claude --bg --resume "$session" </dev/null \
+    [[ -z $job ]] || cl stop "$job" </dev/null >/dev/null 2>&1 || true
+    if ! (cd "$wt" && cl --bg --resume "$session" </dev/null \
       "$(prompt_resume "$i" "$(jq -r .since "$f")" "$result")") >/dev/null; then
       stop_issue "$i" "$NEEDS" "Could not resume the session in \`$wt\`." "$ident did not resume"
       return 0
@@ -403,7 +422,7 @@ start_one() {
     fi
     result=$(result_path "$repo" "$ident")
     mkdir -p "$(dirname "$result")"
-    if ! (cd "$wt" && claude --bg -n "$name" --permission-mode auto </dev/null \
+    if ! (cd "$wt" && cl --bg -n "$name" --permission-mode auto </dev/null \
       "$(prompt_new "$i" "$repo" "$wt" "$branch" "$base" "$result")") >/dev/null; then
       stop_issue "$i" "$NEEDS" "Not started: \`claude --bg\` failed in \`$wt\`." "$ident did not start"
       return 0
@@ -449,10 +468,11 @@ running() {
 
 # Each issue is handled in a process of its own, so one that fails, a deleted
 # issue or a repo that will not fetch, costs that issue a warning and not the
-# whole run. The children get no copy of the lock's descriptor: an agent
-# holding one would keep every later run out for as long as it lives.
+# whole run. The children hold the lock too: stopping the unit kills only the
+# main process (KillMode), and a child left finishing an issue must keep the
+# next run off it. Only `claude` goes without (see cl).
 child() {
-  "$BASH" -euo pipefail "$0" "$@" 9>&- || echo "night-shift: $1 ${*: -1} failed; next run tries again" >&2
+  "$BASH" -euo pipefail "$0" "$@" || echo "night-shift: $1 ${*: -1} failed; next run tries again" >&2
 }
 
 run() {
