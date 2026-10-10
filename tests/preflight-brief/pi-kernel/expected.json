@@ -1,0 +1,43 @@
+{
+  "base": "base00000000",
+  "configs": [
+    {
+      "deploy": "auto",
+      "kind": "host",
+      "name": "pi",
+      "state": "changed"
+    }
+  ],
+  "hosts": {
+    "pi": {
+      "actions": {
+        "not restarted": [],
+        "other units": [],
+        "reloads": [],
+        "restarts": [],
+        "starts": [],
+        "stops": []
+      },
+      "etc": [],
+      "findings": [
+        {
+          "area": "reboot",
+          "level": "be there",
+          "text": "Reboots tonight, unattended, for the kernel 6.12.1 → 6.12.2. It upgrades at 03:00 and reboots only between 02:30 and 06:00."
+        }
+      ],
+      "versions": []
+    }
+  },
+  "plan": [
+    {
+      "area": "cache",
+      "level": "review",
+      "text": "Merge early in the day. A Pi kernel that cache.yml has to build takes 2 to 5 hours, and an upgrade that runs before it finishes fails (pi)."
+    }
+  ],
+  "verdict": {
+    "level": "be there",
+    "text": "Merge when you can be at hand tonight: pi (reboot). docs/recovery.md has the way back."
+  }
+}

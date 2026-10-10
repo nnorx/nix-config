@@ -1,0 +1,80 @@
+{
+  "ok": true,
+  "rev": "base00000000",
+  "files": [
+    "modules/firewall.nix"
+  ],
+  "versions": {},
+  "base": {
+    "homes": {},
+    "hosts": {
+      "router": {
+        "drv": "/b.drv",
+        "autoUpgrade": false,
+        "allowReboot": false,
+        "upgradeAt": "03:00",
+        "rebootWindow": null,
+        "deployGuard": true,
+        "reboot": {
+          "kernel": "k1",
+          "initrd": "i1",
+          "modules": "m1"
+        },
+        "kernelVersion": "6.12.1",
+        "boot": {
+          "loader": "l1",
+          "params": [],
+          "firmware": []
+        },
+        "units": {
+          "nftables.service": "/nft1.drv"
+        },
+        "services": {
+          "nftables": {
+            "restart": true,
+            "reload": false
+          }
+        },
+        "etc": {},
+        "users": {},
+        "packages": []
+      }
+    }
+  },
+  "head": {
+    "homes": {},
+    "hosts": {
+      "router": {
+        "drv": "/h.drv",
+        "autoUpgrade": false,
+        "allowReboot": false,
+        "upgradeAt": "03:00",
+        "rebootWindow": null,
+        "deployGuard": true,
+        "reboot": {
+          "kernel": "k1",
+          "initrd": "i1",
+          "modules": "m1"
+        },
+        "kernelVersion": "6.12.1",
+        "boot": {
+          "loader": "l1",
+          "params": [],
+          "firmware": []
+        },
+        "units": {
+          "nftables.service": "/nft2.drv"
+        },
+        "services": {
+          "nftables": {
+            "restart": true,
+            "reload": false
+          }
+        },
+        "etc": {},
+        "users": {},
+        "packages": []
+      }
+    }
+  }
+}

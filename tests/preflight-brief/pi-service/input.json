@@ -1,0 +1,86 @@
+{
+  "ok": true,
+  "rev": "base00000000",
+  "files": [
+    "modules/foo.nix"
+  ],
+  "versions": {},
+  "base": {
+    "homes": {},
+    "hosts": {
+      "pi": {
+        "drv": "/b.drv",
+        "autoUpgrade": true,
+        "allowReboot": true,
+        "upgradeAt": "03:00",
+        "rebootWindow": {
+          "lower": "02:30",
+          "upper": "06:00"
+        },
+        "deployGuard": false,
+        "reboot": {
+          "kernel": "k1",
+          "initrd": "i1",
+          "modules": "m1"
+        },
+        "kernelVersion": "6.12.1",
+        "boot": {
+          "loader": "l1",
+          "params": [],
+          "firmware": []
+        },
+        "units": {
+          "foo.service": "/foo1.drv"
+        },
+        "services": {
+          "foo": {
+            "restart": true,
+            "reload": false
+          }
+        },
+        "etc": {},
+        "users": {},
+        "packages": []
+      }
+    }
+  },
+  "head": {
+    "homes": {},
+    "hosts": {
+      "pi": {
+        "drv": "/h.drv",
+        "autoUpgrade": true,
+        "allowReboot": true,
+        "upgradeAt": "03:00",
+        "rebootWindow": {
+          "lower": "02:30",
+          "upper": "06:00"
+        },
+        "deployGuard": false,
+        "reboot": {
+          "kernel": "k1",
+          "initrd": "i1",
+          "modules": "m1"
+        },
+        "kernelVersion": "6.12.1",
+        "boot": {
+          "loader": "l1",
+          "params": [],
+          "firmware": []
+        },
+        "units": {
+          "foo.service": "/foo2.drv"
+        },
+        "services": {
+          "foo": {
+            "restart": true,
+            "reload": false
+          }
+        },
+        "etc": {},
+        "users": {},
+        "packages": []
+      }
+    }
+  }
+}
