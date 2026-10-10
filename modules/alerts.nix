@@ -28,11 +28,8 @@
 #                          success after it is covered. Each needs its grace
 #                          raised by hand to 6 hours (README "Alerts").
 #
-# A host that names a unit here without the matching secret fails evaluation.
-# The check reads the sops file's key names, which sops leaves in plaintext.
-# sops-nix would catch the missing key too, but only when the system is built,
-# and CI only evaluates: the change would merge, cache.yml would fail to build
-# the Pis, and their upgrades would stop with nothing yet installed to say so.
+# A host that names a unit here without the matching secret fails evaluation,
+# as it does for any declared secret its file lacks (modules/sops-assertions.nix).
 #
 # A failed upgrade notifies at default priority rather than high. It can fail
 # by design, when it starts before cache.yml has finished, and it retries the
@@ -51,19 +48,6 @@ let
   upgrade = lib.optional config.system.autoUpgrade.enable "nixos-upgrade";
   failure = lib.unique (cfg.failure ++ upgrade);
   heartbeat = lib.unique (cfg.heartbeat ++ upgrade);
-
-  # A top-level key, at the start of a line, and not a longer key ending in it.
-  sopsFile = config.sops.defaultSopsFile;
-  sopsText = builtins.readFile sopsFile;
-  hasSecret = key: lib.hasPrefix "${key}:" sopsText || lib.hasInfix "\n${key}:" sopsText;
-  needs = key: units: {
-    assertion = units == [ ] || hasSecret key;
-    message = ''
-      fleetAlerts on ${hostname} covers ${toString units}, but secrets/${baseNameOf (toString sopsFile)}
-      has no `${key}`. See modules/alerts.nix and the README's "Alerts" for
-      the command that adds it.
-    '';
-  };
 
   # A misspelt name, or one with `.service`, would otherwise define an empty
   # stub unit that carries the hook while the real unit goes uncovered.
@@ -160,11 +144,7 @@ in
 
   config = lib.mkMerge [
     {
-      assertions = [
-        (needs "ntfy-url" failure)
-        (needs "healthchecks-ping-key" heartbeat)
-      ]
-      ++ map (unit: {
+      assertions = map (unit: {
         assertion = realService unit;
         message = ''
           fleetAlerts on ${hostname} names "${unit}", which is not a service

@@ -23,7 +23,7 @@
 #   ntfy-url        The fleet's topic (modules/alerts.nix), for a push when an
 #                   issue is ready or needs him, and when runs keep failing.
 #
-# Like modules/alerts.nix, evaluation fails until both exist, rather than
+# Evaluation fails until both exist (modules/sops-assertions.nix), rather than
 # sops-nix failing the build after merge.
 {
   config,
@@ -34,9 +34,6 @@
 let
   user = "nick";
   home = config.users.users.${user}.home;
-
-  sopsText = builtins.readFile config.sops.defaultSopsFile;
-  hasSecret = key: lib.hasPrefix "${key}:" sopsText || lib.hasInfix "\n${key}:" sopsText;
   secrets = [
     "linear-api-key"
     "ntfy-url"
@@ -91,14 +88,6 @@ let
   };
 in
 {
-  assertions = map (key: {
-    assertion = hasSecret key;
-    message = ''
-      The night shift needs `${key}` in secrets/forge.yaml. docs/night-shift.md
-      has the command that adds it.
-    '';
-  }) secrets;
-
   sops.secrets = lib.genAttrs secrets (_: {
     owner = user;
   });

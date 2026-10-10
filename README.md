@@ -79,6 +79,7 @@ modules/
   fail2ban.nix         Brute-force protection
   deploy-guard.nix     Automatic rollback for reboots that go wrong (gate only)
   net-assertions.nix   Consistency checks for lib/net.nix
+  sops-assertions.nix  Every declared secret is in its host's sops file
   baseline.nix         Nix settings, caches, sysctl hardening, gc, journald
   docker.nix           Docker daemon (core5 only)
 
