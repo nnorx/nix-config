@@ -193,6 +193,17 @@ drilled yet.
 ssh core5 'systemctl status home-assistant; journalctl -u home-assistant -n 50'
 ```
 
+**Wait two minutes after "Back up now" before running the push by hand.** The
+push only takes a backup at least two minutes old, so that it never copies one
+Home Assistant is still writing. Started sooner, it skips the new file: with no
+older one it fails with `no Automatic_backup_*.tar older than two minutes`, and
+otherwise it picks the previous backup, which is usually already pushed. Choose
+an automatic backup in that dialog, since a manual one is never pushed. Then:
+
+```bash
+ssh core5 'sudo systemctl start home-assistant-backup'
+```
+
 core5 runs a 16K page-size kernel, so if Home Assistant or one of its
 dependencies crashes in a way that makes no sense, suspect that first. Upstream
 builds, and their memory allocators in particular, mostly assume 4K pages.
