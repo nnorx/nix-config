@@ -95,6 +95,15 @@ in
   # `night-shift check` and `night-shift status` from a shell, too.
   environment.systemPackages = [ night-shift ];
 
+  # System aliases, like nrs and nrb in modules/baseline.nix, since the command
+  # exists only on forge.
+  environment.shellAliases = {
+    ns = "night-shift";
+    nsr = "night-shift run";
+    nss = "night-shift status";
+    nsf = "night-shift file";
+  };
+
   systemd.user.services.night-shift = {
     description = "Take finished night-shift work back to Linear and start what is queued";
     unitConfig.ConditionUser = user;

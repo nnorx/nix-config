@@ -19,4 +19,9 @@
       text = builtins.readFile ./pr-handoff.sh;
     })
   ];
+
+  shell-common.aliases = {
+    ph = "pr-handoff";
+    phm = "pr-handoff merge";
+  };
 }
