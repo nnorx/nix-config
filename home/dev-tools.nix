@@ -63,6 +63,11 @@
     mkdir -p "$HOME/.npm-global/bin"
   '';
 
+  # wt (wt.sh): cd into an agent's worktree. Here rather than in the shared
+  # shell config because agents run only on dev hosts.
+  programs.zsh.initContent = lib.mkAfter "source ${./wt.sh}";
+  programs.bash.initExtra = lib.mkAfter "source ${./wt.sh}";
+
   # Direnv - automatic environment switching
   programs.direnv = {
     enable = true;

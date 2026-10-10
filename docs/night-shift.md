@@ -114,6 +114,8 @@ the repo's `.git/night-shift/`. If one of them fails, the issue lands in
   issue text and old results in `.git/night-shift/`. Their worktrees are left
   for `claude rm` or the git cleanup.
 - `night-shift status` lists what each agent is doing.
+- Shortcuts: `nsr`, `nss` and `nsf` are `night-shift run`, `status` and
+  `file`, and `wt nno-20` cds into NNO-20's worktree.
 
 To start an issue over rather than resume it, remove its worktree and branch,
 and `~/.local/state/night-shift/<ID>.json`.
