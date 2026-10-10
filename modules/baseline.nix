@@ -8,6 +8,8 @@ let
   flakeCaches = (import ../flake.nix).nixConfig;
 in
 {
+  imports = [ ./sops-assertions.nix ];
+
   # Automatic NixOS upgrades from the flake. Shared settings only: nothing here
   # turns them on. hosts/common/pi.nix does, for the Pis and nothing else.
   #
