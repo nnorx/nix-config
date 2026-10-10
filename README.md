@@ -318,6 +318,7 @@ add it to `fleetAlerts.failure` or `fleetAlerts.heartbeat` in its host.
 | Workflow | Trigger | What it does |
 |---|---|---|
 | `check.yml` | every push and PR | `nix run .#preflight`, and its brief on what the change touches in the run's summary |
+| `check.yml`, `build-etc` | PR | Builds each fleet host's `/etc` (the Pis on an aarch64 runner, gate on x86), so a script that fails shellcheck or a ruleset that fails its check turns the PR red instead of `cache.yml` after merge. `/etc` has every service but not the kernel, so it takes minutes |
 | `cache.yml` | push to `main` | Builds every Pi's system closure on native aarch64 runners, pushes to Cachix |
 | `update-flake.yml` | Mondays 12:00 UTC | Opens a PR bumping `flake.lock` |
 | `image-updates.yml` | Tuesdays 12:00 UTC | Keeps an `images` issue open while a pinned container image is behind its registry |

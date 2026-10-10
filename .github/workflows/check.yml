@@ -36,3 +36,54 @@ jobs:
       # summary says what merging this PR would change. On a push there is no
       # base branch, and preflight compares with where the branch left main.
       - run: nix run .#preflight -- ${GITHUB_BASE_REF:+--base "origin/$GITHUB_BASE_REF"}
+
+  # Builds each fleet host's /etc on pull requests. `check` only evaluates,
+  # and some failures only happen at build time: shellcheck on every
+  # writeShellApplication script (alerts, host-status, the offbox push and
+  # stage scripts, unifi's inform-host seeding), and gate's nftables ruleset
+  # and Kea config checks. Without this such a change merges green, then
+  # cache.yml fails, and the Pis, which only substitute, fail their nightly
+  # upgrade until a fix is merged.
+  #
+  # /etc holds every systemd unit and so every service script, but not the
+  # kernel, so this costs minutes rather than the hours of a Pi 4 kernel
+  # compile. On the arm runner for the Pis, natively, as cache.yml does.
+  #
+  # Pull requests only: a same-repo branch also fires `push`, which would
+  # build it twice, and on main cache.yml builds the whole toplevels. Unlike
+  # cache.yml, a superseded run is worth nothing here, since nothing is
+  # pushed, so a new commit cancels it.
+  build-etc:
+    if: github.event_name == 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04-arm
+            hosts: core4 lifeline core5
+          - runner: ubuntu-latest
+            hosts: gate
+    runs-on: ${{ matrix.runner }}
+    # A flake.lock bump can rebuild core5's 16k-page packages that are not in
+    # the cache yet, and run into this. That says the bump is heavy, not that
+    # it is broken.
+    timeout-minutes: 120
+    concurrency:
+      group: build-etc-${{ github.ref }}-${{ matrix.runner }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # main @ 2026-09-09
+        with:
+          diagnostic-endpoint: ""
+      # Read-only: no authToken. A pull request's build must never reach the
+      # cache every host trusts.
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: nnorx-nix-config
+      - run: |
+          args=()
+          for h in ${{ matrix.hosts }}; do
+            args+=(".#nixosConfigurations.$h.config.system.build.etc")
+          done
+          nix build --no-link --print-build-logs --accept-flake-config "${args[@]}"
