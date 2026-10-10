@@ -93,6 +93,10 @@ in
       "/etc/profiles/per-user/${user}"
       "/run/current-system/sw"
     ];
+    # A rebuild would otherwise stop a run mid-preflight and start a new one,
+    # and hold the switch until it finished. The timer's next run picks up the
+    # new version.
+    restartIfChanged = false;
     serviceConfig = {
       Type = "oneshot";
       ExecStart = "${lib.getExe night-shift} run";
