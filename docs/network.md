@@ -48,7 +48,7 @@ holds `.1` in each. Below `.100` is reserved for statics and reservations,
 |---|---|---|---|---|
 | 10 | trusted | 192.168.10.0/24 | Laptops, phones, the wired workstation | Full access. Port 53 redirected |
 | 20 | servers | 192.168.20.0/24 | core4, core5, lifeline, switch, AP | Reachable from trusted. **No DHCP pool**: statically addressed. Not redirected |
-| 30 | iot | 192.168.30.0/24 | Cameras, plugs, TVs | Internet, plus port 53 to the Pis. Port 53 redirected |
+| 30 | iot | 192.168.30.0/24 | Cameras, plugs, TVs, the Govee lamps | Internet, plus port 53 to the Pis. Govee's LAN API with Home Assistant, per [`hosts/gate/govee.nix`](../hosts/gate/govee.nix). Port 53 redirected |
 | 40 | guest | 192.168.40.0/24 | Visitors | Internet only, public resolvers. Not redirected |
 | 50 | work | 192.168.50.0/24 | One managed laptop | Internet, plus port 53 to the Pis. Port 53 redirected, and not logged |
 | none | vpn | 192.168.60.0/24 | WireGuard peers on `wg0`, one fixed address each: forge `.10`, phone `.20` | Per peer, from `grants` in [`hosts/gate/wireguard.nix`](../hosts/gate/wireguard.nix). Every peer gets port 53 to the Pis; forge adds the AdGuard UI, SSH to the fleet and internet. Port 53 redirected |

@@ -63,6 +63,46 @@ path segment of the integration's documentation URL.
 The list replaces the module's default rather than extending it, which is why
 the first four entries restate that default.
 
+## Govee lights
+
+Three floor lamps, two H6076 and one H6072, on iot, through
+`govee_light_local` and Govee's LAN API. Once they are set up, nothing between
+Home Assistant and the lamps goes through Govee's cloud.
+
+**core5 has no address on iot.** gate routes Home Assistant's discovery scan
+from servers into iot and lets the replies and commands cross, three rules in
+[`hosts/gate/govee.nix`](../hosts/gate/govee.nix), which has the reasoning.
+Nothing else crosses: a lamp can reach core5 on UDP 4002 and nothing more, and
+core5 can reach a lamp on UDP 4003.
+
+### Adding a lamp
+
+1. **In the Govee app, add it and give it the iot Wi-Fi.** That network has to
+   offer 2.4 GHz and WPA2; many of these devices cannot join 5 GHz or WPA3
+   only.
+2. **Turn on LAN Control** in the lamp's settings in the app. Without it the
+   lamp ignores the scan.
+3. **In Home Assistant**, Settings > Devices & services. Govee lights local
+   shows up as discovered; if not, add it. It scans every 60 seconds, so a new
+   lamp can take a minute to appear.
+
+### When a lamp does not appear
+
+Follow the scan across gate:
+
+```bash
+ssh -t gate 'systemctl status smcroute; ip mroute show; sudo nft list chain inet nixos-fw forward-allow | grep govee'
+```
+
+- `ip mroute show` should list core5's address and the group, `Iif: lan0`,
+  `Oifs: lan0.30`. No route means smcroute is not running.
+- The three `govee:` rules count packets. A rising scan count with no answers
+  means the lamp is not replying: LAN Control is off, it is not on iot, or it
+  ignores a scan from another subnet. No scans at all means Home Assistant is
+  not sending them.
+- If IGMP snooping is ever turned on for iot in UniFi, the switch or AP may
+  stop delivering the scan to the lamps. It is off by default.
+
 ## What is state
 
 Everything made in the UI lives in `/var/lib/hass`: users, integrations,

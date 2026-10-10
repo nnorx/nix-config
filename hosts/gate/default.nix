@@ -26,6 +26,7 @@ in
     ../../modules/deploy-guard.nix
     ./routing.nix
     ./wireguard.nix
+    ./govee.nix
     ./ddns.nix
 
     # gate's own resolver, on loopback only.

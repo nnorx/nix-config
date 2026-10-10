@@ -59,6 +59,7 @@ hosts/
   gate/                The router
     routing.nix        VLANs, NAT, firewall policy, Kea
     wireguard.nix      Remote peers and what each may reach
+    govee.nix          Home Assistant's Govee scan routed into iot
     ddns.nix           Keeps the WAN address in DNS on Cloudflare
   forge/               The laptop: disko layout, Secure Boot, NVIDIA, Plasma,
                        the night shift

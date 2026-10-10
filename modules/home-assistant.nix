@@ -51,8 +51,9 @@ in
       "esphome"
       "rpi_power"
 
-      # Govee bulbs over their local LAN API, no cloud account. Discovery is
-      # multicast, so it only finds bulbs on a segment core5 has an address on.
+      # Govee lights over their local LAN API, no cloud in the path. Discovery
+      # is multicast and the lights are on iot, where core5 has no address, so
+      # gate routes the scan across: hosts/gate/govee.nix.
       "govee_light_local"
     ];
 

@@ -299,6 +299,11 @@
     "9.9.9.9" # Quad9
   ];
 
+  # The multicast group Govee lights listen on for the LAN API's scan. It is
+  # SSDP's group, but gate lets only `ports.goveeScan` through to iot, not
+  # SSDP's own port.
+  goveeGroup = "239.255.255.250";
+
   # Hosts running a pimon agent that report to the collector on core5. Named
   # rather than derived from `hosts`: address presence is not the same fact as
   # running an agent, and core5's firewall opens a port per entry.
@@ -334,6 +339,13 @@
     # which gate's "trusted reaches servers" rule already allows. No WireGuard
     # peer does: nothing in hosts/gate/wireguard.nix grants it.
     homeAssistant = 8123;
+
+    # Govee's LAN API, between Home Assistant on core5 and the lights on iot.
+    # The numbers are Govee's, fixed in the lights' firmware. gate routes the
+    # scan into iot and lets the other two cross; see hosts/gate/govee.nix.
+    goveeScan = 4001; # UDP, multicast discovery, to the lights
+    goveeReply = 4002; # UDP, scan replies and status, to core5
+    goveeCommand = 4003; # UDP, control, to each light
 
     # WireGuard on gate's WAN, which every peer's config names. 443 rather
     # than 51820, because restrictive Wi-Fi blocks unusual UDP ports more often
