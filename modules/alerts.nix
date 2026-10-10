@@ -112,19 +112,11 @@ let
     inherit description;
     after = [ "network-online.target" ];
     wants = [ "network-online.target" ];
-    serviceConfig = {
+    serviceConfig = import ../lib/hardening.nix // {
       Type = "oneshot";
       ExecStart = "${lib.getExe script} %i";
       LoadCredential = "${credential}:${config.sops.secrets.${credential}.path}";
       DynamicUser = true;
-      NoNewPrivileges = true;
-      ProtectSystem = "strict";
-      ProtectHome = true;
-      PrivateTmp = true;
-      ProtectKernelTunables = true;
-      ProtectControlGroups = true;
-      RestrictNamespaces = true;
-      RestrictSUIDSGID = true;
     };
   };
 in
