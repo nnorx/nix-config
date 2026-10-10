@@ -120,15 +120,23 @@ Goal: ...
 `repo` defaults to the repository the draft is in, so a draft for another
 repo names it. `priority` is urgent, high, medium, low or none; `project`
 must already exist in the team; `team` is needed only with more than one.
-The front matter takes no comments.
+The front matter takes those keys only, and no comments.
 
 `night-shift file` collects the drafts from every repository in
-`~/projects`, checks them all first, so one mistake files none, then shows
-each in full with the state it will land in and asks once. Each becomes an
-issue created by you, in the team's backlog, and its draft is deleted.
-Nothing is ever filed into `Queued`: moving an issue there is still your
-hand, in Linear. Read the drafts before you answer, since filing them as you
-is what lets the night shift take them later.
+`~/projects` and checks them all first, so one mistake files none. A draft
+with control or invisible characters is refused, since what you read must be
+what is filed. It then shows each draft in full, with when it was written
+and the state it will land in, and asks about that one; a draft you skip
+stays. Each becomes an issue created by you, in the team's backlog, its
+description ending "Filed from a draft with `night-shift file`", and its
+draft is deleted. Nothing is ever filed into `Queued`: moving an issue there
+is still your hand, in Linear. Read each draft before you answer, since
+filing it as you is what lets the night shift take it later, and agents
+working in a repository can write drafts there too.
+
+If Linear does not answer, a draft may have been filed anyway, so it is left
+as `<name>.filing` rather than offered again; check Linear, then delete it or
+rename it back.
 
 ## Limits
 

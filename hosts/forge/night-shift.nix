@@ -72,6 +72,8 @@ let
       pkgs.curl
       pkgs.coreutils
       pkgs.gnused
+      pkgs.gawk
+      pkgs.gnugrep # -P, for the hidden-character check on drafts
       pkgs.util-linux # flock
       pkgs.bubblewrap # preflight on an agent's branch, confined
       config.systemd.package # systemd-run, to start claude outside the unit
