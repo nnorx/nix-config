@@ -1,0 +1,17 @@
+{
+  "base": "base00000000",
+  "configs": [
+    {
+      "deploy": "?",
+      "kind": "host",
+      "name": "pi",
+      "state": "unknown"
+    }
+  ],
+  "hosts": {},
+  "plan": [],
+  "verdict": {
+    "level": "unknown",
+    "text": "The base did not evaluate, so what this changes is unknown."
+  }
+}

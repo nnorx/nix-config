@@ -1,0 +1,23 @@
+{
+  "base": "base00000000",
+  "configs": [
+    {
+      "deploy": "auto",
+      "kind": "host",
+      "name": "pi",
+      "state": "unchanged"
+    },
+    {
+      "deploy": "-",
+      "kind": "home",
+      "name": "nick@wsl",
+      "state": "unchanged"
+    }
+  ],
+  "hosts": {},
+  "plan": [],
+  "verdict": {
+    "level": "routine",
+    "text": "Merging changes no host that upgrades itself."
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "base": "base00000000",
+  "configs": [
+    {
+      "deploy": "manual",
+      "kind": "host",
+      "name": "router",
+      "state": "changed"
+    }
+  ],
+  "hosts": {
+    "router": {
+      "actions": {
+        "not restarted": [],
+        "other units": [],
+        "reloads": [],
+        "restarts": [
+          "nftables"
+        ],
+        "starts": [],
+        "stops": []
+      },
+      "etc": [],
+      "findings": [
+        {
+          "area": "firewall",
+          "level": "review",
+          "text": "Firewall rules change (nftables.service). Deploy them behind deploy-guard."
+        }
+      ],
+      "versions": []
+    }
+  },
+  "plan": [],
+  "verdict": {
+    "level": "review",
+    "text": "Merging changes no host that upgrades itself, but read the review lines first."
+  }
+}

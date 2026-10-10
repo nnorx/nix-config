@@ -3,20 +3,24 @@
 # the shebang, errexit, nounset and pipefail. PREFLIGHT_EVAL and
 # PREFLIGHT_BRIEF name preflight-eval.nix and preflight-brief.jq in the store.
 #
-#   1. `nix flake check --all-systems --no-build`. --all-systems, or nix skips
+#   1. The brief's rules, against the hand-written cases in
+#      tests/preflight-brief/ (scripts/test-preflight-brief.sh). A slip in a
+#      rule changes verdicts with no error, so this fails the run instead.
+#      First, since it takes milliseconds.
+#   2. `nix flake check --all-systems --no-build`. --all-systems, or nix skips
 #      the aarch64 hosts on an x86 machine; --no-build, so this stays an
 #      evaluation and never a multi-hour Pi kernel build.
-#   2. Every host's toplevel and every Home Manager config, evaluated. flake
+#   3. Every host's toplevel and every Home Manager config, evaluated. flake
 #      check alone does neither: it passes a host whose toplevel cannot
 #      evaluate (a missing sops file did exactly that), and it skips
 #      homeConfigurations, so a broken WSL or macOS profile looked green.
-#   3. The brief: which of them the change actually touches, against a base,
+#   4. The brief: which of them the change actually touches, against a base,
 #      by default where this branch left origin/main, and for each host what
 #      kind of change it gets (scripts/preflight-brief.jq). That answers
 #      whether merging changes the Pis, which upgrade from main the same
 #      night, and whether that needs Nick at hand. It is advice and never
 #      fails the run.
-#   4. Formatting, as CI checks it. Last, so a formatting slip never hides an
+#   5. Formatting, as CI checks it. Last, so a formatting slip never hides an
 #      evaluation error or the brief above. Files that were not formatted get
 #      formatted, and the run fails so the change is looked at.
 #
@@ -92,6 +96,12 @@ if [[ -z $head && -n $untracked ]]; then
   echo "!! Untracked, so invisible to the flake until \`git add\`:"
   while IFS= read -r path; do echo "   $path"; done <<<"$untracked"
 fi
+
+step "brief rules"
+# Under --head too: the brief below uses the rules this preflight was built
+# with (PREFLIGHT_BRIEF), not the commit's, and those are what this tests.
+# $BASH, since writeShellApplication puts no bash on PATH.
+"$BASH" scripts/test-preflight-brief.sh
 
 step "flake check"
 nix flake check --all-systems --no-build "$ref"
