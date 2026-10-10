@@ -34,6 +34,10 @@ sudo deploy-guard confirm
 
 `deploy-guard status` says whether one is armed and which generation is running.
 
+An arm expires after six hours, so one abandoned after a failed `nrb` cannot
+roll back a later, unrelated reboot. If `deploy-guard status` still shows an old
+arm, `disarm` it.
+
 It is on gate only, not fleet-wide: the Pis are a card-pull away from recovery,
 and gate is the host where an unreachable box means the house has no router. It
 covers "boots, but is unreachable", which is the likely failure for networking

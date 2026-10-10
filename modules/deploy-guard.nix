@@ -19,6 +19,10 @@ let
   stateDir = "/var/lib/deploy-guard";
   armedFile = "${stateDir}/armed";
 
+  # How long an arm stays good. The runbook arms, rebuilds and reboots in one
+  # sitting, so a marker older than this was abandoned, not waiting.
+  maxAgeHours = 6;
+
   deploy-guard = pkgs.writeShellApplication {
     name = "deploy-guard";
     runtimeInputs = with pkgs; [
@@ -30,6 +34,7 @@ let
       state=${stateDir}
       armed=${armedFile}
       profile=/nix/var/nix/profiles/system
+      max_age=$((${toString maxAgeHours} * 3600))
 
       # The generation currently *running*, which is not the same as the one
       # the profile points at: `nixos-rebuild boot` advances the profile while
@@ -59,13 +64,23 @@ let
         fi
       }
 
+      # The arm time from a marker's third field, in seconds since the epoch.
+      # Prints nothing when the field is missing or is not a number, which the
+      # callers treat as an arm that does not expire.
+      armed_time() {
+        case "''${1:-}" in
+          "" | *[!0-9]*) ;;
+          *) echo "$1" ;;
+        esac
+      }
+
       case "''${1:-}" in
         arm)
           require_root arm
           minutes=''${2:-15}
           gen=$(running_generation)
           mkdir -p "$state"
-          printf '%s %s\n' "$minutes" "$gen" > "$armed"
+          printf '%s %s %s\n' "$minutes" "$gen" "$(date +%s)" > "$armed"
           echo "Armed. If generation $gen is not confirmed within $minutes"
           echo "minutes of the next boot, the box rolls back to it and reboots."
           echo "After rebooting, run: deploy-guard confirm"
@@ -84,7 +99,17 @@ let
           ;;
         status)
           if [ -e "$armed" ]; then
-            echo "armed for next boot: $(cat "$armed") (minutes generation)"
+            read -r minutes gen armed_at < "$armed"
+            echo "armed for next boot: generation $gen, $minutes minutes"
+            armed_at=$(armed_time "''${armed_at:-}")
+            if [ -z "$armed_at" ]; then
+              echo "arm time not recorded, so it does not expire"
+            elif [ "$(($(date +%s) - armed_at))" -gt "$max_age" ]; then
+              echo "armed $(date -d "@$armed_at"): expired, the next boot ignores it"
+              echo "'deploy-guard disarm' clears it"
+            else
+              echo "armed $(date -d "@$armed_at"), expires after ${toString maxAgeHours} hours"
+            fi
           else
             echo "not armed"
           fi
@@ -96,12 +121,29 @@ let
         run)
           # Called by the unit at boot, not by hand.
           [ -e "$armed" ] || exit 0
-          read -r minutes gen < "$armed"
+          read -r minutes gen armed_at < "$armed"
 
           # Consume the marker up front. Arming applies to exactly one boot, so
           # a later unrelated reboot must not inherit a countdown, and neither
           # must the reboot this guard is about to trigger.
           rm -f "$armed"
+
+          # An arm whose reboot never came is abandoned: `nrb && reboot` skips
+          # the reboot when the build fails, and a fix deployed with `nrs`
+          # never consumes the marker. Left alone, it would roll back on
+          # whatever reboot came next, perhaps weeks later, to a generation
+          # that may no longer match the rest of the network. So an old arm is
+          # ignored.
+          #
+          # Anything else keeps the protection. A marker with no time was
+          # written before arms recorded one, which includes the arm for the
+          # deploy that installs this check. A negative age means the clock is
+          # wrong at boot, so the age cannot be trusted either way.
+          armed_at=$(armed_time "''${armed_at:-}")
+          if [ -n "$armed_at" ] && [ "$(($(date +%s) - armed_at))" -gt "$max_age" ]; then
+            echo "deploy-guard: ignoring an arm from $(date -d "@$armed_at"), over ${toString maxAgeHours} hours old; no rollback"
+            exit 0
+          fi
 
           echo "deploy-guard: rolling back to generation $gen in $minutes minutes unless confirmed"
           sleep "$((minutes * 60))"
@@ -125,6 +167,13 @@ in
   systemd.services.deploy-guard = {
     description = "Roll back to the previous generation unless a deploy is confirmed";
     wantedBy = [ "multi-user.target" ];
+
+    # Only a boot should run this. A switch that changes the unit would
+    # otherwise restart it: with an arm waiting, `run` would consume it and
+    # count down to a rollback with no reboot behind it, and during a
+    # countdown the restart would kill the sleep and find no marker, so the
+    # protection would end without a word.
+    restartIfChanged = false;
 
     # The countdown must outlive the unit's start-up, so this is a long-running
     # service rather than a oneshot: `deploy-guard confirm` cancels it by
