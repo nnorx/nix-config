@@ -21,7 +21,7 @@
 #   linear-api-key  A personal API key. It acts as Nick, so Linear does not
 #                   notify him of what the night shift writes; ntfy does.
 #   ntfy-url        The fleet's topic (modules/alerts.nix), for a push when an
-#                   issue is ready or needs him.
+#                   issue is ready or needs him, and when runs keep failing.
 #
 # Like modules/alerts.nix, evaluation fails until both exist, rather than
 # sops-nix failing the build after merge.
@@ -85,6 +85,7 @@ let
       NIGHT_SHIFT_PROJECTS = "${home}/projects";
       NIGHT_SHIFT_MAX = "2";
       NIGHT_SHIFT_STALL_HOURS = "4";
+      NIGHT_SHIFT_FAILED_RUNS = "3";
     };
     text = builtins.readFile ./night-shift.sh;
   };
@@ -130,6 +131,9 @@ in
       # KillMode stays the default, so a run ends whole, its children with it.
       # The agents outlive it because the dispatcher starts claude in a scope
       # of its own (`cl` in night-shift.sh), outside this unit's cgroup.
+      # Counts runs that failed, however they ended, and pushes when they
+      # keep failing (after_run in night-shift.sh).
+      ExecStopPost = "${lib.getExe night-shift} _after";
     };
   };
 

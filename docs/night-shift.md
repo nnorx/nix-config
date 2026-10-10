@@ -144,5 +144,11 @@ rename it back.
   it, and the timer catches up after.
 - Comments come from your own key, so Linear does not notify you of them. The
   push from ntfy is the notification.
+- A run that cannot reach Linear, or whose key Linear refuses, fails without
+  touching any issue. After 3 timer runs in a row fail, 30 minutes, ntfy
+  pushes "Night shift is failing" once, and
+  `journalctl --user -u night-shift` says why. Nothing more is pushed until a
+  run succeeds, which starts the count over and sends nothing. Runs you start
+  from a shell with `night-shift run` are not counted.
 - The verdict needs preflight, so only nix-config has one. Other repos get the
   agent's own account of what it verified.

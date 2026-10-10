@@ -47,6 +47,7 @@ MARKER="**Night shift**"
 projects=${NIGHT_SHIFT_PROJECTS:-$HOME/projects}
 max=${NIGHT_SHIFT_MAX:-2}
 stall_hours=${NIGHT_SHIFT_STALL_HOURS:-4}
+failed_runs=${NIGHT_SHIFT_FAILED_RUNS:-3}
 state_dir=${XDG_STATE_HOME:-$HOME/.local/state}/night-shift
 shopt -s nullglob
 
@@ -84,15 +85,20 @@ gql() {
   jq -c '.data' <<<"$out"
 }
 
-# notify <title> <message> <url>. Best effort: a missed push leaves the issue
-# itself correct. The topic is the only access control, so it goes through a
+# notify <title> <message> [url]. Fails when the push did not go out, which
+# only after_run acts on: elsewhere a missed push leaves the issue itself
+# correct. The topic is the only access control, so it goes through a
 # descriptor too.
 notify() {
   [[ -r ${NIGHT_SHIFT_NTFY_FILE:-} ]] || return 0
-  curl -sS --max-time 15 -o /dev/null \
+  local click=()
+  [[ -z ${3-} ]] || click=(-H "Click: $3")
+  curl -fsS --max-time 15 -o /dev/null \
     -K <(printf 'url = %s\n' "$(<"$NIGHT_SHIFT_NTFY_FILE")") \
-    -H "Title: $1" -H "Click: $3" -H "Tags: robot" --data-binary "$2" ||
+    -H "Title: $1" "${click[@]}" -H "Tags: robot" --data-binary "$2" || {
     echo "night-shift: ntfy failed for: $1" >&2
+    return 1
+  }
 }
 
 # One issue in full. The whole history, in whatever order Linear returns it,
@@ -131,7 +137,7 @@ comment() {
 stop_issue() {
   comment "$1" "$3"
   move "$1" "$2"
-  notify "$4" "$(jq -r .title <<<"$1")" "$(jq -r .url <<<"$1")"
+  notify "$4" "$(jq -r .title <<<"$1")" "$(jq -r .url <<<"$1")" || true
   echo "night-shift: $4"
 }
 
@@ -731,6 +737,34 @@ check() {
     echo "ntfy: no topic, so no pushes"
   fi
 }
+# after_run: the unit's ExecStopPost, so it sees every way a run ends, a
+# timeout or a kill included, in systemd's $SERVICE_RESULT. A run that cannot
+# reach Linear fails without touching any issue, so without this a revoked key
+# or a long outage is silence. One push once `failed_runs` runs in a row have
+# failed, 30 minutes at the timer's pace, so a Wi-Fi drop passes quietly, and
+# no more until a run succeeds. A push that does not go out is tried again
+# after the next failure. Runs started from a shell count neither way.
+after_run() {
+  local f=$state_dir/failed-runs n="" why
+  mkdir -p "$state_dir"
+  if [[ ${SERVICE_RESULT-} == success ]]; then
+    rm -f "$f" "$f.pushed"
+    return 0
+  fi
+  [[ -r $f ]] && n=$(<"$f")
+  [[ $n =~ ^[0-9]+$ ]] || n=0
+  n=$((n + 1))
+  echo "$n" >"$f"
+  why="${SERVICE_RESULT:-unknown}${EXIT_STATUS:+ $EXIT_STATUS}"
+  echo "night-shift: $n run(s) in a row failed, the last with $why" >&2
+  if ((n >= failed_runs)) && [[ ! -e $f.pushed ]]; then
+    if notify "Night shift is failing" \
+      "The last $n runs failed, the last with $why, so nothing is taken from Linear or started. journalctl --user -u night-shift on forge says why."; then
+      touch "$f.pushed"
+    fi
+  fi
+}
+
 status() {
   local any=""
   for f in "$state_dir"/*.json; do
@@ -761,6 +795,8 @@ case ${1-} in
     viewer=$2
     if [[ $1 == _finish ]]; then finish_one "$3"; else start_one "$3"; fi
     ;;
+  # After every run of the unit, its ExecStopPost.
+  _after) after_run ;;
   file)
     load_key
     file_drafts
