@@ -19,21 +19,11 @@
     wants = [ "network-online.target" ];
     wantedBy = [ "multi-user.target" ];
 
-    serviceConfig = {
+    serviceConfig = import ../lib/hardening.nix // {
       Type = "simple";
       Restart = "always";
       RestartSec = 10;
       DynamicUser = true;
-
-      # Hardening
-      NoNewPrivileges = true;
-      ProtectSystem = "strict";
-      ProtectHome = true;
-      PrivateTmp = true;
-      ProtectKernelTunables = true;
-      ProtectControlGroups = true;
-      RestrictNamespaces = true;
-      RestrictSUIDSGID = true;
 
       ExecStart =
         if mode == "agent" then

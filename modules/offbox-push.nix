@@ -354,7 +354,10 @@ in
       after = [ "network-online.target" ];
       wants = [ "network-online.target" ];
 
-      serviceConfig = {
+      # lib/hardening.nix. Its ProtectSystem=strict leaves everything read-only
+      # except the StateDirectory, which is all this needs: it reads the backup
+      # directory and writes only its own working copy.
+      serviceConfig = import ../lib/hardening.nix // {
         Type = "oneshot";
         User = job.user;
 
@@ -380,18 +383,6 @@ in
         # either way: it resolves ~ from the passwd entry rather than $HOME, and
         # is handed its key and known_hosts explicitly.
         Environment = [ "HOME=/var/lib/${name}" ];
-
-        # Hardening. ProtectSystem=strict leaves everything read-only except the
-        # StateDirectory, which is all this needs: it reads the backup directory
-        # and writes only its own working copy.
-        NoNewPrivileges = true;
-        ProtectSystem = "strict";
-        ProtectHome = true;
-        PrivateTmp = true;
-        ProtectKernelTunables = true;
-        ProtectControlGroups = true;
-        RestrictNamespaces = true;
-        RestrictSUIDSGID = true;
       };
     }) cfg;
 
