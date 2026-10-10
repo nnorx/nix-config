@@ -17,6 +17,15 @@
 # daemon and the sandbox cannot open just one there. Group membership then
 # decides what else that reaches, which is why nick is not in `docker`
 # (default.nix).
+#
+# forge's sops secrets are also kept from commands and from Claude's Read.
+# Those nick owns, the night shift's Linear key and ntfy topic
+# (night-shift.nix), are otherwise readable by anything running as him. The
+# deny is on /run/secrets.d, the directory sops-nix writes. /run/secrets is a
+# symlink into it, and bubblewrap cannot mount over a symlink, which fails
+# every command (checked 2026-10-08 with bwrap itself); a file-by-file deny
+# would leave the generation directories reachable by name. Read rules take
+# both paths, since they match the path asked for.
 { pkgs, lib, ... }:
 let
   policy = import ../../lib/claude-sandbox.nix {
@@ -24,9 +33,23 @@ let
     isDarwin = pkgs.stdenv.isDarwin;
   };
   format = pkgs.formats.json { };
+  secretsDir = "/run/secrets.d";
 in
 {
   environment.etc."claude-code/managed-settings.json".source =
     format.generate "claude-managed-settings.json"
-      { sandbox = policy.strict; };
+      {
+        sandbox = policy.strict // {
+          credentials.files = policy.strict.credentials.files ++ [
+            {
+              path = secretsDir;
+              mode = "deny";
+            }
+          ];
+        };
+        permissions.deny = [
+          "Read(/${secretsDir}/**)"
+          "Read(//run/secrets/**)"
+        ];
+      };
 }
