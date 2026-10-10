@@ -481,17 +481,27 @@ start_one() {
 # Forgets waiting issues Nick has closed. Their worktrees stay for `claude rm`
 # or git's cleanup, since one may hold work not yet published. Only an answer
 # from Linear counts: offline, nothing is forgotten.
+#
+# One request per 50 waiting issues, Linear's default page, so each answer is
+# whole and an issue missing from it does not exist. includeArchived matches
+# what issue() finds by id, so an issue archived while waiting is judged by its
+# state, not dropped as missing.
 tidy() {
-  local f i rc
-  for f in "$state_dir"/*.json; do
-    [[ $(jq -r .phase "$f") == waiting ]] || continue
-    rc=0
-    i=$(issue "$(jq -r .id "$f")") || rc=$?
-    if ((rc == 2)) || { ((rc == 0)) && closed "$i"; }; then
-      rm "$f"
-      echo "night-shift: forgot $(basename "$f" .json)"
-    fi
-  done
+  local states=("$state_dir"/*.json) chunk nodes id f i
+  ((${#states[@]})) || return 0
+  while read -r chunk; do
+    # shellcheck disable=SC2016 # GraphQL's variables, not the shell's
+    nodes=$(gql 'query($ids: [ID!]!) { issues(first: 50, includeArchived: true, filter: {id: {in: $ids}}) { nodes { id state { type } } } }' \
+      "$(jq -c '{ids: map(.id)}' <<<"$chunk")" | jq -c '.issues.nodes') || continue
+    while IFS=$'\t' read -r id f; do
+      i=$(jq -c --arg id "$id" '.[] | select(.id == $id)' <<<"$nodes")
+      if [[ -z $i ]] || closed "$i"; then
+        rm "$f"
+        echo "night-shift: forgot $(basename "$f" .json)"
+      fi
+    done < <(jq -r '.[] | [.id, .file] | @tsv' <<<"$chunk")
+  done < <(jq -nc '[inputs | select(.phase == "waiting") | {id, file: input_filename}]
+    | range(0; length; 50) as $n | .[$n:$n + 50]' "${states[@]}")
 }
 
 running() {
