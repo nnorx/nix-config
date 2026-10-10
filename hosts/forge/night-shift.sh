@@ -213,8 +213,14 @@ update() {
 # descriptor. Any claude command can start the background daemon, which hosts
 # every agent: in the unit's cgroup, stopping or finishing a run would kill
 # them, and holding the lock it would keep every later run out.
+#
+# --expand-environment=no, because systemd-run otherwise expands "${...}" in
+# its arguments the way ExecStart= does, and the prompt is one of them. An
+# issue quoting a workflow's ${{ github.ref }} or a shell's "${args[@]}" reached
+# the agent with those emptied, and a name that is set, ${HOME} say, would
+# reach it as its value. The prompt has to arrive as Nick wrote it.
 cl() {
-  systemd-run --user --scope --collect --quiet -- claude "$@" 9>&-
+  systemd-run --user --scope --collect --quiet --expand-environment=no -- claude "$@" 9>&-
 }
 
 closed() {
