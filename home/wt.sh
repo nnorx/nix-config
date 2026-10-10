@@ -32,18 +32,21 @@ wt() {
   fi
 
   # fzf searches and shows only the first field, so a query matches the
-  # repo and worktree name rather than the home directory's path.
+  # repo and worktree name rather than the home directory's path, and
+  # --exact makes `wt 16` mean the substring 16, not any 1 followed by a 6.
   # ls -t is the sort by mtime that GNU and macOS share, and worktree names
-  # come from branch names, which hold no newlines.
+  # come from branch names, which hold no newlines. `command`, because the
+  # interactive shells alias ls to eza, whose -t names a time field rather
+  # than sorting, so the list came out by name.
   # shellcheck disable=SC2012
   sel=$(
-    ls -dt -- "${trees[@]}" | while IFS= read -r d; do
+    command ls -dt -- "${trees[@]}" | while IFS= read -r d; do
       d=${d%/}
       name=${d##*/}
       repo=${d%/.claude/worktrees/*}
       repo=${repo##*/}
       printf '%s/%s\t%s\n' "$repo" "$name" "$d"
-    done | fzf --delimiter '\t' --with-nth 1 \
+    done | fzf --exact --delimiter '\t' --with-nth 1 \
       --preview 'git -C {2} log --oneline -3' \
       "${opts[@]}"
   ) || return 1
