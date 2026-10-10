@@ -1,0 +1,23 @@
+{
+  "base": "base00000000",
+  "configs": [
+    {
+      "deploy": "auto",
+      "kind": "host",
+      "name": "pi",
+      "state": "removed"
+    }
+  ],
+  "hosts": {},
+  "plan": [
+    {
+      "area": "removed",
+      "level": "review",
+      "text": "pi is removed but still upgrades from main, so every nightly upgrade fails from tonight. Turn the upgrade off on the host first, or retire it."
+    }
+  ],
+  "verdict": {
+    "level": "review",
+    "text": "Merging changes no host that upgrades itself, but read the review lines first."
+  }
+}
