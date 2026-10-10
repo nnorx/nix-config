@@ -7,6 +7,27 @@
     wayland.enable = true;
   };
 
+  # Plasma's defaults, trimmed of what this laptop has no use for. Measured
+  # against the system closure on 2026-10-10:
+  #
+  # - Orca, the screen reader, and speech-dispatcher, which every NixOS desktop
+  #   enables and whose 645 MiB of mbrola voices are most of the 0.74 GiB.
+  #   Without it, Firefox's Read Aloud and Okular's speech have no voice.
+  # - KDE PIM is Akonadi and the MariaDB server it stores mail and calendars
+  #   in, 0.37 GiB. Nothing here uses KMail, Kontact or Merkuro, and Akonadi
+  #   had never started.
+  # - ModemManager probes for cellular modems, which a Framework 16 does not
+  #   have. Re-enable it for a USB LTE dongle.
+  # - The touch keyboard: the panel is not a touchscreen.
+  services.orca.enable = false;
+  services.speechd.enable = false;
+  programs.kde-pim.enable = false;
+  networking.modemmanager.enable = false;
+  environment.plasma6.excludePackages = with pkgs.kdePackages; [
+    plasma-keyboard
+    qtvirtualkeyboard
+  ];
+
   services.pipewire = {
     enable = true;
     alsa.enable = true;
