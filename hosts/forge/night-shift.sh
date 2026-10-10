@@ -13,6 +13,9 @@
 #   Handoff ready  The agent committed and wrote a PR handoff. The comment
 #                  says what changed, and for nix-config, preflight's verdict.
 #   Needs you      The agent stopped with questions, or went quiet.
+#   Done           Nick merged the PR. The next run sees it on GitHub, moves
+#                  the issue to the team's completed state and cleans up
+#                  after the agent (land_one).
 #
 # Moving an issue back to Queued resumes its agent's session, in the same
 # worktree, with Nick's comments since it stopped. Moved there while the
@@ -106,7 +109,7 @@ notify() {
 ISSUE_FIELDS='id identifier title description url
   state { name type }
   creator { id }
-  team { states { nodes { id name } } }
+  team { states { nodes { id name type position } } }
   labels { nodes { name parent { name } } }
   comments(first: 100) { nodes { body createdAt user { id } } }
   history(first: 250) { pageInfo { hasNextPage } nodes { createdAt actorId toState { name } } }'
@@ -478,30 +481,181 @@ start_one() {
   echo "night-shift: started $ident"
 }
 
+# The GitHub repository behind <repo>'s origin, as owner/name, or nothing.
+github_repo() {
+  local url
+  url=$(git -C "$1" remote get-url origin 2>/dev/null) || return 0
+  [[ $url =~ ^(https://|ssh://git@|git@)github\.com[:/]([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)$ ]] || return 0
+  echo "${BASH_REMATCH[2]}/${BASH_REMATCH[3]%.git}"
+}
+
+# merged_pr <owner/name> <branch>: {number, url, sha} of the PR from <branch>
+# that merged, or nothing. Asked without a token, as the pr-handoff skill
+# does: the night shift has no GitHub login and must not get one (CLAUDE.md,
+# "Deploying and merging"). A private repo answers 404, the same as a missing
+# one, and is left to Nick. Returns 1 when GitHub did not answer, and 2 when it
+# refused, which without a token is nearly always the limit of 60 an hour.
+merged_pr() {
+  local out code
+  out=$(curl -sS --max-time 15 -w '\n%{http_code}' -H 'Accept: application/vnd.github+json' \
+    "https://api.github.com/repos/$1/pulls?state=closed&head=${1%%/*}:$(jq -rn --arg b "$2" '$b | @uri')") ||
+    return 1
+  code=${out##*$'\n'}
+  case $code in
+    200) jq -c '[.[] | select(.merged_at)] | max_by(.merged_at) | select(.)
+      | {number, url: .html_url, sha: .head.sha}' <<<"${out%$'\n'*}" ;;
+    404) ;;
+    403 | 429) return 2 ;;
+    *) return 1 ;;
+  esac
+}
+
+# One handoff whose PR Nick merged (tidy): clean up after its agent, then move
+# it to Done. The worktree goes only when nothing in it can be lost: the
+# branch's tip is the head the PR merged, so every commit is in main, nothing
+# is uncommitted, and no session in it is still at work. Squash merges leave
+# the branch out of main's history, so `git branch --merged` cannot say.
+# Otherwise the worktree, branch and sessions all stay, and the comment says
+# why.
+#
+# The worktree goes first, by git, before `claude rm` sees the sessions.
+# `claude rm` removes only a worktree it recorded making (`claude --bg -w`),
+# and these sessions were started inside one this script made, so it leaves
+# them be; with the directory already gone, it has nothing to decide about,
+# however many sessions shared it.
+land_one() {
+  local f=$1 id ident repo wt branch number url sha i completed tip sessions busy dirty out keep="" s n note="" done_text
+  local -a removed=()
+  id=$(jq -r .id "$f")
+  ident=$(jq -r .ident "$f")
+  repo=$(jq -r .repo "$f")
+  wt=$(jq -r .worktree "$f")
+  branch=$(jq -r .branch "$f")
+  number=$(jq -r .merged.number "$f")
+  url=$(jq -r .merged.url "$f")
+  sha=$(jq -r .merged.sha "$f")
+
+  i=$(issue "$id")
+  # Moved on since tidy asked: the next run looks again.
+  [[ $(jq -r .state.name <<<"$i") == "$READY" ]] || return 0
+  completed=$(jq -r '[.team.states.nodes[] | select(.type == "completed")] | sort_by(.position) | first | .name // empty' <<<"$i")
+  [[ -n $completed ]] || die "$ident's team has no completed state"
+
+  tip=$(git -C "$repo" rev-parse --verify --quiet "refs/heads/$branch^{commit}" || true)
+  # Every session in the worktree, by name or not: a resume that started a
+  # copy leaves two.
+  if ! sessions=$(cl agents --json --all </dev/null 2>/dev/null |
+    jq -c --arg wt "$wt" '[.[] | select(.cwd == $wt) | {id, state}]'); then
+    keep="Claude's sessions could not be listed."
+  elif [[ -n $tip && $tip != "$sha" ]]; then
+    keep="\`$branch\` is at ${tip:0:12}, and the PR merged ${sha:0:12}."
+  elif busy=$(jq -r 'map(select(.state | IN("done", "blocked", "stopped", "failed") | not)
+    | "\(.id) is \(.state)") | join(", ")' <<<"$sessions") && [[ -n $busy ]]; then
+    keep="a session there is still at work: $busy."
+  elif [[ -d $wt ]]; then
+    if [[ -z $tip || $(git -C "$wt" symbolic-ref --quiet HEAD || true) != "refs/heads/$branch" ]]; then
+      keep="it is no longer on \`$branch\`."
+    elif ! dirty=$(git -C "$wt" status --porcelain 2>&1) || [[ -n $dirty ]]; then
+      keep="it has changes not committed:
+\`\`\`
+$(head -n 10 <<<"$dirty")
+\`\`\`"
+    elif ! out=$(git -C "$repo" worktree remove "$wt" 2>&1); then
+      keep="git would not remove it: $out"
+    else
+      removed+=("its worktree")
+    fi
+  else
+    # Gone already, Nick's doing: drop git's record of it, or the branch
+    # counts as checked out there and cannot be deleted.
+    git -C "$repo" worktree prune
+  fi
+
+  if [[ -z $keep ]]; then
+    n=0
+    for s in $(jq -r '.[].id' <<<"$sessions"); do
+      if cl rm "$s" </dev/null >/dev/null 2>&1; then
+        n=$((n + 1))
+      else
+        note+=" \`claude rm $s\` failed."
+      fi
+    done
+    if ((n == 1)); then
+      removed+=("the agent's session")
+    elif ((n > 1)); then
+      removed+=("the agent's $n sessions")
+    fi
+    if [[ -n $tip ]] && ! out=$(git -C "$repo" branch -D "$branch" 2>&1); then
+      note+=" Deleting \`$branch\` failed: $out"
+    else
+      [[ -z $tip ]] || removed+=("the branch \`$branch\`")
+      # branch -D drops its section too, unless something already took the
+      # branch and left the section behind.
+      git -C "$repo" config --remove-section "branch.$branch" 2>/dev/null || true
+    fi
+    case ${#removed[@]} in
+      0) done_text="Nothing of the agent's was left to remove." ;;
+      1) done_text="Removed ${removed[0]}." ;;
+      2) done_text="Removed ${removed[0]} and ${removed[1]}." ;;
+      *) done_text="Removed ${removed[0]}, ${removed[1]} and ${removed[2]}." ;;
+    esac
+    comment "$i" "Merged in [#$number]($url). $done_text$note"
+  else
+    comment "$i" "Merged in [#$number]($url). Kept its worktree \`$wt\`, the branch and the agent's session, since $keep"
+  fi
+  # No push: Nick merged it himself.
+  move "$i" "$completed"
+  rm "$f"
+  echo "night-shift: $ident merged in #$number, moved to $completed"
+}
+
 # Forgets waiting issues Nick has closed. Their worktrees stay for `claude rm`
 # or git's cleanup, since one may hold work not yet published. Only an answer
-# from Linear counts: offline, nothing is forgotten.
+# from Linear counts: offline, nothing is forgotten. An issue in Handoff ready
+# whose PR has merged is handed to land_one instead.
 #
 # One request per 50 waiting issues, Linear's default page, so each answer is
 # whole and an issue missing from it does not exist. includeArchived matches
 # what issue() finds by id, so an issue archived while waiting is judged by its
 # state, not dropped as missing.
+#
+# GitHub allows 60 requests an hour without a token, for every caller on
+# forge's address, so it is asked once a run for each issue in Handoff ready
+# and no more, the longest unasked first, and not again in a run it refuses.
 tidy() {
-  local states=("$state_dir"/*.json) chunk nodes id f i
+  local states=("$state_dir"/*.json) chunk nodes id f i gh=1 slug pr rc
   ((${#states[@]})) || return 0
   while read -r chunk; do
     # shellcheck disable=SC2016 # GraphQL's variables, not the shell's
-    nodes=$(gql 'query($ids: [ID!]!) { issues(first: 50, includeArchived: true, filter: {id: {in: $ids}}) { nodes { id state { type } } } }' \
+    nodes=$(gql 'query($ids: [ID!]!) { issues(first: 50, includeArchived: true, filter: {id: {in: $ids}}) { nodes { id state { name type } } } }' \
       "$(jq -c '{ids: map(.id)}' <<<"$chunk")" | jq -c '.issues.nodes') || continue
     while IFS=$'\t' read -r id f; do
       i=$(jq -c --arg id "$id" '.[] | select(.id == $id)' <<<"$nodes")
       if [[ -z $i ]] || closed "$i"; then
         rm "$f"
         echo "night-shift: forgot $(basename "$f" .json)"
+        continue
+      fi
+      ((gh)) && [[ $(jq -r .state.name <<<"$i") == "$READY" ]] || continue
+      slug=$(github_repo "$(jq -r .repo "$f")")
+      [[ -n $slug ]] || continue
+      # shellcheck disable=SC2016 # jq's variables, not the shell's
+      update "$f" '.checked = $now' --arg now "$(now)"
+      rc=0
+      pr=$(merged_pr "$slug" "$(jq -r .branch "$f")") || rc=$?
+      if ((rc == 2)); then
+        echo "night-shift: GitHub refused, likely its hourly limit; merged PRs are looked for next run" >&2
+        gh=0
+      elif ((rc != 0)); then
+        echo "night-shift: GitHub did not answer for $(basename "$f" .json)" >&2
+      elif [[ -n $pr ]]; then
+        # shellcheck disable=SC2016 # jq's variables, not the shell's
+        update "$f" '.merged = $pr' --argjson pr "$pr"
+        child _land "$viewer" "$f" </dev/null
       fi
     done < <(jq -r '.[] | [.id, .file] | @tsv' <<<"$chunk")
-  done < <(jq -nc '[inputs | select(.phase == "waiting") | {id, file: input_filename}]
-    | range(0; length; 50) as $n | .[$n:$n + 50]' "${states[@]}")
+  done < <(jq -nc '[inputs | select(.phase == "waiting") | {id, checked, file: input_filename}]
+    | sort_by(.checked // "") | range(0; length; 50) as $n | .[$n:$n + 50]' "${states[@]}")
 }
 
 running() {
@@ -799,11 +953,15 @@ case ${1-} in
     run
     ;;
   # The per-issue halves of a run, each in its own process (child above).
-  _finish | _start)
+  _finish | _start | _land)
     [[ $# -eq 3 ]] || usage
     load_key
     viewer=$2
-    if [[ $1 == _finish ]]; then finish_one "$3"; else start_one "$3"; fi
+    case $1 in
+      _finish) finish_one "$3" ;;
+      _start) start_one "$3" ;;
+      _land) land_one "$3" ;;
+    esac
     ;;
   # After every run of the unit, its ExecStopPost.
   _after) after_run ;;

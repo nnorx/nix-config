@@ -13,7 +13,7 @@ settings, sandbox and auto mode, so `claude agents` and `claude attach` work on
 them as on any other. Nothing it does publishes, merges or deploys.
 
 ```
-Queued ──▶ Running ──▶ Handoff ready ──▶ (you publish, then Done)
+Queued ──▶ Running ──▶ Handoff ready ──▶ (you publish and merge) ──▶ Done
    ▲            │
    │            └────▶ Needs you
    └─── you answer in a comment and move it back
@@ -95,8 +95,16 @@ the repo's `.git/night-shift/`. If one of them fails, the issue lands in
 - **Only your issues, only by you.** An issue someone else created or moved
   to `Queued`, or one synced in from a public repo, is sent to `Needs you`
   untouched: the agent is given its description as your task.
-- **Done or canceled** issues are forgotten. Their worktrees are left for
-  `claude rm` or the git cleanup.
+- **Merged:** after you merge a handoff's PR, the next run moves the issue to
+  the team's completed state, with a comment naming the PR, and cleans up:
+  the agent's worktree, its branch and the branch's section in
+  `.git/config`, every session in that worktree, and the issue's state file.
+  The worktree goes only if the branch's tip is the head the PR merged, and
+  nothing in it is uncommitted, and no session there is still working.
+  Otherwise all of it stays and the comment says why. Nothing is pushed,
+  since you did the merge.
+- **Done or canceled** by your hand, issues are forgotten. Their worktrees are
+  left for `claude rm` or the git cleanup.
 - `night-shift status` lists what each agent is doing.
 
 To start an issue over rather than resume it, remove its worktree and branch,
@@ -152,3 +160,8 @@ rename it back.
   from a shell with `night-shift run` are not counted.
 - The verdict needs preflight, so only nix-config has one. Other repos get the
   agent's own account of what it verified.
+- Merges are seen through GitHub's public API, without a login, once a run
+  for each issue in `Handoff ready`. A private repository answers as if it
+  did not exist, so its issues are left for you to close. GitHub allows 60
+  such requests an hour from forge's address, Claude's own included; when it
+  refuses, the rest wait for a later run, the longest unasked first.
