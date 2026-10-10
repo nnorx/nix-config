@@ -368,12 +368,13 @@ start_one() {
     result=$(result_path "$repo" "$ident")
     # A result written after the agent was marked quiet is stale now.
     archive "$result"
-    # A finished session keeps its process, and resuming one that is still up
-    # starts a copy under a new id and name. Stopping it first keeps the
-    # conversation and lets --resume continue it under the same id.
+    # --resume continues the session under the same id only if it is stopped
+    # and given no flags; otherwise it starts a copy under a new id. A finished
+    # session keeps its process, so stop it first. Its name and permission
+    # mode are saved with it, and passing them again counts as new flags.
     job=$(agent id "$name" "$wt")
     [[ -z $job ]] || claude stop "$job" </dev/null >/dev/null 2>&1 || true
-    if ! (cd "$wt" && claude --bg --resume "$session" -n "$name" --permission-mode auto </dev/null \
+    if ! (cd "$wt" && claude --bg --resume "$session" </dev/null \
       "$(prompt_resume "$i" "$(jq -r .since "$f")" "$result")") >/dev/null; then
       stop_issue "$i" "$NEEDS" "Could not resume the session in \`$wt\`." "$ident did not resume"
       return 0
