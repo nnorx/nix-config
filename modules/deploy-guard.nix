@@ -168,6 +168,13 @@ in
     description = "Roll back to the previous generation unless a deploy is confirmed";
     wantedBy = [ "multi-user.target" ];
 
+    # Only a boot should run this. A switch that changes the unit would
+    # otherwise restart it: with an arm waiting, `run` would consume it and
+    # count down to a rollback with no reboot behind it, and during a
+    # countdown the restart would kill the sleep and find no marker, so the
+    # protection would end without a word.
+    restartIfChanged = false;
+
     # The countdown must outlive the unit's start-up, so this is a long-running
     # service rather than a oneshot: `deploy-guard confirm` cancels it by
     # stopping the unit, which kills the sleep.
