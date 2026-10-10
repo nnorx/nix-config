@@ -165,6 +165,42 @@ archive() {
   [[ ! -f $1 ]] || mv "$1" "$1.$(date +%s)"
 }
 
+# write_issue <issue json> <result path>: the issue as the agent is handed it,
+# as <ID>.issue.md next to its result, for a session reviewing the branch. The
+# Linear key is out of Claude's reach, so this is how it reads the task. Nick's
+# plan text, so it stays under .git/ and nothing publishes it. Written before
+# claude starts, so a run that fails to start still leaves it.
+write_issue() {
+  local comments
+  comments=$(answers "$1")
+  mkdir -p "$(dirname "$2")"
+  cat >"${2%.md}.issue.md" <<EOF
+# $(jq -r '"\(.identifier): \(.title)"' <<<"$1")
+
+- URL: $(jq -r .url <<<"$1")
+- State: $(jq -r .state.name <<<"$1")
+- Handed to the agent: $(now)
+
+$(jq -r '.description // "(no description)"' <<<"$1")
+
+## Nick's comments on the issue, oldest first
+
+${comments:-(none)}
+EOF
+}
+
+# forget <state file> [why]: drops an issue the dispatcher is done with, along
+# with its issue text and results, read or not, unless the repo is gone too.
+forget() {
+  local f=$1 ident dir
+  ident=$(jq -r .ident "$f")
+  if dir=$(git -C "$(jq -r .repo "$f")" rev-parse --path-format=absolute --git-common-dir 2>/dev/null); then
+    rm -f "$dir/night-shift/$ident.issue.md" "$dir/night-shift/$ident.md" "$dir/night-shift/$ident.md".*
+  fi
+  rm "$f"
+  echo "night-shift: forgot $ident${2:+, $2}"
+}
+
 # update <state file> <jq filter> [jq args...]
 update() {
   local f=$1 filter=$2
@@ -337,9 +373,7 @@ finish_one() {
   i=$(issue "$id") || rc=$?
   if ((rc == 2)) || { ((rc == 0)) && closed "$i"; }; then
     # Deleted, done or canceled while the agent worked: leave it closed.
-    archive "$result"
-    rm "$f"
-    echo "night-shift: forgot $ident, closed while running"
+    forget "$f" "closed while running"
     return 0
   fi
   ((rc == 0)) || return "$rc"
@@ -421,6 +455,7 @@ start_one() {
     result=$(result_path "$repo" "$ident")
     # A result written after the agent was marked quiet is stale now.
     archive "$result"
+    write_issue "$i" "$result"
     # --resume continues the session under the same id only if it is stopped
     # and given no flags; otherwise it starts a copy under a new id. A finished
     # session keeps its process, so stop it first. Its name and permission
@@ -461,7 +496,7 @@ start_one() {
       return 0
     fi
     result=$(result_path "$repo" "$ident")
-    mkdir -p "$(dirname "$result")"
+    write_issue "$i" "$result"
     if ! (cd "$wt" && cl --bg -n "$name" --permission-mode auto </dev/null \
       "$(prompt_new "$i" "$repo" "$wt" "$branch" "$base" "$result")") >/dev/null; then
       stop_issue "$i" "$NEEDS" "Not started: \`claude --bg\` failed in \`$wt\`." "$ident did not start"
@@ -605,11 +640,11 @@ $(head -n 10 <<<"$dirty")
   fi
   # No push: Nick merged it himself.
   move "$i" "$completed"
-  rm "$f"
-  echo "night-shift: $ident merged in #$number, moved to $completed"
+  forget "$f" "merged in #$number, moved to $completed"
 }
 
-# Forgets waiting issues Nick has closed. Their worktrees stay for `claude rm`
+# Forgets waiting issues Nick has closed, with their issue text and archived
+# results in the repo's .git/night-shift/. Their worktrees stay for `claude rm`
 # or git's cleanup, since one may hold work not yet published. Only an answer
 # from Linear counts: offline, nothing is forgotten. An issue in Handoff ready
 # whose PR has merged is handed to land_one instead.
@@ -632,8 +667,7 @@ tidy() {
     while IFS=$'\t' read -r id f; do
       i=$(jq -c --arg id "$id" '.[] | select(.id == $id)' <<<"$nodes")
       if [[ -z $i ]] || closed "$i"; then
-        rm "$f"
-        echo "night-shift: forgot $(basename "$f" .json)"
+        forget "$f"
         continue
       fi
       ((gh)) && [[ $(jq -r .state.name <<<"$i") == "$READY" ]] || continue

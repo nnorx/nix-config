@@ -95,16 +95,24 @@ the repo's `.git/night-shift/`. If one of them fails, the issue lands in
 - **Only your issues, only by you.** An issue someone else created or moved
   to `Queued`, or one synced in from a public repo, is sent to `Needs you`
   untouched: the agent is given its description as your task.
+- **Reviewing a branch:** each time an agent is started or resumed, the
+  issue as it was handed over, with its title, URL, state, description and
+  your comments, is written to `.git/night-shift/<ID>.issue.md` in the repo,
+  next to the agent's result. A Claude session reviewing the branch cannot
+  reach Linear, so point it there to check the work against the task rather
+  than against memory. It stays under `.git/` and nothing publishes it.
 - **Merged:** after you merge a handoff's PR, the next run moves the issue to
   the team's completed state, with a comment naming the PR, and cleans up:
   the agent's worktree, its branch and the branch's section in
-  `.git/config`, every session in that worktree, and the issue's state file.
+  `.git/config`, every session in that worktree, and the issue's state file,
+  issue text and old results.
   The worktree goes only if the branch's tip is the head the PR merged, and
   nothing in it is uncommitted, and no session there is still working.
   Otherwise all of it stays and the comment says why. Nothing is pushed,
   since you did the merge.
-- **Done or canceled** by your hand, issues are forgotten. Their worktrees are
-  left for `claude rm` or the git cleanup.
+- **Done or canceled** by your hand, issues are forgotten, along with their
+  issue text and old results in `.git/night-shift/`. Their worktrees are left
+  for `claude rm` or the git cleanup.
 - `night-shift status` lists what each agent is doing.
 
 To start an issue over rather than resume it, remove its worktree and branch,
