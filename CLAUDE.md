@@ -102,6 +102,11 @@ pushing (`home/pr-handoff.nix`). For a squash merge, write
 The core plugin's pr-handoff skill has the details. The repo is public, so
 PR and CI state can be read without a token from `api.github.com`.
 
+Linear issues for the night shift work the same way: write each as a draft
+in the target repository's `.git/linear-handoff/`, and ask Nick to run
+`night-shift file`. docs/night-shift.md, "Filing issues from drafts", has the
+format. It files into the backlog only: queuing stays Nick's, in Linear.
+
 Read-only diagnostics on a host go through `fleet-ssh <host> <command>`, the
 one command that runs outside the sandbox (`home/ssh.nix`); plain `ssh` has no
 route out of it. Keep each call to that single command: a pipe, a redirect or

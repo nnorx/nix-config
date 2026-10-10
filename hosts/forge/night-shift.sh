@@ -24,6 +24,7 @@
 usage() {
   cat >&2 <<'EOF'
 usage: night-shift run      take finished work back to Linear, then start queued work
+       night-shift file     create Linear issues from drafts in each repo's .git/linear-handoff/
        night-shift check    confirm the key, states, repo labels and tools
        night-shift status   what each issue's agent is doing
 EOF
@@ -519,6 +520,130 @@ run() {
   done
 }
 
+# Issue drafts, for `night-shift file`: <repo>/.git/linear-handoff/<any>.md,
+# written by Claude or by hand, the way pr-handoff takes PR text. A front
+# matter of `key: value` lines, no comments, then the description:
+#
+#   ---
+#   title: forge: push to ntfy when night-shift runs keep failing
+#   repo: nix-config        default: the repository the draft is in
+#   priority: high          urgent, high, medium, low or none (default)
+#   project: Night shift    default: none; must exist in the team
+#   team: NNO               needed only with more than one team
+#   ---
+#
+# Issues are created in the team's backlog state, never in Queued: what an
+# agent works on stays Nick's choice, made in Linear. Filing as him is what
+# lets the dispatcher take them later, so every draft is shown in full and
+# nothing is created until he says yes.
+
+# draft_field <file> <key>
+draft_field() {
+  awk -v k="$2" '
+    NR == 1 { if ($0 != "---") exit; next }
+    $0 == "---" { exit }
+    { i = index($0, ":"); if (i && substr($0, 1, i - 1) == k) {
+        v = substr($0, i + 1); sub(/^[ \t]+/, "", v); sub(/[ \t]+$/, "", v); print v; exit } }' "$1"
+}
+
+# draft_body <file>: everything after the front matter, less leading blanks.
+draft_body() {
+  awk 'NR == 1 && $0 == "---" { fm = 1; next }
+    fm && $0 == "---" { fm = 0; next }
+    !fm { if (NF || seen) { seen = 1; print } }' "$1"
+}
+
+# draft_input <file> <repo> <workspace json>: the IssueCreateInput, or why not.
+draft_input() {
+  local f=$1 title repo tkey team priority project label state proj
+  [[ $(head -n 1 "$f") == --- ]] || { echo "no front matter"; return 1; }
+  title=$(draft_field "$f" title)
+  [[ -n $title ]] || { echo "no title"; return 1; }
+  repo=$(draft_field "$f" repo)
+  repo=${repo:-$2}
+  label=$(jq -r --arg r "$repo" '.issueLabels.nodes[] | select(.name == $r) | .id' <<<"$3")
+  [[ -n $label ]] || { echo "no repo label '$repo'"; return 1; }
+  tkey=$(draft_field "$f" team)
+  if [[ -z $tkey ]]; then
+    [[ $(jq '.teams.nodes | length' <<<"$3") -eq 1 ]] || { echo "more than one team; add team:"; return 1; }
+    tkey=$(jq -r '.teams.nodes[0].key' <<<"$3")
+  fi
+  team=$(jq -c --arg k "$tkey" '.teams.nodes[] | select(.key == $k)' <<<"$3")
+  [[ -n $team ]] || { echo "no team '$tkey'"; return 1; }
+  # The backlog, or failing that the first not-started state that is not
+  # Queued.
+  state=$(jq -c --arg q "$QUEUED" '([.states.nodes[] | select(.type == "backlog")] | sort_by(.position) | first)
+    // ([.states.nodes[] | select(.type == "unstarted" and .name != $q)] | sort_by(.position) | first) // empty' <<<"$team")
+  [[ -n $state ]] || { echo "team $tkey has no backlog state"; return 1; }
+  case $(draft_field "$f" priority) in
+    urgent) priority=1 ;; high) priority=2 ;; medium) priority=3 ;; low) priority=4 ;;
+    "" | none) priority=0 ;;
+    *) echo "priority is urgent, high, medium, low or none"; return 1 ;;
+  esac
+  project=$(draft_field "$f" project)
+  proj=""
+  if [[ -n $project ]]; then
+    proj=$(jq -r --arg p "$project" '.projects.nodes[] | select(.name == $p) | .id' <<<"$team")
+    [[ -n $proj ]] || { echo "no project '$project' in team $tkey"; return 1; }
+  fi
+  jq -nc --arg team "$(jq -r .id <<<"$team")" --arg title "$title" --arg body "$(draft_body "$f")" \
+    --argjson priority "$priority" --arg label "$label" --argjson state "$state" --arg proj "$proj" \
+    --arg key "$tkey" --arg repo "$repo" --arg project "$project" '
+    {input: ({teamId: $team, title: $title, description: $body, priority: $priority,
+              labelIds: [$label], stateId: $state.id}
+             + (if $proj == "" then {} else {projectId: $proj} end)),
+     shown: "\($key) · \($repo) · \(["no priority", "urgent", "high", "medium", "low"][$priority])\(if $project == "" then "" else " · \($project)" end) · into \($state.name)"}'
+}
+
+file_drafts() {
+  local d repo dir f data input n=0 bad=0 answer out
+  local -a drafts=() repos=() inputs=()
+  for d in "$projects"/*/; do
+    git -C "$d" rev-parse --git-dir >/dev/null 2>&1 || continue
+    dir=$(git -C "$d" rev-parse --path-format=absolute --git-common-dir)/linear-handoff
+    for f in "$dir"/*.md; do
+      drafts+=("$f")
+      repos+=("$(basename "$d")")
+    done
+  done
+  if ((${#drafts[@]} == 0)); then
+    echo "no drafts in $projects/*/.git/linear-handoff/"
+    return 0
+  fi
+  data=$(gql 'query { viewer { displayName }
+    teams { nodes { id key states { nodes { id name type position } } projects(first: 100) { nodes { id name } } } }
+    issueLabels(first: 250, filter: {parent: {name: {eq: "repo"}}}) { nodes { id name } } }')
+
+  # Every draft is checked before any is created, so a typo files nothing.
+  for n in "${!drafts[@]}"; do
+    if ! input=$(draft_input "${drafts[n]}" "${repos[n]}" "$data"); then
+      echo "night-shift: ${drafts[n]}: $input" >&2
+      bad=1
+    fi
+    inputs+=("$input")
+  done
+  ((bad == 0)) || die "nothing filed; fix the drafts above"
+
+  for n in "${!drafts[@]}"; do
+    printf '\n── %s\n%s\n\n%s\n\n%s\n' "${drafts[n]}" "$(jq -r .shown <<<"${inputs[n]}")" \
+      "$(jq -r .input.title <<<"${inputs[n]}")" "$(jq -r .input.description <<<"${inputs[n]}")"
+  done
+  printf '\nFile %d issue(s) in Linear as %s? [y/N] ' "${#drafts[@]}" "$(jq -r .viewer.displayName <<<"$data")"
+  read -r answer </dev/tty || answer=""
+  [[ $answer == [yY] ]] || { echo "nothing filed"; return 0; }
+
+  for n in "${!drafts[@]}"; do
+    # shellcheck disable=SC2016 # GraphQL's variables, not the shell's
+    if out=$(gql 'mutation($i: IssueCreateInput!) { issueCreate(input: $i) { success issue { identifier url } } }' \
+      "$(jq -c '{i: .input}' <<<"${inputs[n]}")"); then
+      rm "${drafts[n]}"
+      jq -r '.issueCreate.issue | "\(.identifier)  \(.url)"' <<<"$out"
+    else
+      echo "night-shift: not filed, draft kept: ${drafts[n]}" >&2
+    fi
+  done
+}
+
 check() {
   local data teams
   data=$(gql 'query { viewer { id displayName }
@@ -580,6 +705,10 @@ case ${1-} in
     load_key
     viewer=$2
     if [[ $1 == _finish ]]; then finish_one "$3"; else start_one "$3"; fi
+    ;;
+  file)
+    load_key
+    file_drafts
     ;;
   check)
     load_key

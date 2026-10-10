@@ -102,6 +102,34 @@ the repo's `.git/night-shift/`. If one of them fails, the issue lands in
 To start an issue over rather than resume it, remove its worktree and branch,
 and `~/.local/state/night-shift/<ID>.json`.
 
+### Filing issues from drafts
+
+Rather than paste issues into Linear, have Claude write them as drafts, one
+file each, in the repository's `.git/linear-handoff/` (any `.md` name):
+
+```markdown
+---
+title: forge: push to ntfy when night-shift runs keep failing
+priority: high
+project: Night shift
+---
+
+Goal: ...
+```
+
+`repo` defaults to the repository the draft is in, so a draft for another
+repo names it. `priority` is urgent, high, medium, low or none; `project`
+must already exist in the team; `team` is needed only with more than one.
+The front matter takes no comments.
+
+`night-shift file` collects the drafts from every repository in
+`~/projects`, checks them all first, so one mistake files none, then shows
+each in full with the state it will land in and asks once. Each becomes an
+issue created by you, in the team's backlog, and its draft is deleted.
+Nothing is ever filed into `Queued`: moving an issue there is still your
+hand, in Linear. Read the drafts before you answer, since filing them as you
+is what lets the night shift take them later.
+
 ## Limits
 
 - It runs only while forge is awake and you are logged in. A closed lid pauses
