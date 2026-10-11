@@ -45,6 +45,13 @@ let
   '';
 
   # Load on start — wait for the control socket, then restore. Never fails the unit.
+  #
+  # The dump is removed once loaded. It holds every name the house resolved in
+  # the cache's lifetime, up to four days (cache-max-ttl plus serve-expired-ttl),
+  # the work segment's included, and it exists only to bridge a restart. Left
+  # in place it would sit on disk until the next stop, which on a host that
+  # rarely restarts is a record older than anything AdGuard's retention allows.
+  # The cost is a cold cache after a crash, when no fresh dump was written.
   loadCache = pkgs.writeShellScript "unbound-load-cache" ''
     export PATH="${pkgs.coreutils}/bin:$PATH"
     [ -s ${cacheFile} ] || exit 0
@@ -52,6 +59,7 @@ let
     while [ "$n" -lt 10 ]; do
       if ${ctl} status >/dev/null 2>&1; then
         ${ctl} load_cache < ${cacheFile} >/dev/null 2>&1 || true
+        rm -f ${cacheFile}
         exit 0
       fi
       n=$((n + 1))
@@ -121,6 +129,47 @@ in
         qname-minimisation = true;
         hide-identity = true;
         hide-version = true;
+
+        # No EDNS Client Subnet goes upstream, and nothing here needs a setting
+        # to keep it that way: Unbound sends ECS only with the subnetcache
+        # module in module-config and send-client-subnet naming a server, and
+        # neither is set. Queries come from AdGuard on loopback in any case, so
+        # the only subnet it could send is 127.0.0.0/8.
+
+        # Names that exist only inside the house, answered NXDOMAIN here rather
+        # than asked of the root servers, which would otherwise see a device's
+        # hostname whenever something looks one up under these suffixes.
+        # Unbound already does this by default for home.arpa, onion, test,
+        # invalid, localhost and the private reverse zones (unblock-lan-zones
+        # is off), so only what it leaves to the root is listed. `local` is
+        # mDNS's, and a device asking unicast DNS for it has given up on
+        # multicast; `internal` is ICANN's reserved private TLD; `home` and
+        # `corp` are names ICANN will not delegate because so many networks
+        # leak them. The list matches what scripts/dns-top-domains.jq counts as
+        # a local name.
+        #
+        # Single-label names (`printer.`) cannot be listed this way, since a
+        # local-zone is a suffix and every TLD is one label too. They still
+        # reach the root, though aggressive-nsec answers most repeats from
+        # root NSEC records already validated. docs/privacy.md has the option
+        # that would close it.
+        local-zone = map (zone: ''"${zone}." static'') [
+          "lan"
+          "local"
+          "localdomain"
+          "internal"
+          "home"
+          "corp"
+        ];
+
+        # Query logging stays off, as it is by default, and is written down
+        # because it is what keeps the work segment unrecorded here too. Unbound
+        # sees every query AdGuard forwards, work's included, and attributes them
+        # all to 127.0.0.1, so a log here would hold names without devices: still
+        # a record AdGuard's per-client rule cannot reach.
+        log-queries = false;
+        log-replies = false;
+        log-local-actions = false;
 
         # Sized for a Pi 4. gate is a 4-core N100 and takes the same values.
         num-threads = 4;

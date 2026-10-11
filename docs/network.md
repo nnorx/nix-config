@@ -189,13 +189,19 @@ all.
 The `work` segment is redirected like the others and its queries are dropped
 from the log rather than recorded, via `logQueries = false` in `lib/net.nix`,
 which `modules/adguardhome.nix` turns into a persistent client with
-`ignore_querylog` on every resolver. Filtering that machine and keeping a
-timestamped record of it are separate decisions, and only the first is wanted.
+`ignore_querylog` and `ignore_statistics` on every resolver. Filtering that
+machine and keeping a timestamped record of it are separate decisions, and only
+the first is wanted. What else could record it, and how long the resolvers keep
+everyone else's queries, is in
+[privacy.md](privacy.md#what-the-resolvers-keep).
 
 **Local name resolution is a gap.** Kea does not register hostnames with
 AdGuard. Static reservations in `lib/net.nix` plus AdGuard rewrites for the
 handful of names worth having is the intended answer, and it keeps the topology
-in one file.
+in one file. Until then, Unbound answers NXDOMAIN for the suffixes devices
+invent for local names (`lan`, `local`, `home.arpa` and a few more, listed in
+`modules/unbound.nix`), so those lookups stop at the resolver rather than
+reaching the root servers.
 
 **DoH is advisory, not enforceable, and the redirect does not change that.**
 Port 853 and known DoH endpoint IPs can be blocked, but browsers ship encrypted

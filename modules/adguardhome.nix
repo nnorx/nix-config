@@ -98,6 +98,39 @@ in
         ignore_statistics = true;
       }) (lib.filterAttrs (_: seg: !(seg.logQueries or true)) net.segments);
 
+      # What the resolvers keep, set here rather than left to AdGuard's
+      # defaults (90 days of log, a day of statistics), so the retention is a
+      # decision that shows up in review. docs/privacy.md, "What the resolvers
+      # keep", has the reasoning.
+      #
+      # The log exists to debug a device: what it looked up and what was
+      # blocked when it misbehaved. `interval` is a rotation period, not an
+      # age limit. AdGuard renames the log aside once its oldest entry passes
+      # the interval and deletes the previous one, so entries live between one
+      # and two intervals. 84h therefore keeps at least three and a half days,
+      # which covers a fault noticed after a weekend, and never more than a
+      # week.
+      querylog = {
+        enabled = true;
+        file_enabled = true;
+        interval = "84h";
+      };
+
+      # Per-client and per-domain counts behind the dashboard. Its limit is a
+      # true age limit, in hourly buckets. A day is AdGuard's default and
+      # enough to see which device is busy; the log answers anything older.
+      statistics = {
+        enabled = true;
+        interval = "24h";
+      };
+
+      # Debug logging writes per-query lines, client addresses among them, to
+      # the journal, outside both the retention above and the work segment's
+      # rule.
+      # Off is the default; it is written down so turning it on is a visible
+      # change rather than a flag left behind after a debugging session.
+      log.verbose = false;
+
       dns = {
         bind_hosts = [ "0.0.0.0" ];
         port = 53;
@@ -107,6 +140,27 @@ in
         # Used only to resolve the *names* of DoH/DoT upstreams, before any
         # resolver is available.
         bootstrap_dns = net.publicResolvers;
+
+        # Off, deliberately, and it has to stay off while any segment sets
+        # `logQueries = false`. AdGuard zeroes the last two octets of an IPv4
+        # client, and the third octet is the segment, so every client in the
+        # house would be logged under one address: not even the segment
+        # survives. It also anonymises before it looks the client up, so the
+        # work segment's rule, which matches that segment's subnet, would stop
+        # matching and work's queries would be logged. What remained would be
+        # the domains, which are the
+        # sensitive half, with the one thing that makes them useful for
+        # debugging, and for checking that gate's dns-redirect catches a
+        # device, removed. Short retention is the privacy control instead.
+        anonymize_client_ip = false;
+
+        # No client subnet is added to what AdGuard sends upstream. The
+        # default; written down because the fallback below is a public
+        # resolver, which would receive it.
+        edns_client_subnet = {
+          enabled = false;
+          use_custom = false;
+        };
 
         cache_enabled = cacheEnabled;
         # Answer from cache immediately and refresh behind it, so an upstream
@@ -137,6 +191,10 @@ in
       filtering = {
         protection_enabled = true;
         filtering_enabled = true;
+        # Both are lookup services that send a hash prefix of each name to
+        # AdGuard's servers. Off by default; the blocklists cover malware and
+        # phishing locally.
+        safebrowsing_enabled = false;
         parental_enabled = false;
         safe_search = {
           enabled = false;

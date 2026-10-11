@@ -122,11 +122,18 @@ AdGuard nor Unbound has cached. **needed**.
 
 **AdGuard's fallback.** `fallback_dns` is `net.publicResolvers`, Cloudflare and
 Quad9, used only when the local Unbound does not answer within
-`upstreamTimeout`. Those queries are plaintext, carry the client's query name,
-and go from the house's address. `bootstrap_dns` names the same two, but only
-resolves DoH or DoT upstream names, and there are none. **narrow** (F6): the
-fallback could use DNS-over-TLS to the same two operators, addressed by IP,
-which needs no bootstrap and hides the names from the path.
+`upstreamTimeout`. dnsproxy, AdGuard's resolver library, takes the fallback
+path only on a transport error: a timeout or a refused connection. A SERVFAIL
+from Unbound is an answer and goes back to the client, and lookups for
+private reverse zones never fall back. When it does fall back it asks both
+operators at once, so each sees the query. Those queries are plaintext, carry
+the client's query name, and go from the house's address, with no client
+subnet: AdGuard adds none (`edns_client_subnet` is off in the module), and
+only a client that put one in its own query would pass one through.
+`bootstrap_dns` names the same two, but only resolves DoH or DoT upstream
+names, and there are none. **narrow** (F6): the fallback could use
+DNS-over-TLS to the same two operators, addressed by IP, which needs no
+bootstrap and hides the names from the path.
 
 **Blocklist downloads.** 23 lists, refreshed by each resolver at AdGuard's
 default interval of 24 hours, from eight operators:
@@ -134,11 +141,164 @@ raw.githubusercontent.com, v.firebog.net, pgl.yoyo.org,
 hostfiles.frogeye.fr, phishing.army, urlhaus.abuse.ch, lists.cyberhost.uk and
 gitlab.com. Each sees two fetches a day from the house's address and
 AdGuard's user agent. AdGuard's own update check is off: the NixOS module
-passes `--no-check-update`. Parental control is off in the repo, and safe
-browsing, AdGuard's other lookup service, is left at its default, off.
+passes `--no-check-update`. Parental control and safe browsing, AdGuard's
+two lookup services, are both off in the module.
 **narrow** (F7): nine lists come from v.firebog.net and eight from GitHub,
 and the other six each bring an operator of their own for a single list.
 Whether those six add coverage the rest lack is the question.
+
+## What the resolvers keep
+
+The resolvers hold the most detailed record in the house: every name each
+device looks up. What they keep, and what they still tell the outside, was
+reviewed in NNO-26 against AdGuard Home 0.107.79 and Unbound 1.26.0, the
+versions pinned on 2026-10-11. Each default below was read from that
+version's source, not its documentation, and each setting is now explicit in
+`modules/adguardhome.nix` or `modules/unbound.nix`, with comments, so a
+change to any of them shows up in review.
+
+**The query log keeps between three and a half days and a week.** AdGuard's
+default is 90 days, and the module set nothing. The log is for debugging a
+device: what it asked for and what was refused when it misbehaved. That needs
+the last few days, not the last season. AdGuard's `interval` is a rotation
+period, not an age limit: once the oldest entry in the log passes it, the
+file is renamed aside and the previous one deleted, so entries live between
+one and two intervals. The default therefore kept up to 180 days. The module
+sets 84 hours: at least three and a half days, which covers a fault noticed
+after a weekend, and never more than a week. `nix run .#dns-top-domains`
+then summarises a week at most, which is still a representative sample.
+
+**Statistics keep one day**, AdGuard's default, now written down. They are
+the per-client and per-domain counts behind the dashboard, kept in hourly
+buckets and dropped at a true age limit. A day shows which device is busy;
+the log answers anything older.
+
+**Client addresses are kept, not anonymised.** AdGuard can anonymise client
+addresses (`anonymize_client_ip`), and the module keeps that off. Turned on,
+it zeroes the last two octets of each IPv4 client. The third octet is the
+segment here, so every device in the house would be logged under one
+address, and the log could no longer say which device asked, or even which
+segment. That is the whole of what per-device debugging needs, and what
+checking gate's `dns-redirect` relies on: a device with a hardcoded resolver
+is caught by seeing its own address in the log. Worse, AdGuard anonymises
+before it matches the client against its rules, so the work segment's rule,
+which matches that segment's subnet, would stop matching and work's queries
+would be logged. What anonymising would leave is the domains, which are the
+sensitive half. Short retention is the privacy control instead: it limits
+what the log can say about anyone, and keeps it useful while it does.
+
+**The work segment is recorded nowhere.** `logQueries = false` in
+`lib/net.nix` becomes a persistent AdGuard client on both resolvers that
+covers the segment's subnet with `ignore_querylog` and `ignore_statistics`.
+AdGuard matches a client address against a subnet for both checks (its client
+index, `findByIP`), so the rule covers the log and the statistics, on core4
+and lifeline alike, since both import the module. Everything else that sees
+those queries was checked too:
+
+- AdGuard's debug logging, which writes per-query lines with client
+  addresses to the journal, is off (`log.verbose`).
+- Unbound sees work's queries, attributed to 127.0.0.1 because they come
+  from AdGuard. Its query logging is off (`log-queries`, `log-replies`,
+  `log-local-actions`), so it keeps nothing about them beyond its cache.
+- Unbound's cache is dumped to disk on stop so a restart does not start cold.
+  The dump holds names without clients or timestamps, work's among them,
+  from up to four days of cache. It used to stay on disk until the next stop,
+  which on a host that rarely restarts could be months. It is now deleted as
+  soon as it has been loaded.
+- gate's `dns-redirect` rule has a counter, which counts packets and records
+  no addresses. pimon reports host health only.
+- No metrics are deployed yet. The design in
+  [observability.md](observability.md) scrapes Unbound's counters, which are
+  totals with neither names nor clients, and probes each resolver from core5.
+  AdGuard has no metrics endpoint, and an exporter built on its statistics
+  API would inherit the rule, since excluded queries are never counted.
+
+**Lookup services stay off.** Safe browsing and parental control each send a
+hash prefix of every name to AdGuard's servers. Both are off by default, and
+the module now says so for safe browsing as it already did for parental
+control. WHOIS lookups of clients, on by default, apply only to public
+addresses, and every client here has a private one, so they never run.
+
+### What goes upstream
+
+**No client subnet.** Unbound sends EDNS Client Subnet only with its
+subnetcache module loaded and `send-client-subnet` set, and neither is.
+AdGuard's own option is off. The fallback is above.
+
+**Names that exist only inside the house are answered locally.** Devices ask
+for names under suffixes that exist only on a home network: a few thousand
+such lookups on trusted in the run below. Unbound already answers
+`home.arpa`, `onion`, `test`, `invalid`, `localhost` and the private reverse
+zones itself, by default. It sent the rest to the root servers, which saw the
+device names in them. It now answers `lan`, `local`, `localdomain`,
+`internal`, `home` and `corp` with NXDOMAIN, on core4, lifeline and gate: the
+same list `scripts/dns-top-domains.jq` counts as local names.
+
+Single-label names, such as a bare `printer`, still reach the root. A
+local-zone is a suffix, and every TLD is a single label too, so Unbound has
+no way to list them. `aggressive-nsec` answers most repeats from the root's
+signed NSEC records once it has them, so the root sees such a name now and
+then rather than on every lookup, but not never. What would close it is a
+local copy of the root zone (RFC 8806, Unbound's `auth-zone` for `.`), from
+which every nonexistent TLD is answered locally and the root sees zone
+transfers rather than queries. That changes how all three resolvers start and
+recurse, and adds the root servers' transfer addresses to `lib/net.nix`, so
+it is a follow-up (F15) rather than part of this review.
+
+### Telemetry coverage
+
+The lists include EasyPrivacy, Frogeye's first-party trackers and
+WindowsSpyBlocker. Two gaps for the devices in the house, both checked
+against GitHub's commit history on 2026-10-11:
+
+- **WindowsSpyBlocker is no longer maintained.** Its `spy.txt` last changed
+  in May 2022. HaGeZi's `native.winoffice` list covers the same Windows and
+  Office telemetry and changed this week. Swapping one for the other also
+  changes what the work laptop can reach, since work is filtered.
+- **Nothing targets TV firmware.** EasyPrivacy and the ad lists are written
+  for browsers and apps, and a TV's own telemetry runs on its vendor's
+  domains. HaGeZi publishes a list per vendor (`native.samsung`,
+  `native.lgwebos`, `native.amazon`, `native.roku` and others), each updated
+  within the past two weeks. Only the ones for vendors actually in the house
+  are worth adding, and the iot query log says which those are. Perflyst's
+  `SmartTV.txt` is the other common choice and is still updated, but its
+  Android and Fire TV lists have not changed since 2021 and 2023.
+
+Phones show no obvious gap: the most-blocked entries on trusted are already
+app and OS analytics, which is EasyPrivacy and Frogeye doing their job.
+HaGeZi has `native.apple` and lists for several Android vendors too; they
+belong in the same decision as the TV lists, made against what the log
+shows the phones asking for.
+
+Both list changes come from raw.githubusercontent.com, which the resolvers
+already fetch from, so neither adds an operator (F7). They are F16, since
+which lists to run, and what they may break on the work laptop, is a
+decision for the house rather than for this review.
+
+### Clearing the history from before the cutover
+
+lifeline's log reached back to 2026-08-29 in the run below, so it held
+lookups from before the 2026-09-05 cutover, when every client was on the
+flat network and nothing was excluded. core4's log
+rotated at 90 days and may hold up to 180, so the same is likely there. The
+new interval ages both out within a week of the upgrade, but clearing them
+once makes it immediate. Statistics need no reset: a day's worth holds
+nothing from then.
+
+Clearing needs the admin login on each resolver and no root. From forge at
+home, or through the tunnel, in the repo:
+
+```bash
+for h in lifeline core4; do
+  curl -fsS -u "$h" -X POST \
+    "http://$(nix eval --raw --file lib/net.nix hosts.$h.ip):$(nix eval --file lib/net.nix ports.adguardWeb)/control/querylog_clear" \
+    && echo "$h: query log cleared"
+done
+```
+
+curl prompts for each password without echo. The UI does the same, under
+Settings, General settings, "Clear query log". Once is enough: the
+retention above keeps the history from building up again.
 
 ## The Pis
 
@@ -328,14 +488,16 @@ traffic.
   two alert services, as the inventory above lists, plus one-off manual
   tests.
 - **No segment.** Lookups from before the 2026-09-05 cutover, when every
-  client was on the flat network. lifeline still holds them under
-  AdGuard's default retention. Follow-up: NNO-26, for the retention and to
-  clear that history once.
+  client was on the flat network. lifeline still held them under
+  AdGuard's default retention. NNO-26 set the retention and gives the
+  command to clear that history once
+  ([above](#clearing-the-history-from-before-the-cutover)).
 - **trusted.** Not summarised here, since it is the household's own
   browsing. Its most-blocked entries are app and OS analytics and push
   services, which is the blocklists working. Devices also ask for a few
-  thousand names that exist only inside the house; whether those reach
-  the root servers is for NNO-26 to check.
+  thousand names that exist only inside the house. Those under a local
+  suffix are now answered by Unbound; single-label ones still reach the
+  root ([What goes upstream](#what-goes-upstream)).
 - **guest** is absent, as it should be: it resolves through public
   resolvers.
 - **work** is absent by design.
@@ -360,7 +522,10 @@ Each is one issue, titled the way a PR for it would be.
 | F12 | `gate: stop sending its hostname in DHCP requests on wan` | narrow |
 | F13 | `forge: turn geoclue off` | off |
 | F14 | `forge: night-shift pushes carry the identifier, not the title` | narrow |
+| F15 | `unbound: serve the root zone locally, so single-label names stay home` | narrow |
+| F16 | `adguardhome: maintained telemetry lists for windows and the house's tvs` | narrow |
 
 F10 changes gate's firewall, so it goes behind deploy-guard. F5 changes gate
-and core5 together, and F6 the resolvers, which take it that night. The rest
+and core5 together, and F6 the resolvers, which take it that night. F15
+changes Unbound on gate and the Pis together, and F16 the resolvers. The rest
 are forge, docs, or one service on core5.
