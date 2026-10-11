@@ -189,6 +189,68 @@ ${comments:-(none)}
 EOF
 }
 
+# backlog: every open issue, by state, then priority, written to
+# $state_dir/backlog.md after each run and each `night-shift file`. A Claude
+# session cannot reach Linear, and is deliberately not given a key: one acting
+# as Nick could create and queue issues, which the dispatcher would then take
+# as his. This is how a session reads what is filed instead, with no way to
+# write. Nick's plan text, like write_issue's, so it stays outside every repo.
+#
+# Called after the real work, with failure reported rather than fatal, so a
+# Linear quirk here never fails a run (and never counts toward after_run's
+# push). Pages are collected in a file, not a variable, since descriptions
+# could pass the limit on a single argument.
+backlog() {
+  local out=$state_dir/backlog.md tmp after="" page more
+  mkdir -p "$state_dir"
+  tmp=$(mktemp "$out.XXXXXX") || return 1
+  while :; do
+    # shellcheck disable=SC2016 # GraphQL's variables, not the shell's
+    page=$(gql 'query($after: String) {
+      issues(first: 50, after: $after, filter: {state: {type: {nin: ["completed", "canceled"]}}}) {
+        pageInfo { hasNextPage endCursor }
+        nodes { identifier title description priority priorityLabel updatedAt
+          state { name type } project { name } labels { nodes { name parent { name } } } } } }' \
+      "$(jq -nc --arg a "$after" '{after: (if $a == "" then null else $a end)}')") || {
+      rm -f "$tmp" "$tmp.nodes"
+      return 1
+    }
+    jq -c '.issues.nodes[]' <<<"$page" >>"$tmp.nodes"
+    more=$(jq -r '.issues.pageInfo | if .hasNextPage then .endCursor else "" end' <<<"$page")
+    [[ -n $more ]] || break
+    after=$more
+  done
+  # shellcheck disable=SC2016 # jq's variables, not the shell's
+  jq -rs --arg now "$(now)" '
+    def stage: {started: 0, unstarted: 1, backlog: 2, triage: 3}[.state.type] // 4;
+    def rank: if .priority == 0 then 5 else .priority end;
+    def number: .identifier | capture("(?<n>[0-9]+)$").n | tonumber;
+    def labels: [.labels.nodes[] | select(.parent.name != "repo") | .name];
+    def repo: [.labels.nodes[] | select(.parent.name == "repo") | .name] | first // "none";
+    sort_by(stage, .state.name, rank, number)
+    | "# Open issues in Linear",
+      "",
+      "Written by night-shift at \($now): \(length) issues not done or canceled,",
+      "by state, then priority. A snapshot to read; change issues in Linear.",
+      (group_by(stage, .state.name) | sort_by(.[0] | stage, .state.name)[]
+        | "", "## \(.[0].state.name) (\(length))",
+          (.[] | "", "### \(.identifier): \(.title)", "",
+            "- Priority: \(.priorityLabel). Repo: \(repo). Project: \(.project.name // "none")."
+              + (if labels == [] then "" else " Labels: \(labels | join(", "))." end),
+            "- Updated: \(.updatedAt[:10])",
+            "",
+            # Quoted, so a heading in a description cannot pass for one of
+            # the headings above.
+            (.description // "(no description)" | rtrimstr("\n") | split("\n")
+              | map(if . == "" then ">" else "> " + . end) | join("\n"))))
+  ' "$tmp.nodes" >"$tmp" || {
+    rm -f "$tmp" "$tmp.nodes"
+    return 1
+  }
+  rm -f "$tmp.nodes"
+  mv "$tmp" "$out"
+}
+
 # forget <state file> [why]: drops an issue the dispatcher is done with, along
 # with its issue text and results, read or not, unless the repo is gone too.
 forget() {
@@ -729,6 +791,7 @@ run() {
     (($(running) < max)) || break
     child _start "$viewer" "$id"
   done
+  backlog || echo "night-shift: backlog.md not written; the next run tries again" >&2
 }
 
 # Issue drafts, for `night-shift file`: <repo>/.git/linear-handoff/<any>.md,
@@ -1008,6 +1071,8 @@ case ${1-} in
   file)
     load_key
     file_drafts
+    # So what was just filed is in the backlog without waiting for a run.
+    backlog || echo "night-shift: backlog.md not written; the next run will" >&2
     ;;
   check)
     load_key
