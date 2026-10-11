@@ -108,8 +108,10 @@ as a revert path, and it raises what a bad deploy costs: the recovery USB and
 - [ ] Static reservations in `lib/net.nix` for anything that needs a stable
       address. The switch and AP have statics set in the controller instead,
       which is where the rest of their config lives anyway. Reservations are
-      keyed on MAC addresses, which do not go in this repo, so this arrives
-      with the private input if it arrives at all.
+      keyed on MAC addresses, which do not go in this repo. Designed
+      2026-10-11 in [device-identity.md](device-identity.md): addresses in
+      `lib/net.nix`, MACs in gate's sops file, and no private flake input.
+      The Govee lights come first.
 
 ### Validation checklist
 

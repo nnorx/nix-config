@@ -236,10 +236,10 @@ is cryptographically sensitive. All of it turns "a well-built router config"
 into "Nick's house, and what is in it."
 
 RFC1918 addresses alone are fine in public. A per-device MAC table is not.
-`lib/net.nix` anticipates this: consumers reference attribute names rather than
-values, which keeps open the option of moving the file into a private flake
-input without editing anything that reads it. That option gets exercised when
-reservations arrive.
+Reservations, when they arrive, split along that line: a device's role and
+address go in `lib/net.nix`, where firewall rules can read them, and its MAC
+goes in gate's sops file, where only Kea needs it. A private flake input was the other
+option, and [device-identity.md](device-identity.md) says why it lost.
 
 **Anything the UniFi controller exports.** Backups carry Wi-Fi PSKs and device
 credentials. They stay off the repo entirely, encrypted or not. See

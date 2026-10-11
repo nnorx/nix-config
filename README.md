@@ -104,6 +104,7 @@ scripts/               preflight, the check every change gets; dns-top-domains
 | [observability.md](docs/observability.md) | The metrics and alerting design: store, collection, alerts, access |
 | [night-shift.md](docs/night-shift.md) | Agents on forge working issues queued in Linear |
 | [privacy.md](docs/privacy.md) | What leaves the house, per host and service, and what could stop |
+| [device-identity.md](docs/device-identity.md) | Naming devices in rules without publishing their MACs: the design |
 
 ## Deploying
 
