@@ -173,6 +173,11 @@ One at a time, weeks apart, now that the house is boring.
       since core5's firewall opens a port per `pimonAgents` entry and reads that
       attribute. Decide what the address would mean first.
 
+      Decided 2026-10-10 in [observability.md](observability.md):
+      VictoriaMetrics and Grafana on core5, pulling from every host, with
+      alerts to the same ntfy topic. Instrumenting gate is the third of its
+      follow-up issues.
+
       Alerting no longer waits on this. `modules/alerts.nix` sends a push
       notification when the Pis' upgrades or core5's off-box backups fail,
       and pings healthchecks.io on each success, so a job that stops running
