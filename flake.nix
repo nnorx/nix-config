@@ -280,6 +280,9 @@
       checks.x86_64-linux.gate-dns = pkgsFor.x86_64-linux.testers.runNixOSTest (
         import ./tests/gate-dns.nix { inherit net; }
       );
+      checks.x86_64-linux.gate-metrics = pkgsFor.x86_64-linux.testers.runNixOSTest (
+        import ./tests/gate-metrics.nix { inherit net; }
+      );
 
       # Formatter for `nix fmt`
       formatter = forAllSystems ({ pkgs, ... }: pkgs.nixfmt-tree);

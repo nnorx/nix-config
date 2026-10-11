@@ -14,6 +14,11 @@ let
   collector = net.hosts.${net.metricsCollector};
   port = net.ports.nodeExporter;
 
+  # Where the collector scrapes this host: its own address, or on gate, which
+  # has none, its gateway address on its metricsSegment. modules/metrics.nix
+  # builds the targets from the same two attributes.
+  address = host.ip or net.segments.${host.metricsSegment}.gateway;
+
   # host-status's two facts (modules/host-status.nix), as metrics, so the store
   # can see a host running the wrong system. Read when the timer fires rather
   # than written at build time: nixos-version is built with its generation's
@@ -57,8 +62,8 @@ lib.mkIf (lib.elem hostname net.metricsTargets) {
     inherit port;
     # The host's own address, never every address: the same reasoning as
     # sshd's bind in modules/ssh.nix, whose ip_nonlocal_bind also covers the
-    # boot race here.
-    listenAddress = host.ip;
+    # boot race here. On gate that keeps it off `wan` and every other segment.
+    listenAddress = address;
     extraFlags = [
       "--collector.textfile.directory=${textfileDir}"
       # Docker names a new veth for every container start, and each new name
@@ -74,8 +79,10 @@ lib.mkIf (lib.elem hostname net.metricsTargets) {
   # The host's LAN interface, from the collector's address alone. Not the
   # whole segment: servers also holds the switch, the AP and anything on an
   # untagged switch port. The collector scrapes itself over loopback, which
-  # the base ruleset accepts, so it opens nothing.
-  networking.firewall.extraCommands = lib.mkIf (hostname != net.metricsCollector) ''
+  # the base ruleset accepts, so it opens nothing. gate opens its own, in
+  # hosts/gate/metrics.nix: it runs nftables, where these commands are refused,
+  # and its interface for the segment is named there rather than here.
+  networking.firewall.extraCommands = lib.mkIf (hostname != net.metricsCollector && host ? ip) ''
     iptables -A nixos-fw -i ${host.iface} -p tcp --dport ${toString port} -s ${collector.ip} -j nixos-fw-accept
   '';
 
