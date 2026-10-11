@@ -417,9 +417,13 @@ marketplace. **off** (F4) for telemetry; the rest is needed.
 
 **Claude Code** (`home/claude.nix`, `hosts/forge/claude.nix`), on forge, WSL
 and the Mac. Prompts and the files it reads go to Anthropic, which is the
-tool. Beyond that it sends usage telemetry and error reports by default, and
-the repo sets neither `DISABLE_TELEMETRY` nor `DISABLE_ERROR_REPORTING`. It is
-installed by its own installer and updates itself, which should stay on.
+tool. Beyond that it sends usage telemetry and error reports by default.
+`home/claude.nix` sets `DISABLE_TELEMETRY` and `DISABLE_ERROR_REPORTING` under
+`env` in the user settings on all three machines, which turns both off, and
+the night shift's agents read the same settings. Telemetry off also stops its
+feature-flag fetches, so it runs on built-in defaults. It is installed by its
+own installer and updates itself, which stays on: that is why the switch is
+not `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, which stops the updater too.
 The sandbox's `allowedDomains` limits what commands reach, not what Claude
 Code itself sends. **off** (F3), for the telemetry and error reports.
 

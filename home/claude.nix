@@ -72,6 +72,21 @@ let
     # The sandbox does not cover Claude's own Read tool, and the Mac has no
     # sandbox; this rule costs nothing there.
     permissions.deny = map (dir: "Read(${dir}/**)") policy.keyDirs;
+
+    # Keys under `env` rather than all of it, so variables set by hand
+    # survive. Here rather than in the Linux half below, whose `//` would
+    # replace this attribute rather than add to it.
+    env = {
+      # Usage telemetry and error reports off (docs/privacy.md, forge). Not
+      # CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, which also stops the
+      # auto-updater.
+      DISABLE_TELEMETRY = "1";
+      DISABLE_ERROR_REPORTING = "1";
+    }
+    // lib.optionalAttrs pkgs.stdenv.isLinux {
+      # Points nix in Claude Code's commands at the sandbox's cache.
+      NIX_CACHE_HOME = sandboxNixCache;
+    };
   }
   # Linux only. The sandbox is there to keep the sops key from commands, and
   # the Mac does not hold it, so there it would only break work repos'
@@ -136,10 +151,6 @@ let
       # and LocalCommand run an arbitrary local command, unsandboxed.
       excludedCommands = [ "fleet-ssh *" ];
     };
-
-    # Points nix in Claude Code's commands at the cache above. A key under
-    # `env` rather than all of it, so variables set by hand survive.
-    env.NIX_CACHE_HOME = sandboxNixCache;
   };
 
   defaults = {
