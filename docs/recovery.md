@@ -228,14 +228,23 @@ the fallback exists, it is that falling back is **silent**. What is missing is
 detection: something that notices a host's booted root device or running
 generation is not the expected one and says so.
 
-That is a monitoring requirement, tracked in Phase 8 of [router.md](router.md).
+The root device half of that is covered. `root-check`
+(`modules/root-check.nix`) runs on every host that upgrades itself, ten minutes
+after boot and daily at noon, and fails when / is not the device the host's
+`fileSystems."/"` declares. Its failure sends a push through `fleetAlerts`. The
+generation a fallback boots may predate the check, but it upgrades itself from
+main within a night like any other, and from then on the check runs and fires.
+A host moved to new storage has to update its `fileSystems."/"` in the same
+change, or this alerts daily. `systemctl status root-check` on the host shows
+the last result.
+
+The running generation is still open, in Phase 8 of [router.md](router.md), and
+has to come from outside: a host that has stopped upgrading cannot say so.
 Until something watches for it, `fleet-status` on an admin machine is the
 manual check: it prints each host's running revision against main and its root
 device. A Pi still behind main after a night whose upgrade it reports as a
-success, or a root on `mmcblk0` where NVMe was expected, is the signature to
-look for. Behind main during the day only means merges are waiting for that
-night. It has to come from outside: the
-fallback boots a generation that predates any check added to the host since.
+success is the signature to look for. Behind main during the day only means
+merges are waiting for that night.
 
 For the EEPROM `BOOT_ORDER` that makes the fallback work, see
 [pi-install.md](pi-install.md).

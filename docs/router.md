@@ -196,11 +196,16 @@ One at a time, weeks apart, now that the house is boring.
 
 - [ ] **Alert when a host boots the wrong system.** core5 fell back to its SD
       card on 2026-09-04 with a loose NVMe ribbon and ran a two-week-old
-      generation for hours, looking healthy from every angle. Whatever the stack
-      ends up being, it needs to compare each host's booted root device and
-      running system generation against what the flake says it should be,
-      because a host that is up, answering and wrong is invisible to liveness
-      checks. See [recovery.md](recovery.md).
+      generation for hours, looking healthy from every angle. Each host's
+      booted root device and running system generation need comparing against
+      what the flake says they should be, because a host that is up, answering
+      and wrong is invisible to liveness checks. See [recovery.md](recovery.md).
+
+      The root device half is done: `modules/root-check.nix`, on every host
+      that upgrades itself, alerts through `fleetAlerts` when / is not the
+      device the host declares. The generation half is still open. It needs a
+      view from outside the host, comparing each one's running revision with
+      main, as `fleet-status` does by hand.
 - [ ] **Decide the monitoring stack, then instrument gate.** Deliberately not
       "wire gate into pimon": pimon does host liveness, and the questions here
       are WAN state, conntrack pressure, per-interface throughput, DHCP pool

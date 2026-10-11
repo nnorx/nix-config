@@ -73,6 +73,7 @@ modules/
   home-assistant-backup.nix  Its state, pushed off-box (core5 only)
   offbox-push.nix      Both pushes: newest backup, age-encrypted, to a private repo
   alerts.nix           Push notifications and heartbeats for the jobs above and upgrades
+  root-check.nix       Alerts when a self-upgrading host boots from the wrong root
   pimon.nix            Monitoring agent or collector
   firewall.nix         Default-deny. SSH scoped per interface, never globally
   ssh.nix              Key-only auth, modern crypto
