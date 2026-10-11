@@ -136,12 +136,16 @@ comment() {
     "$(jq -nc --arg id "$(jq -r .id <<<"$1")" --arg b "$MARKER"$'\n\n'"$2" '{id: $id, b: $b}')" >/dev/null
 }
 
-# stop_issue <issue json> <state> <markdown> <push title>
+# stop_issue <issue json> <state> <markdown> <what happened>. The push names
+# the issue by its identifier, and a tap opens its URL. Never by its title:
+# ntfy.sh is a third party, and a title can describe the house.
 stop_issue() {
+  local ident
+  ident=$(jq -r .identifier <<<"$1")
   comment "$1" "$3"
   move "$1" "$2"
-  notify "$4" "$(jq -r .title <<<"$1")" "$(jq -r .url <<<"$1")" || true
-  echo "night-shift: $4"
+  notify "Night shift" "$ident: $4" "$(jq -r .url <<<"$1")" || true
+  echo "night-shift: $ident: $4"
 }
 
 # Nick's comments, oldest first, after <since> when given, without this
@@ -404,7 +408,7 @@ brief() {
 report() {
   if [[ $(jq -r .state.name <<<"$1") == "$QUEUED" ]]; then
     comment "$1" "$3"
-    echo "night-shift: $4, left in $QUEUED"
+    echo "night-shift: $(jq -r .identifier <<<"$1"): $4, left in $QUEUED"
   else
     stop_issue "$@"
   fi
@@ -448,7 +452,7 @@ finish_one() {
 
   if [[ ! -f $result ]]; then
     report "$i" "$NEEDS" "No result after $stall_hours hours. \`claude attach $name\` shows where it is; move this back to $QUEUED to nudge it." \
-      "$ident went quiet"
+      "Went quiet"
   else
     if [[ $kind == handoff ]]; then
       # "be there" from "**Preflight: be there.** ...", for the push.
@@ -460,14 +464,14 @@ ${verdict:+
 $verdict
 }
 To publish: \`cd $wt && pr-handoff\`. To talk to the agent: \`claude attach $name\`." \
-        "$ident handoff ready$level"
+        "Handoff ready$level"
     else
       report "$i" "$NEEDS" "The agent stopped and needs you.
 
 $body
 
 Answer in a comment and move this back to $QUEUED to resume it, or \`claude attach $name\`." \
-        "$ident needs you"
+        "Needs you"
     fi
     archive "$result"
   fi
@@ -486,19 +490,19 @@ start_one() {
   # in from elsewhere, a public repo's issues say, can reach the state; only
   # Nick's own hand starts an agent.
   if [[ $(jq -r .history.pageInfo.hasNextPage <<<"$i") == true ]]; then
-    stop_issue "$i" "$NEEDS" "Not started: its history is too long to tell who queued it. Start it with \`claude\` instead." "$ident was not started"
+    stop_issue "$i" "$NEEDS" "Not started: its history is too long to tell who queued it. Start it with \`claude\` instead." "Not started"
     return 0
   fi
   queuer=$(jq -r --arg q "$QUEUED" \
     '([.history.nodes[] | select(.toState.name == $q)] | max_by(.createdAt) | .actorId) // .creator.id' <<<"$i")
   if [[ $queuer != "$viewer" ]]; then
-    stop_issue "$i" "$NEEDS" "Not started: only issues you move to $QUEUED yourself are taken." "$ident was not queued by you"
+    stop_issue "$i" "$NEEDS" "Not started: only issues you move to $QUEUED yourself are taken." "Not queued by you"
     return 0
   fi
   # The title and description become the agent's task, given as Nick's, so
   # they must be his too. Synced and teammates' issues are not taken.
   if [[ $(jq -r '.creator.id // ""' <<<"$i") != "$viewer" ]]; then
-    stop_issue "$i" "$NEEDS" "Not started: only issues you created are taken, since the agent is given the description as your task." "$ident is not yours"
+    stop_issue "$i" "$NEEDS" "Not started: only issues you created are taken, since the agent is given the description as your task." "Not yours"
     return 0
   fi
 
@@ -517,7 +521,7 @@ start_one() {
     read -r job session <<<"$(agent "$name" "$wt")" || true
     [[ -n ${session:-} ]] || session=$(jq -r '.session // empty' "$f")
     if [[ -z $session ]]; then
-      stop_issue "$i" "$NEEDS" "Could not find the agent's session to resume in \`$wt\`." "$ident did not resume"
+      stop_issue "$i" "$NEEDS" "Could not find the agent's session to resume in \`$wt\`." "Did not resume"
       return 0
     fi
     result=$(result_path "$repo" "$ident")
@@ -531,7 +535,7 @@ start_one() {
     [[ -z ${job:-} ]] || cl stop "$job" </dev/null >/dev/null 2>&1 || true
     if ! out=$(cd "$wt" && cl --bg --resume "$session" </dev/null \
       "$(prompt_resume "$i" "$(jq -r .since "$f")" "$result")" 2>&1 >/dev/null); then
-      stop_issue "$i" "$NEEDS" "Could not resume the session in \`$wt\`." "$ident did not resume"
+      stop_issue "$i" "$NEEDS" "Could not resume the session in \`$wt\`." "Did not resume"
       return 0
     fi
     echo "$out" >&2
@@ -540,7 +544,7 @@ start_one() {
     copy=$(sed -nE 's/.*started a copy as ([0-9a-f]+).*/\1/p' <<<"$out" | head -n 1)
     if [[ -n $copy ]]; then
       cl stop "$copy" </dev/null >/dev/null 2>&1 || true
-      stop_issue "$i" "$NEEDS" "Not resumed: claude started a copy ($copy) instead of continuing the session, and the copy was stopped. \`claude attach ${job:-$session}\` opens the original." "$ident did not resume"
+      stop_issue "$i" "$NEEDS" "Not resumed: claude started a copy ($copy) instead of continuing the session, and the copy was stopped. \`claude attach ${job:-$session}\` opens the original." "Did not resume"
       return 0
     fi
     # shellcheck disable=SC2016 # jq's variables, not the shell's
@@ -550,7 +554,7 @@ start_one() {
     label=$(jq -r '[.labels.nodes[] | select(.parent.name == "repo") | .name] | first // ""' <<<"$i")
     repo=$projects/$label
     if [[ ! $label =~ ^[A-Za-z0-9._-]+$ ]] || ! git -C "$repo" remote get-url origin >/dev/null 2>&1; then
-      stop_issue "$i" "$NEEDS" "Not started: give it a \`repo\` label naming a repository in $projects with an \`origin\`." "$ident has no repo"
+      stop_issue "$i" "$NEEDS" "Not started: give it a \`repo\` label naming a repository in $projects with an \`origin\`." "No repo"
       return 0
     fi
     # Offline, say: leave it queued for the next run.
@@ -560,14 +564,14 @@ start_one() {
     wt=$repo/.claude/worktrees/$name
     branch=worktree-$name
     if ! git -C "$repo" worktree add --quiet -b "$branch" "$wt" "$base"; then
-      stop_issue "$i" "$NEEDS" "Not started: could not make the worktree \`$wt\` on \`$branch\`. One may be left from an earlier run." "$ident has no worktree"
+      stop_issue "$i" "$NEEDS" "Not started: could not make the worktree \`$wt\` on \`$branch\`. One may be left from an earlier run." "No worktree"
       return 0
     fi
     result=$(result_path "$repo" "$ident")
     write_issue "$i" "$result"
     if ! (cd "$wt" && cl --bg -n "$name" --permission-mode auto </dev/null \
       "$(prompt_new "$i" "$repo" "$wt" "$branch" "$base" "$result")") >/dev/null; then
-      stop_issue "$i" "$NEEDS" "Not started: \`claude --bg\` failed in \`$wt\`." "$ident did not start"
+      stop_issue "$i" "$NEEDS" "Not started: \`claude --bg\` failed in \`$wt\`." "Did not start"
       return 0
     fi
     # May be empty if the roster lags; finish_one and a resume ask again.

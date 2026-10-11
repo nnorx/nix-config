@@ -426,9 +426,12 @@ Code itself sends. **off** (F3), for the telemetry and error reports.
 **The night shift** (`hosts/forge/night-shift.nix`, `night-shift.sh`). Linear
 receives issue state and comments, which is its job. GitHub's API is asked,
 without a token, whether each branch's PR has merged. ntfy.sh, on the fleet's
-topic, receives each issue's title and Linear URL when it is ready or needs
-Nick. **narrow** (F14): a title can describe the house; the identifier and
-URL alone are enough to find the issue.
+topic, receives each issue's identifier and Linear URL when it is ready or
+needs Nick, with a few words on what happened ("NNO-12: Handoff ready"), and
+once when runs keep failing, a push that names no issue. Issue titles are not
+sent, since a title can describe the house; the identifier and URL are enough
+to find the issue (F14, `stop_issue` in `night-shift.sh`). **needed**, and
+already narrowed.
 
 **Firmware metadata.** `services.fwupd` is on (`hosts/forge/default.nix`), and
 NixOS enables its refresh timer, which downloads LVFS's metadata. Reports are
