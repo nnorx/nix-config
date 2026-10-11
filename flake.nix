@@ -271,6 +271,12 @@
         };
     in
     {
+      # NixOS VM tests. `nix flake check --no-build`, which preflight and CI
+      # run, only evaluates these; build one to run it, on a machine with KVM.
+      checks.x86_64-linux.gate-dns = pkgsFor.x86_64-linux.testers.runNixOSTest (
+        import ./tests/gate-dns.nix { inherit net; }
+      );
+
       # Formatter for `nix fmt`
       formatter = forAllSystems ({ pkgs, ... }: pkgs.nixfmt-tree);
 
