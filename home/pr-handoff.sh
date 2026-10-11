@@ -17,10 +17,21 @@ die() {
   exit 1
 }
 
+# confirm <question> <diff command...>: yes or no, and `d` pages through the
+# change in full before asking again. The summary above the question is
+# enough for a docs fix, not for code going out under Nick's name.
 confirm() {
-  local reply
-  read -r -p "$1 [y/N] " reply </dev/tty
-  [[ $reply == [yY] || $reply == [yY][eE][sS] ]]
+  local question=$1 reply
+  shift
+  while :; do
+    read -r -p "$question [y/N/d=diff] " reply </dev/tty
+    case $reply in
+      [yY] | [yY][eE][sS]) return 0 ;;
+      # Quitting less early ends the diff with SIGPIPE, which is not a failure.
+      [dD]) "$@" | less -R || true ;;
+      *) return 1 ;;
+    esac
+  done
 }
 
 default_branch() {
@@ -106,7 +117,8 @@ publish() {
     echo "!! Uncommitted changes, which will not be pushed."
   fi
   show
-  confirm "Push $branch and $action?" || die "nothing published"
+  confirm "Push $branch and $action?" git diff --color=always "origin/$base...HEAD" ||
+    die "nothing published"
 
   git push "${force[@]}" -u origin "$branch"
   if [[ -n $number ]]; then
@@ -130,7 +142,9 @@ merge() {
   echo "PR: #$n $branch -> $base"
   gh pr checks "$n" || echo "!! Not every check has passed."
   show
-  confirm "Squash-merge #$n into $base and delete $branch?" || die "nothing merged"
+  # GitHub's diff of the PR, which is what merges, whatever is checked out here.
+  confirm "Squash-merge #$n into $base and delete $branch?" gh pr diff "$n" --color=always ||
+    die "nothing merged"
 
   gh pr merge "$n" --squash --delete-branch --subject "$head" --body-file "$body"
   rm -f "$dir/$branch.md" "$dir/$branch.squash.md"
