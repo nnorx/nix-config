@@ -113,6 +113,13 @@ the repo's `.git/night-shift/`. If one of them fails, the issue lands in
 - **Done or canceled** by your hand, issues are forgotten, along with their
   issue text and old results in `.git/night-shift/`. Their worktrees are left
   for `claude rm` or the git cleanup.
+- **The backlog, for Claude:** after every run and every `night-shift file`,
+  each open issue (state, priority, repo, project and description) is
+  written to `~/.local/state/night-shift/backlog.md` on forge. A Claude
+  session cannot reach Linear, and has no key for it on purpose, since one
+  acting as you could queue work for the night shift; this file is how a
+  session sees what is filed, read-only. It is your plan text, so it stays
+  outside every repo.
 - `night-shift status` lists what each agent is doing.
 - Shortcuts: `nsr`, `nss` and `nsf` are `night-shift run`, `status` and
   `file`, and `wt nno-20` cds into NNO-20's worktree.

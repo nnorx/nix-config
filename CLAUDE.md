@@ -106,6 +106,8 @@ Linear issues for the night shift work the same way: write each as a draft
 in the target repository's `.git/linear-handoff/`, and ask Nick to run
 `night-shift file`. docs/night-shift.md, "Filing issues from drafts", has the
 format. It files into the backlog only: queuing stays Nick's, in Linear.
+To see what is already filed, read `~/.local/state/night-shift/backlog.md`
+on forge, which the night shift rewrites after every run.
 
 Read-only diagnostics on a host go through `fleet-ssh <host> <command>`, the
 one command that runs outside the sandbox (`home/ssh.nix`); plain `ssh` has no
