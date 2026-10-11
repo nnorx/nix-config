@@ -175,7 +175,7 @@ One at a time, weeks apart, now that the house is boring.
 
       Decided 2026-10-10 in [observability.md](observability.md):
       VictoriaMetrics and Grafana on core5, pulling from every host, with
-      alerts to the same ntfy topic. Instrumenting gate is the third of its
+      alerts to the same ntfy topic. Instrumenting gate is the second of its
       follow-up issues.
 
       Alerting no longer waits on this. `modules/alerts.nix` sends a push

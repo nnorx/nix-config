@@ -35,8 +35,8 @@ internet is broken is one monitoring did not catch.
 | Alerts | vmalert and Alertmanager on core5, to the existing ntfy topic. A watchdog pings healthchecks.io, so the stack's own silence alerts from outside |
 | fleetAlerts | Unchanged, and still the path for unit failures and missed jobs |
 | pimon | Retired once node metrics and the host-down alert have run for two weeks |
-| Wrong boot | The hosted root-device check stays primary. Metrics add each host's revision age against main, and treat a missing exporter as down |
-| Access | Grafana from trusted, and over the tunnel for forge alone, as a new grant |
+| Wrong boot | The hosted root-device check stays primary. Metrics add how long each host has been behind main, and treat a missing exporter as down |
+| Access | Grafana from trusted. Over the tunnel later, if wanted, for forge alone |
 
 ## Store and UI
 
@@ -306,9 +306,11 @@ What metrics add:
   label (`fleet_revision_info{revision=...}`), read at runtime from
   `nixos-version --configuration-revision` by node_exporter's textfile
   collector, so nothing new is baked into the toplevel. A timer on core5 asks
-  the public GitHub API, with no token, for main's head and for the commit date
-  of each running revision, and `RevisionBehind` fires when a host has been
-  behind main's head continuously for 36 hours. A healthy Pi is behind for at
+  the public GitHub API, with no token, for main's head alone, and
+  `RevisionBehind` fires when a host's revision has differed from it
+  continuously for 36 hours. Comparing against the head is enough: the
+  duration, not how far behind, is what separates a missed night from a merge
+  waiting for tonight's upgrade. A healthy Pi is behind for at
   most a day, from a merge until its next upgrade; one behind for a day and a
   half has missed a night, whether or not its upgrade reported success, which
   is the signature recovery.md describes. gate has no upgrade
@@ -334,8 +336,8 @@ What metrics cannot do:
 
 ## Access
 
-**Grafana from trusted. Over the tunnel, for forge alone, as a new `grafana`
-grant in `hosts/gate/wireguard.nix`.**
+**Grafana from trusted. Over the tunnel later, if wanted, for forge alone, as a
+new `grafana` grant in `hosts/gate/wireguard.nix`.**
 
 From trusted it needs nothing new at gate: trusted reaches servers in full.
 core5 opens `ports.grafana` on its wired interface, as it does for Home
@@ -343,8 +345,11 @@ Assistant, so the servers segment reaches it directly too, and iot, work and
 guest cannot. Grafana's own login guards it, with anonymous access off and the
 admin password in sops, set by Nick.
 
-Over the tunnel, forge gets it, because forge is what is open when an alert
-arrives away from home and the question is why. The grant is one entry in
+Over the tunnel, it waits until it is missed. Alerts reach the phone away from
+home without it, and the grant is a change to gate's firewall, behind
+`deploy-guard`, for the convenience of reading graphs from a hotel. When it is
+wanted, forge gets it, because forge is what is open when an alert arrives
+away from home and the question is why. The grant is one entry in
 `forwardRules`, matching core5's address and `ports.grafana`, held by forge.
 The phone does not get it: it is DNS-only as the device most likely to be lost,
 and the alert itself already reaches it through ntfy. Adding it later is one
@@ -363,22 +368,24 @@ both are in.
    `metricsTargets` (without gate yet) in `lib/net.nix`, the firewall rule per
    host, the label relabelling, a node dashboard, and the revision textfile.
    One PR across the Pis, since the collector and its targets change together.
-2. **Grafana over the tunnel.** The `grafana` grant for forge. gate alone,
-   behind `deploy-guard`, since it changes gate's firewall.
-3. **gate metrics.** First gate: `metricsSegment` and its assertions,
+2. **gate metrics.** First gate: `metricsSegment` and its assertions,
    node_exporter and the Kea exporter bound to the servers gateway, and Kea's
    control socket, which it does not have today, for the exporter to read.
    Then core5: gate in `metricsTargets`, and the blackbox exporter with ICMP
    probes to the public resolvers. Answers WAN state, conntrack,
    per-interface throughput and pool exhaustion.
-4. **DNS metrics.** First gate, then the Pis: the Unbound exporter on gate,
+3. **DNS metrics.** First gate, then the Pis: the Unbound exporter on gate,
    core4 and lifeline, over each Unbound's control socket, and blackbox DNS
    probes from core5 to each resolver through AdGuard on port 53, which is the
    end-to-end failure ratio. AdGuard Home has no Prometheus endpoint and
    nixpkgs no exporter for it, so its own counters stay in its UI.
-5. **Alert rules.** vmalert and Alertmanager on core5, the ntfy receivers, the
+4. **Alert rules.** vmalert and Alertmanager on core5, the ntfy receivers, the
    watchdog check in healthchecks.io, the rule set above, the GitHub timer for
    `RevisionBehind`, and the stack's units in `fleetAlerts.failure`.
-6. **Retire pimon**, two weeks after 5.
+5. **Retire pimon**, two weeks after 4.
+
+Later, if wanted: **Grafana over the tunnel**, the `grafana` grant for forge
+described under Access. gate alone, behind `deploy-guard`, since it changes
+gate's firewall.
 
 Nothing in this file changes a host. The first that does is issue 1.
