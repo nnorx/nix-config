@@ -203,11 +203,18 @@ invent for local names (`lan`, `local`, `home.arpa` and a few more, listed in
 `modules/unbound.nix`), so those lookups stop at the resolver rather than
 reaching the root servers.
 
-**DoH is advisory, not enforceable, and the redirect does not change that.**
-Port 853 and known DoH endpoint IPs can be blocked, but browsers ship encrypted
-DNS over 443 and the endpoint lists change. Browser policy is more reliable than
-firewall rules here. The redirect covers plaintext port 53 only, so it closes
-the hardcoded-`8.8.8.8` case and none of the encrypted ones.
+**DoT and DoQ are refused, so devices that fall back are redirected.** From
+the same segments the redirect covers, gate rejects TCP and UDP 853 out `wan`,
+with a reset or port-unreachable so the client falls back at once rather than
+timing out. A device that tries encrypted DNS first and then plaintext ends up
+on the fleet. One that never falls back, like an Android phone with Private
+DNS in strict mode, loses DNS instead. See [router.md](router.md) for whether
+this is deployed yet, and how to exempt a segment.
+
+**DoH is advisory, not enforceable.** Known DoH endpoint IPs can be blocked,
+but browsers ship encrypted DNS over 443 and the endpoint lists change. Browser
+policy is more reliable than firewall rules here. So the hardcoded-`8.8.8.8`
+case and DoT are closed, and DoH is not.
 
 ## What stays out of this repo
 

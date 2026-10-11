@@ -201,6 +201,29 @@ let
   ) segmentOn;
   redirectIfaces = builtins.attrNames redirectOn;
 
+  # Encrypted DNS to an outside resolver, refused wherever port 53 is
+  # redirected. A device that tries DoT (TCP 853) or DoQ (UDP 853) first and
+  # falls back to plaintext then lands on the redirect, and ends up filtered
+  # and in the query log like everything else on the segment. Without this,
+  # such a device walks around the redirect without ever being caught by it.
+  #
+  # Derived from `redirectOn` rather than listed, so the two cannot drift: a
+  # segment that is redirected has the way around the redirect closed, and one
+  # that is not keeps 853. On servers that is the Pis' own business, and on
+  # guest it is a visitor's.
+  #
+  # The tunnel is covered with the rest, which matters only for a peer holding
+  # the `internet` grant: the others have no path out `wan` at all, per
+  # ./wireguard.nix.
+  #
+  # `dotExempt` gives a redirected segment its 853 back if refusing it breaks
+  # something there. work is the likely candidate: its laptop is centrally
+  # managed and may be set to require DoT. Port 53 stays redirected either way.
+  dotExempt = [ ];
+  refuseDotIfaces = builtins.attrNames (
+    lib.filterAttrs (_: name: !(builtins.elem name dotExempt)) redirectOn
+  );
+
   # Spread across the resolvers rather than pinning one. The fleet runs two
   # deliberately independent resolvers, and sending every redirected client to
   # the first would quietly make it a single point of failure for precisely the
@@ -277,6 +300,16 @@ in
         would have nothing to point at. The nftables rule would render as
         `mod 0` over an empty map, whose error message says nothing about this
         list.
+      '';
+    }
+    {
+      assertion = lib.all (name: builtins.elem name (builtins.attrValues redirectOn)) dotExempt;
+      message = ''
+        hosts/gate/routing.nix exempts ${toString dotExempt} from the port-853
+        refusal, but only redirected segments are refused in the first place:
+        ${toString (builtins.attrValues redirectOn)}. An exemption naming
+        anything else does nothing, so a misspelt one would leave the segment
+        it meant still refused.
       '';
     }
     {
@@ -400,8 +433,22 @@ in
       # the point of having an iot segment, but it has no business reaching
       # anything else in servers. The one exception is Govee's LAN API with
       # Home Assistant on core5, in ./govee.nix.
+      #
+      # Port 853 is refused with `reject` rather than dropped, so a client
+      # falls back to port 53 at once instead of after its own timeout. Each
+      # protocol gets what a closed port would send it. For TCP that is a
+      # reset: bare `reject` in this inet table sends ICMP port-unreachable
+      # even for TCP, which some stacks treat as a soft error and retry
+      # through. For UDP it is ICMP port-unreachable, which a connected socket
+      # reports as ECONNREFUSED on its next call. A QUIC client on an
+      # unconnected socket may not notice it, and waits out its handshake as
+      # it would under a drop, which is no worse.
       extraForwardRules = lib.mkBefore ''
         iifname ${nftSet (quoted deniedUpstream)} oifname "${wan}" ip daddr ${nftSet upstreamPrivate} drop comment "only trusted reaches upstream management"
+        ${lib.optionalString (refuseDotIfaces != [ ]) ''
+          iifname ${nftSet (quoted refuseDotIfaces)} oifname "${wan}" tcp dport 853 counter reject with tcp reset comment "refuse DoT, so clients fall back to port 53"
+          iifname ${nftSet (quoted refuseDotIfaces)} oifname "${wan}" udp dport 853 counter reject comment "refuse DoQ, so clients fall back to port 53"
+        ''}
         iifname "${trustedBr}" oifname "${trunk}" accept comment "trusted reaches servers"
         iifname "${tagged "iot"}" oifname "${trunk}" meta l4proto { tcp, udp } th dport 53 accept comment "iot resolves via the Pis, nothing else"
         iifname "${tagged "work"}" oifname "${trunk}" meta l4proto { tcp, udp } th dport 53 accept comment "work resolves via the Pis, nothing else"

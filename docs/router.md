@@ -34,16 +34,61 @@ as a revert path, and it raises what a bad deploy costs: the recovery USB and
       only because it was not talking to the fleet at all; that is no longer
       the reason, so the property is now written down instead of incidental.
 
-      It catches plaintext DNS only. A device speaking DoT (853) or DoH (443)
-      still bypasses the fleet's resolvers, and DoH is not distinguishable from
-      other HTTPS traffic at the firewall. Blocking 853 outbound would push
-      DoT-capable devices back onto port 53 where this rule catches them; that
-      is not done here.
+      It catches plaintext DNS only. DoT and DoQ on 853 are refused by the
+      next item, so a device that falls back from them lands here. DoH on 443
+      still bypasses the fleet's resolvers: it is not distinguishable from
+      other HTTPS traffic at the firewall.
 
       It also cannot help a host that recurses for itself. The rule excludes
       whole segments, and the only recursers in the fleet (gate and the two
       Pis) are already outside it, but a workstation running its own resolver
       on trusted would have its queries to authoritative servers rewritten.
+- [ ] **Refuse outbound DoT and DoQ.** Built and tested in VMs 2026-10-11,
+      **pending deploy**: tick this once the check below has been run on the
+      house network. A device that tries DNS-over-TLS (TCP 853) or
+      DNS-over-QUIC (UDP 853) to an outside resolver is refused, so if it
+      falls back to plaintext it lands on the redirect above and is filtered
+      and logged like everything else on its segment.
+
+      It covers exactly the segments the redirect does: trusted, iot, work and
+      the tunnel, derived from the same `redirectOn` in
+      `hosts/gate/routing.nix`, so the two cannot drift. servers and guest
+      keep 853. Of the tunnel's peers it matters only to forge's full-tunnel
+      profile: the phone has no exit through gate, and its split profile does
+      not send outside traffic into the tunnel at all.
+
+      It rejects rather than drops, so a client gives up at once instead of
+      waiting out its own timeout: a TCP reset for DoT, ICMP port-unreachable
+      for DoQ. `tests/gate-dns.nix` checks both, and that plaintext 53 is
+      still redirected, against the real ruleset in VMs:
+      `nix build .#checks.x86_64-linux.gate-dns`.
+
+      The work laptop is centrally managed and may require DoT. If it loses
+      DNS on the house network after this deploys, put `"work"` in
+      `dotExempt` in `hosts/gate/routing.nix`, which gives that segment its
+      853 back while keeping its port 53 redirected.
+
+      What this does not do:
+
+      - DoH on 443 still bypasses the fleet, as above. Browser policy is the
+        lever for that, not the firewall.
+      - An Android phone with Private DNS set to a specific hostname (strict
+        mode) loses DNS entirely rather than falling back, since strict mode
+        never uses plaintext. Automatic mode falls back. A phone here in
+        strict mode needs switching to automatic, or off.
+
+      After deploying, from a trusted client, in one sitting:
+
+      ```
+      kdig +tls @1.1.1.1 example.com     # fails at once, connection refused
+      dig @1.1.1.1 <a name the fleet filters>   # the fleet's blocked answer
+      ssh gate 'sudo nft list chain inet nixos-fw forward-allow'
+      ```
+
+      `kdig` failing after a pause rather than at once means the packets are
+      being dropped somewhere, not rejected by this rule. The two
+      `dport 853` counters should be non-zero; like the redirect's, they reset
+      whenever a deploy changes the ruleset.
 - [ ] **Confirm AdGuard logs real client IPs** rather than the gateway. The
       mechanism is in place (Kea hands out the Pi addresses directly, and nat
       masquerades only outbound on `wan`), but it has not been verified against
