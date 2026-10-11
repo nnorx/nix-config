@@ -52,6 +52,13 @@ in
   boot.loader.generic-extlinux-compatible.enable = lib.mkForce false;
   boot.loader.raspberry-pi.bootloader = "kernel";
 
+  # Onboard Bluetooth off, in config.txt. Nothing here uses it and BlueZ is not
+  # running, but Home Assistant's bluetooth integration, which default_config
+  # pulls in, still finds the adapter and errors without BlueZ to drive it.
+  # Removing the adapter is simpler than running a stack for no device. The
+  # firmware reads config.txt only at boot, so this takes effect on a reboot.
+  hardware.raspberry-pi.config.all.dt-overlays.disable-bt.enable = true;
+
   # Root on NVMe rather than the SD card. Addressed by UUID, not label: while
   # both devices are attached there are two firmware partitions and two Linux
   # roots, and the SD's label and UUID are the fixed ones every NixOS Pi image
