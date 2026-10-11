@@ -251,9 +251,17 @@ in
               url = "https://v.firebog.net/hosts/Prigent-Ads.txt";
               name = "Firebog Prigent Ads";
             }
+            # Windows and Office telemetry, for the PC WSL runs on, and
+            # Microsoft's apps on any machine. It replaces WindowsSpyBlocker's
+            # spy.txt, unchanged since 2022, in the same slot, so until the
+            # first refresh this id serves the old list's cached file rather
+            # than another list's (see the note on ids below). Adblock syntax:
+            # each rule also blocks its subdomains, the whole of
+            # events.data.microsoft.com among them. Applies to work as well.
+            # docs/privacy.md, "Telemetry coverage".
             {
-              url = "https://raw.githubusercontent.com/crazy-max/WindowsSpyBlocker/master/data/hosts/spy.txt";
-              name = "WindowsSpyBlocker";
+              url = "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/adblock/native.winoffice.txt";
+              name = "HaGeZi Native Tracker: Microsoft";
             }
             {
               url = "https://hostfiles.frogeye.fr/firstparty-trackers-hosts.txt";
@@ -300,8 +308,22 @@ in
               url = "https://gitlab.com/quidsup/notrack-blocklists/-/raw/master/notrack-malware.txt";
               name = "NoTrack Malware";
             }
+            # Device telemetry, listed last for the reason below.
+            #
+            # Apple's OS and app analytics, for the iPhones on trusted and the
+            # work Mac. The Android phones there have no counterpart: HaGeZi's
+            # lists are per handset vendor, and none covers Google's own.
+            {
+              url = "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/adblock/native.apple.txt";
+              name = "HaGeZi Native Tracker: Apple";
+            }
           ];
         in
+        # A list's id is its position, and AdGuard keeps each download as
+        # filters/<id>.txt and serves that file until it is a day old
+        # (internal/filtering/filter.go). Inserting a list moves every id after
+        # it, and each would serve its neighbour's rules under its own name for
+        # up to a day. Add new lists at the end.
         builtins.genList (i: {
           enabled = true;
           id = i + 1;

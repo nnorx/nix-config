@@ -135,7 +135,7 @@ names, and there are none. **narrow** (F6): the fallback could use
 DNS-over-TLS to the same two operators, addressed by IP, which needs no
 bootstrap and hides the names from the path.
 
-**Blocklist downloads.** 23 lists, refreshed by each resolver at AdGuard's
+**Blocklist downloads.** 24 lists, refreshed by each resolver at AdGuard's
 default interval of 24 hours, from eight operators:
 raw.githubusercontent.com, v.firebog.net, pgl.yoyo.org,
 hostfiles.frogeye.fr, phishing.army, urlhaus.abuse.ch, lists.cyberhost.uk and
@@ -143,7 +143,7 @@ gitlab.com. Each sees two fetches a day from the house's address and
 AdGuard's user agent. AdGuard's own update check is off: the NixOS module
 passes `--no-check-update`. Parental control and safe browsing, AdGuard's
 two lookup services, are both off in the module.
-**narrow** (F7): nine lists come from v.firebog.net and eight from GitHub,
+**narrow** (F7): nine lists come from v.firebog.net and nine from GitHub,
 and the other six each bring an operator of their own for a single list.
 Whether those six add coverage the rest lack is the question.
 
@@ -247,33 +247,58 @@ it is a follow-up (F15) rather than part of this review.
 
 ### Telemetry coverage
 
-The lists include EasyPrivacy, Frogeye's first-party trackers and
-WindowsSpyBlocker. Two gaps for the devices in the house, both checked
-against GitHub's commit history on 2026-10-11:
+EasyPrivacy and Frogeye's first-party trackers are written for browsers and
+apps. What an operating system sends on its own runs on its vendor's domains,
+and two lists cover that for the devices in the house, both from HaGeZi's
+Native Tracker set and both updated in the week NNO-34 added them, in
+October 2026. Each has a comment in `modules/adguardhome.nix` saying why it
+is there.
 
-- **WindowsSpyBlocker is no longer maintained.** Its `spy.txt` last changed
-  in May 2022. HaGeZi's `native.winoffice` list covers the same Windows and
-  Office telemetry and changed this week. Swapping one for the other also
-  changes what the work laptop can reach, since work is filtered.
-- **Nothing targets TV firmware.** EasyPrivacy and the ad lists are written
-  for browsers and apps, and a TV's own telemetry runs on its vendor's
-  domains. HaGeZi publishes a list per vendor (`native.samsung`,
-  `native.lgwebos`, `native.amazon`, `native.roku` and others), each updated
-  within the past two weeks. Only the ones for vendors actually in the house
-  are worth adding, and the iot query log says which those are. Perflyst's
-  `SmartTV.txt` is the other common choice and is still updated, but its
-  Android and Fire TV lists have not changed since 2021 and 2023.
+- **Windows and Office: `native.winoffice`**, for the PC WSL runs on and
+  Microsoft's apps on any machine. It replaced WindowsSpyBlocker's `spy.txt`,
+  which last changed in May 2022. The two overlap less than their
+  descriptions suggest: `spy.txt` was 347 exact hostnames, `native.winoffice`
+  is about 380 adblock rules, each of which also blocks its subdomains, and
+  only 62 of the old names fall under one. What it adds is mostly Office's
+  per-application telemetry hosts, along with Bing and MSN advertising, App
+  Center, Application Insights and Clarity. Of the 285 names it drops, 215
+  are individual servers under `wns.windows.com`, which delivers Windows'
+  push notifications, and `llnw.net`, a CDN that has carried Windows Update
+  downloads. Neither is telemetry, so dropping them takes away breakage
+  rather than coverage.
+- **Apple: `native.apple`**, for the iPhones on trusted and the work Mac.
+  Its rules are OS, app and advertising analytics.
 
-Phones show no obvious gap: the most-blocked entries on trusted are already
-app and OS analytics, which is EasyPrivacy and Frogeye doing their job.
-HaGeZi has `native.apple` and lists for several Android vendors too; they
-belong in the same decision as the TV lists, made against what the log
-shows the phones asking for.
+No list is added for the Android phones on trusted. HaGeZi's Android lists
+are per handset vendor, and none covers Google's own services. A vendor's
+list is a one-line addition if the phones turn out to need one.
 
-Both list changes come from raw.githubusercontent.com, which the resolvers
-already fetch from, so neither adds an operator (F7). They are F16, since
-which lists to run, and what they may break on the work laptop, is a
-decision for the house rather than for this review.
+No TV is on the network: the TVs in the house are displays for other
+machines. HaGeZi's per-vendor TV lists (`native.lgwebos`, `native.roku`,
+`native.amazon` and others) are there for when one joins iot, which is where
+lib/net.nix puts TVs.
+
+HaGeZi says its standalone native lists are the thorough end of its range and
+can occasionally limit a feature. When something stops working, the query log
+names the list that blocked each name, so that is where to look first.
+
+**The work segment** is filtered, so both lists apply to the work laptop.
+The rule with the most reach there is `events.data.microsoft.com`, whose
+subdomains carry diagnostic data for Windows, Office and Teams, and which
+Microsoft's management and security agents can report through. `spy.txt`
+blocked only the crash-report hosts under it. The work laptop is a Mac and
+does not use Office, so nothing on it is expected to need those names, and
+neither list is exempted there.
+
+AdGuard Home cannot apply a list to some clients and not others: a
+persistent client uses every enabled list, or turns filtering off entirely.
+Should the work laptop need a name back, a custom rule set from the module
+(`user_rules`), such as `@@||events.data.microsoft.com^$client='work'`,
+unblocks it for that segment alone. It matches the persistent client the module names after
+the segment, so no address is written out.
+
+Both lists come from raw.githubusercontent.com, which the resolvers already
+fetch from, so neither adds an operator (F7).
 
 ### Clearing the history from before the cutover
 
@@ -523,7 +548,7 @@ Each is one issue, titled the way a PR for it would be.
 | F13 | `forge: turn geoclue off` | off |
 | F14 | `forge: night-shift pushes carry the identifier, not the title` | narrow |
 | F15 | `unbound: serve the root zone locally, so single-label names stay home` | narrow |
-| F16 | `adguardhome: maintained telemetry lists for windows and the house's tvs` | narrow |
+| F16 | `adguardhome: maintained telemetry lists for windows and the house's tvs` | narrow, done in NNO-34 |
 
 F10 changes gate's firewall, so it goes behind deploy-guard. F5 changes gate
 and core5 together, and F6 the resolvers, which take it that night. F15
