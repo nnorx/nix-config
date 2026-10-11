@@ -101,6 +101,7 @@ scripts/               preflight, the check every change gets; dns-top-domains
 | [unifi.md](docs/unifi.md) | Controller, backups, adopting and re-adopting devices |
 | [home-assistant.md](docs/home-assistant.md) | First run, phones, adding integrations, upgrades |
 | [laptop.md](docs/laptop.md) | Installing forge, enabling Secure Boot, preparing for Windows |
+| [observability.md](docs/observability.md) | The metrics and alerting design: store, collection, alerts, access |
 | [night-shift.md](docs/night-shift.md) | Agents on forge working issues queued in Linear |
 | [privacy.md](docs/privacy.md) | What leaves the house, per host and service, and what could stop |
 
