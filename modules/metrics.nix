@@ -293,13 +293,14 @@ in
   services.grafana = {
     enable = true;
 
-    # From `unstable`, as Home Assistant is, and for the same reason: core5
-    # evaluates against nixos-raspberrypi's nixpkgs, whose overlay changes the
-    # Python that Grafana's build uses, so core5's own Grafana is a derivation
+    # From `unstable`, as Home Assistant is, and for the same reason: core5's
+    # package set carries nixos-raspberrypi's overlays, which change the Python
+    # that Grafana's build uses, so core5's own Grafana is a derivation
     # cache.nixos.org never built, and CI would compile it, frontend and all.
-    # Checked 2026-10-11: core5's own (13.0.3) was absent from cache.nixos.org
-    # and unstable's (13.1.6) was present. No override: any change to the
-    # package changes its store path and loses Hydra's build.
+    # Checked 2026-10-11, both before and after core5 moved to the fleet's
+    # nixpkgs: core5's own (13.0.3, then 13.0.9) was absent from
+    # cache.nixos.org and unstable's (13.1.6) was present. No override: any
+    # change to the package changes its store path and loses Hydra's build.
     #
     # The costs. `unstable` moves with every flake.lock bump, and the nightly
     # upgrade applies it unattended. Grafana's database migrations are one-way,
