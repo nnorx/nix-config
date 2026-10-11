@@ -15,6 +15,7 @@
         pkgs.coreutils
         pkgs.gnused
         pkgs.gnugrep
+        pkgs.less # the `d` answer pages the diff
       ];
       text = builtins.readFile ./pr-handoff.sh;
     })
@@ -23,5 +24,11 @@
   shell-common.aliases = {
     ph = "pr-handoff";
     phm = "pr-handoff merge";
+    # What this branch adds since it left the default branch, which is what
+    # its PR shows. Three dots: from where they diverged, so commits merged to
+    # main since then do not show up reversed. origin/HEAD rather than main,
+    # since not every repo's default branch is main.
+    phd = "git diff origin/HEAD...";
+    phds = "git diff --stat origin/HEAD...";
   };
 }
