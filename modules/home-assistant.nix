@@ -5,9 +5,9 @@
 # declarative config, no Docker in the path and a closure CI can cache. None of
 # that was on offer for UniFi.
 #
-# The package comes from `unstable`, and not for novelty. core5 evaluates
-# against nixos-raspberrypi's nixpkgs, which replaces ffmpeg with Raspberry Pi's
-# fork. Home Assistant and several of its Python dependencies link
+# The package comes from `unstable`, and not for novelty. core5's package set
+# carries nixos-raspberrypi's overlays, one of which replaces ffmpeg with
+# Raspberry Pi's fork. Home Assistant and several of its Python dependencies link
 # ffmpeg, so on core5's own package set each of them is a derivation
 # cache.nixos.org has never seen, and CI would rebuild the lot. `unstable` is
 # imported without that overlay, so its build is Hydra's. Checked 2026-10-03:

@@ -36,6 +36,21 @@ env:
 
 jobs:
   build:
+    # Split by kernel, not by host. core4 and lifeline resolve to the *same*
+    # Pi 4 kernel derivation, so they share a job and nix compiles it once.
+    # core5's kernel comes from nixos-raspberrypi's cache, but its
+    # page-size-16k overlay rebuilds rustc when nixpkgs bumps it, which takes
+    # hours too. In one job, a lock bump that moves both could pass the
+    # timeout below, and a timed-out run caches nothing.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: pi4
+            hosts: core4 lifeline
+          - name: core5
+            hosts: core5
+    name: build (${{ matrix.name }})
     runs-on: ubuntu-24.04-arm
     # A cold Pi 4 kernel build measured ~31 objects/min on the Pi itself
     # against a ~20-30k object config, i.e. 9-15h. These runners are perhaps
@@ -59,12 +74,12 @@ jobs:
           # cache.nixos.org and burn cache quota for no benefit.
           useDaemon: true
 
-      # One invocation rather than a job matrix on purpose: core4 and lifeline
-      # resolve to the *same* kernel derivation, so parallel jobs would compile
-      # it twice. Sequentially, nix builds it once and both reuse it.
       - name: Build Pi system closures
+        env:
+          HOSTS: ${{ matrix.hosts }}
         run: |
-          nix build --no-link --print-build-logs --accept-flake-config \
-            .#nixosConfigurations.core4.config.system.build.toplevel \
-            .#nixosConfigurations.lifeline.config.system.build.toplevel \
-            .#nixosConfigurations.core5.config.system.build.toplevel
+          targets=()
+          for h in $HOSTS; do
+            targets+=(".#nixosConfigurations.$h.config.system.build.toplevel")
+          done
+          nix build --no-link --print-build-logs --accept-flake-config "${targets[@]}"
