@@ -86,7 +86,7 @@ modules/
 home/                  Home Manager. common.nix everywhere, default.nix on dev
                        hosts (adds dev-tools, ssh agent, Claude Code)
 docs/                  Runbooks, see below
-scripts/               preflight, the check every change gets
+scripts/               preflight, the check every change gets; dns-top-domains
 .github/workflows/     Evaluation gate, binary cache builds, weekly lock bumps
 ```
 
@@ -102,6 +102,7 @@ scripts/               preflight, the check every change gets
 | [home-assistant.md](docs/home-assistant.md) | First run, phones, adding integrations, upgrades |
 | [laptop.md](docs/laptop.md) | Installing forge, enabling Secure Boot, preparing for Windows |
 | [night-shift.md](docs/night-shift.md) | Agents on forge working issues queued in Linear |
+| [privacy.md](docs/privacy.md) | What leaves the house, per host and service, and what could stop |
 
 ## Deploying
 
@@ -393,6 +394,7 @@ Run `direnv allow` once in a fresh clone.
 | `agents-status [--offline]` | Each agent branch's handoff, PR and checks, conflicts with main and with each other, and what to merge next |
 | `fleet-status [host...]` | Every fleet host's running revision against main, root device, last upgrade and failed units (Linux dev hosts) |
 | `vulnix-scan` / `vulnix-scan-system` | CVE scan the HM closure or the running system |
+| `nix run .#dns-top-domains` | Top domains per segment from the resolvers' query logs, without client addresses ([privacy.md](docs/privacy.md)) |
 | `nix build .#packages.aarch64-linux.<host>-installer` | Pi SD image |
 | `nix build .#packages.x86_64-linux.recovery-iso` | Headless x86 rescue ISO |
 
