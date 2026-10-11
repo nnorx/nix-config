@@ -156,7 +156,51 @@ let
       address to do it.
     '';
   }) net.pimonAgents;
+
+  # core5 builds its scrape targets from these addresses, and each target opens
+  # its exporter's port to the collector's address alone, so a name without one
+  # fails as a bare "attribute 'ip' missing", as pimonAgents would.
+  #
+  # The same segment, because every scrape is meant to stay on it: core5 to a
+  # host anywhere else would cross gate's forward chain, which has no rule for
+  # it, and the scrape would fail as a down host. gate is the exception to
+  # come, scraped at its gateway address on the collector's segment.
+  collector = hosts.${net.metricsCollector} or { };
+  metricsChecks = [
+    {
+      assertion = collector ? ip;
+      message = ''
+        net.metricsCollector is "${net.metricsCollector}", which is not a host with an
+        address in net.hosts. Every target opens its exporter's port to that
+        address, and only to it.
+      '';
+    }
+  ]
+  ++ map (name: {
+    assertion =
+      hosts ? ${name} && hosts.${name} ? ip && hosts.${name}.segment or null == collector.segment or null;
+    message = ''
+      net.metricsTargets lists "${name}", which is not a host with an address on
+      the collector's segment, ${collector.segment or "?"}. The collector scrapes
+      each target at its address, and a scrape from another segment would have
+      to cross gate's forward chain, which has no rule for it.
+    '';
+  }) net.metricsTargets;
+
+  # One number, one name. Two names for a port read as two services, and a
+  # firewall rule written for one opens the other: gate's tunnel grants and the
+  # hosts' interface rules match on the number alone. Across TCP and UDP too,
+  # since the names say nothing of the protocol.
+  portNames = lib.groupBy (name: toString net.ports.${name}) (builtins.attrNames net.ports);
+  portChecks = lib.mapAttrsToList (number: names: {
+    assertion = builtins.length names == 1;
+    message = ''
+      net.ports gives ${number} more than one name: ${lib.concatStringsSep ", " names}.
+      A firewall rule opened for one of them would open the others.
+    '';
+  }) portNames;
 in
 {
-  assertions = segmentChecks ++ hostChecks ++ peerChecks ++ agentChecks;
+  assertions =
+    segmentChecks ++ hostChecks ++ peerChecks ++ agentChecks ++ metricsChecks ++ portChecks;
 }

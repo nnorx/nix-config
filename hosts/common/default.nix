@@ -21,6 +21,7 @@ in
     ../../modules/fail2ban.nix
     ../../modules/net-assertions.nix
     ../../modules/host-status.nix
+    ../../modules/node-exporter.nix
     ../../modules/alerts.nix
   ];
 

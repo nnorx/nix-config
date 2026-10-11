@@ -19,6 +19,7 @@ in
     ../../modules/unifi-backup.nix
     ../../modules/home-assistant.nix
     ../../modules/home-assistant-backup.nix
+    ../../modules/metrics.nix
     (import ../../modules/pimon.nix {
       mode = "collector";
       bind = "0.0.0.0";

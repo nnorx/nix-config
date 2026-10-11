@@ -312,6 +312,19 @@
     "lifeline"
   ];
 
+  # The fleet's metrics, by pull: the collector runs the store and Grafana
+  # (modules/metrics.nix) and scrapes node_exporter on each target
+  # (modules/node-exporter.nix), which opens its port to the collector alone.
+  # See docs/observability.md. Named rather than derived from `hosts`, for the
+  # same reason as pimonAgents: being a host is not the same fact as being
+  # scraped. gate joins with a `metricsSegment` of its own, having no `ip`.
+  metricsCollector = "core5";
+  metricsTargets = [
+    "core4"
+    "lifeline"
+    "core5"
+  ];
+
   # Ports forming contracts *between* hosts, so they can't live in one module:
   # core4 and lifeline each dial their own unbound on loopback; both dial
   # core5's pimon collector; every AdGuard host opens adguardWeb on its LAN
@@ -346,6 +359,15 @@
     goveeScan = 4001; # UDP, multicast discovery, to the lights
     goveeReply = 4002; # UDP, scan replies and status, to core5
     goveeCommand = 4003; # UDP, control, to each light
+
+    # The metrics stack, docs/observability.md. node_exporter is a contract
+    # between core5 and every target. VictoriaMetrics listens on core5's
+    # loopback and is here because the rule is every port. Grafana is on
+    # core5's address, at 3030 rather than its default 3000, which is
+    # adguardWeb: gate's tunnel grants match on the number.
+    nodeExporter = 9100;
+    victoriaMetrics = 8428;
+    grafana = 3030;
 
     # WireGuard on gate's WAN, which every peer's config names. 443 rather
     # than 51820, because restrictive Wi-Fi blocks unusual UDP ports more often
