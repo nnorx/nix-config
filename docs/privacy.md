@@ -505,7 +505,8 @@ traffic.
 - **iot.** Devices reaching their vendors' clouds, some of which need that
   to work, and app analytics the blocklists already refuse. A personal
   device was on this segment for a few days, and its lookups are in these
-  counts. Follow-up: NNO-27 decides which devices need the internet at all.
+  counts. [Internet for iot](#internet-for-iot) is the design for giving
+  the internet only to the devices that need it.
 - **servers.** The switch and AP contact their vendor. Apart from that,
   the segment reaches only time servers. This confirms F10.
 - **vpn.** The tunnel peers, filtered as at home. Nothing new.
@@ -526,6 +527,274 @@ traffic.
 - **guest** is absent, as it should be: it resolves through public
   resolvers.
 - **work** is absent by design.
+
+## Internet for iot
+
+A design, from NNO-27. Nothing in this section is deployed: it is what the
+PRs [at its end](#the-prs-in-order) build, one at a time.
+
+**Today every iot device reaches the whole internet.** `networking.nat`
+appends `iifname { every segment } oifname "wan" accept` to gate's
+`forward-allow` chain, and nothing on iot's side narrows it except the two
+rules in `hosts/gate/routing.nix` that run first: private space upstream is
+dropped, and port 853 is refused. Plaintext DNS is redirected to the
+resolvers, so every name an iot device looks up is in AdGuard's log, but what
+it connects to afterwards is not checked against anything. The device side
+above says some iot devices need their vendor's cloud to work and some only
+use it to report on themselves.
+
+The house has no global IPv6 ([router.md](router.md)), so this is IPv4 only.
+If IPv6 arrives, every rule below needs its `ip6` twin before iot gets an
+address.
+
+### Per device or per segment
+
+**Per class, where a class is a list of named devices.** gate can only tell
+devices apart by their source address or, since iot is one hop away, their
+MAC address. [device-identity.md](device-identity.md) settles how a rule
+names one without this repo saying which hardware it is: a role name and a
+reserved address, public in `lib/net.nix`, and the MAC that Kea reserves the
+address for, in gate's sops file. The ways a class can be expressed:
+
+- **One policy for the whole segment.** Simple, and useless here: the
+  segment holds devices that need a cloud and devices that need nothing, so
+  one rule is either too open for the second or breaks the first.
+- **A list of devices on iot.** A class is a list of names from `devices`,
+  as `goveeLights` is, and its chain matches their reserved addresses. No new
+  segment, no device moves network, and Home Assistant's rules are
+  untouched. Two limits. An address on a shared segment is not
+  authentication: a device that takes a pool address for itself is out of
+  its class. That is enough against firmware reporting home, not against a
+  compromised device set on getting out. And every name in the list is
+  public, so this is for devices the repo already names, or whose existence
+  is harmless to say; "What would reopen this" in device-identity.md says
+  what happens if the list grows into an inventory. This is the
+  recommendation, with one class to start: local-only, for devices that need
+  no internet at all, holding the Govee lamps.
+- **One segment per policy.** A device's class is the network it joins,
+  chosen in the UniFi controller and on the device, so the repo names
+  classes, never devices, and the AP rather than an address keeps a device
+  in its class. It costs a VLAN, a gate reboot and moving each device onto
+  the new network. It is the answer for a device that should not be named in
+  public, and is [designed below](#a-local-only-segment-later) but not
+  scheduled.
+- **A runtime set, for trials.** An nftables set on gate, declared empty,
+  that Nick fills by hand with a device's current address. Nothing about the
+  device reaches the repo. It is not policy: the set empties whenever a
+  deploy reloads the ruleset, and for a device without a reservation the
+  entry goes stale if its lease moves. It is how a device is tried without
+  the internet for a week before it joins a class for good.
+
+### Allowing by name
+
+A device that needs its cloud needs it by name, and the addresses behind
+those names change. Four places the name could be checked, by what each costs
+on an N100 that is the house's only router:
+
+- **The resolvers, with gate unchanged.** AdGuard can refuse every name for
+  one segment's clients and allow a few (`$client` rules, written like the
+  work segment's example above). It costs gate nothing and needs no
+  new software, and the query log names each refusal, the rule and the client.
+  It does not stop a device that connects to a hardcoded address, or that
+  resolves over DoH, which nothing on gate can see.
+- **nftables sets filled from DNS answers, on gate.** iot's DNS replies come
+  from the Pis and cross gate's forward chain, redirected ones included, so
+  gate can read them without answering them, and AdGuard keeps seeing each
+  device's own address. A small program would take each reply from an NFQUEUE,
+  add the addresses for allowed names, CNAME targets followed, to a set with
+  a timeout no shorter than an hour, and release it, so the device cannot
+  connect before its address is in the set. With the queue's `bypass` flag a
+  dead program releases replies untouched, so DNS keeps working and only new
+  destinations are refused. The CPU and memory are negligible at iot's query
+  rate. The cost is a program written or adopted for this, with no NixOS
+  module behind it, running in the DNS path of the house's only router.
+  The two cheaper ways to fill such a set are both worse: AdGuard's `ipset`
+  option fills sets in the Pis' kernels, not gate's, and pushing them into
+  gate would have a Pi reconfigure the router; and a forwarder on gate with
+  `nftset=` would make gate every iot device's resolver, so AdGuard would see
+  gate's address for all of them and the log could no longer say which device
+  was refused.
+- **A forward proxy on gate**, reading the server name from each TLS
+  handshake without decrypting it. It covers TLS over TCP only, so QUIC,
+  plaintext MQTT and every vendor protocol on its own port would need rules
+  of their own anyway, and every allowed connection would terminate in a
+  userspace process on the router, whose fault takes all of them down. The
+  most machinery for the least coverage, so not this.
+- **No names at all: allow by default for one class, deny for another.**
+  Static rules, nothing at runtime, nothing that can crash. It cannot narrow
+  a cloud device's destinations, only give it all of the internet or none.
+
+The names in any allowlist are a list of the vendors whose devices are in the
+house, which is the inventory device-identity.md keeps out of the public
+half. Writing one down is what its "What would reopen this" names, so that
+decision comes first; they never go in this repo in the clear.
+
+**Decision.** Start with the last: a local-only class with no internet, for
+the devices that need none, which is the whole gain for them and costs gate
+nothing at runtime. Leave the cloud class open until the local class has run
+for a while. Then, if it is still wanted, allow by name at the resolvers
+first, since that changes gate not at all, and add sets filled from DNS on
+gate only if a device keeps working while the resolvers refuse its names,
+which means it reaches its cloud without asking them. The proxy is not
+pursued.
+
+### Which devices need the cloud
+
+By category; which category each device in the house is in is Nick's to
+record, from AdGuard's per-client log, and stays out of the repo.
+
+| Category | Needs the internet | Without it |
+|---|---|---|
+| Lights driven by Home Assistant over a LAN API: the Govee lamps | No | See below |
+| Plugs and switches with a local Home Assistant integration | No | The vendor's app loses remote control |
+| Plugs and switches only the vendor's app controls | Their vendor's cloud | They stop being controllable |
+| Cameras recording locally | No | Remote viewing through the vendor's app stops |
+| Cameras recording to the vendor's cloud | Their vendor's cloud | Recording stops |
+| TVs and streaming devices (none today) | Broad: every service they stream | Not a candidate; they stay open |
+
+**The Govee lamps** are controlled from Home Assistant through
+`govee_light_local` and need nothing outside the house for it
+([home-assistant.md](home-assistant.md#govee-lights)). Cut off, what changes:
+
+- **The vendor's app** can no longer reach them through its cloud, so
+  control from the app away from home, and voice assistants linked through
+  it, stop. Home Assistant's control does not.
+- **What the app does through the cloud** stops with it, some scenes and
+  effects among them. What Home Assistant does over the LAN API, which is
+  all it does with the lamps today, is unaffected.
+- **Firmware updates** stop. They are installed from the app, with the lamp
+  online, and the vendor has also pushed security fixes to some lamps
+  automatically. Cut off, a lamp keeps the firmware it has, and an update
+  becomes a deliberate act: flush the class's chain (below), or take the
+  lamp out of the trial set during the trial, update from the app, then
+  restore it. A vulnerable lamp that can reach only iot and Home
+  Assistant's three ports is the smaller exposure than one that reaches the
+  internet.
+- **Setting one up** needs the cloud: the app adds the lamp and turns on LAN
+  Control through it. A new lamp is set up as "Adding a lamp" says, on a
+  pool address with the internet, and cut off when it joins `devices` and
+  the class, which Home Assistant needs of it anyway once its rules name the
+  lamps (device-identity.md).
+
+That is acceptable, and the lamps go first, since they are the devices this
+repo already knows need nothing. What the trial has to show is that a lamp
+does not misbehave when its cloud is unreachable: some firmware reboots or
+stops answering locally when it cannot reach home. If a lamp does, it stays
+out of the class, and that finding goes here.
+
+### Failing, and noticing
+
+**How a cut-off device fails.** Its DNS keeps working: the redirect's
+`ct status dnat accept` passes port 53 ahead of every rule here, so it is
+answered as before and its lookups keep reaching the log. Its connections out
+`wan` are dropped, not refused. A refusal tells it at once, and firmware that
+retries on failure then retries at once, in a loop; a drop makes it wait out
+its own timeout between attempts. A trial can switch to `reject` if a device
+hangs waiting. Connections it already had keep going until they close,
+since established traffic is accepted before `forward-allow` is consulted.
+To the vendor's app the device looks offline; to Home Assistant, a local
+device looks unchanged.
+
+**How Nick notices**, in the order the pieces arrive:
+
+- **Home Assistant**, for the case that matters: a device it controls
+  locally going unavailable is the one breakage that is not expected. Its
+  history shows when.
+- **AdGuard's log.** A cut-off device keeps asking for its cloud's names,
+  usually more often than before, since it is retrying. That is expected for
+  a local-only device and is how to see what it would have contacted.
+- **A named counter per class on gate**, counting the drops:
+  `nft list counters table inet nixos-fw`. For the local class it rises all
+  the time, since that is the devices trying, so it is evidence rather than
+  an alarm. Like the redirect's, it resets whenever a deploy reloads the
+  ruleset.
+- **A metric**, once gate's metrics exist (NNO-32,
+  [observability.md](observability.md)): node_exporter's textfile collector
+  reading `nft -j list counters` every minute, so drops per class are a
+  graph. An alert on drops makes sense only for a class with an allowlist,
+  where a drop means the list is missing something, so it waits for one.
+
+### Rolling out, and rolling back
+
+Every class's policy is its own chain in `inet nixos-fw`, appended the way
+`dns-redirect` is appended to `nixos-nat`, and jumped to from a `mkBefore`
+rule in `forward-allow` after the private-space drop and the 853 refusals and
+before nat's accept. A chain drops what it refuses and returns everything
+else, rather than accepting, so nat's rule stays the one accept out `wan`.
+That gives three ways back, none of which reboots gate:
+
+- **For one device**: take its address out of the trial set, with no change
+  to gate's config. Once it is in a class, its name comes out of the class's
+  list in `lib/net.nix`, which is an ordinary gate deploy.
+- **For a class, at once**: `sudo nft flush chain inet nixos-fw <chain>`. An
+  empty chain returns everything, so the class falls through to nat's accept,
+  as today. It lasts until the ruleset is next loaded, by a deploy or by
+  `sudo systemctl reload nftables`.
+- **For good**: switch gate to the previous generation, which reloads the
+  old ruleset and is a firewall reload, not a reboot.
+
+None of the steps below reboots gate, and the lamps stay on iot, so Home
+Assistant's Govee rules on gate and core5 are untouched by this.
+device-identity.md narrows those to the lamps' addresses on its own
+schedule.
+
+### A local-only segment, later
+
+For a device that needs no internet and should not be named in public. Not
+scheduled: it waits for such a device.
+
+- **It reboots gate.** A new VLAN interface's address unit is not started by
+  `switch`, and Kea, which requires every interface it serves, would loop
+  until it was. The reboot happens before any device depends on the segment,
+  behind `deploy-guard`, so it risks only what any gate reboot does.
+- **The pull request** adds the segment to `lib/net.nix`, with its VLAN,
+  subnet and pool; gate carries it in `hosts/gate/routing.nix`, with an
+  egress chain dropping everything out `wan`, counted; and the VLAN is
+  tagged on the AP and gate ports and its network made in the controller, by
+  hand. Every host reads `lib/net.nix`, so the PR quotes preflight's brief on
+  whether the Pis change with it.
+- **Moving a device** means giving it the new network's Wi-Fi credentials. A
+  private pre-shared key on the iot SSID, mapped to the new VLAN, would spare
+  a second SSID's beacons on 2.4 GHz, if the controller offers it there;
+  otherwise a second SSID. Either way its name stays in the controller.
+- **A device Home Assistant controls** would need its rules on the new
+  segment too, on gate and on core5, during the move and after it.
+
+### The PRs, in order
+
+Each depends on the one before. The gate PRs change its firewall, so each
+deploys behind `deploy-guard` ([recovery.md](recovery.md)).
+
+1. **`gate: count iot's traffic to the internet, and an empty trial set`.**
+   The `iot-egress` chain, which returns everything, a named counter for new
+   iot flows out `wan`, and the `iot-trial` set, empty, whose members are
+   dropped and counted. No device changes until Nick adds an address. A VM
+   test beside `tests/gate-dns.nix` checks that a member is dropped, that a
+   non-member still reaches the internet and the Pis, and that flushing the
+   chain restores both. Firewall only: `nrs` behind `deploy-guard`, no
+   reboot. It can land now.
+2. **Hands-on, no PR: trial one lamp.** Its address in the trial set for a
+   week, then all three. Each time: Home Assistant still controls it, the
+   app shows it offline, the counter rises, and the log shows it retrying.
+   The finding goes in this section, and if a lamp misbehaves, the plan
+   stops here.
+3. **device-identity.md's steps 1 to 3**: `devices` and `goveeLights` in
+   `lib/net.nix`, the MACs in gate's sops file, and Kea's reservations, so
+   each lamp holds a stable address. Its own PRs, on its own schedule; the
+   next step needs them.
+4. **`gate: keep the govee lamps off the internet`.** A `localOnly` list of
+   device names in `lib/net.nix`, holding the lamps, which net-assertions
+   checks like `goveeLights`; `iot-egress` drops their addresses out `wan`
+   into a counter named for the class, and the VM test covers it. Firewall
+   only: `nrs` behind `deploy-guard`, no reboot. `lib/net.nix` changes, so
+   the PR quotes preflight's brief on whether the Pis change with it.
+5. **`gate: egress counters as metrics`**, after NNO-32: the textfile
+   collector above, and a panel per class.
+
+Later, and only if wanted after the local class has run for a while: an
+allowlist for the cloud class, at the resolvers first, once the names in it
+have somewhere to live (above). And the local-only segment, when a device
+needs it.
 
 ## Suggested follow-ups
 
