@@ -1,0 +1,407 @@
+# The fleet's metrics store and dashboards, on the collector: VictoriaMetrics
+# scraping node_exporter on every host in net.metricsTargets, and Grafana in
+# front of it. docs/observability.md has the decisions and their reasons;
+# this file has only what implementing them needed.
+#
+# State is VictoriaMetrics' data and Grafana's database, both under /var/lib,
+# which on core5 is the NVMe root. Neither is backed up: Grafana's dashboards
+# and datasource are provisioned from here, so losing either costs history,
+# not configuration.
+{
+  config,
+  lib,
+  pkgs,
+  hostname,
+  net,
+  unstable,
+  ...
+}:
+let
+  host = net.hosts.${hostname};
+  hardening = import ../lib/hardening.nix;
+  vmAddress = "127.0.0.1:${toString net.ports.victoriaMetrics}";
+  interval = "30s";
+
+  # The fleet dashboard. Small on purpose: whether each host is up and what it
+  # is running, then the resources most likely to explain a problem, one line
+  # per host. Community dashboards can sit beside it in the same directory.
+  datasource = {
+    type = "prometheus";
+    uid = "victoriametrics";
+  };
+  panel =
+    {
+      title,
+      gridPos,
+      targets,
+      type ? "timeseries",
+      unit ? "short",
+      options ? { },
+      fieldConfig ? { },
+      transformations ? [ ],
+    }:
+    {
+      inherit
+        title
+        type
+        gridPos
+        datasource
+        options
+        transformations
+        ;
+      targets = lib.imap0 (
+        i: t:
+        {
+          inherit datasource;
+          refId = lib.elemAt [ "A" "B" "C" ] i;
+          legendFormat = "{{instance}}";
+        }
+        // t
+      ) targets;
+      fieldConfig = lib.recursiveUpdate { defaults.unit = unit; } fieldConfig;
+    };
+  # The network panel leaves out loopback and Docker's interfaces, which on
+  # core5 would count each container's traffic a second time.
+  physical = ''device!~"lo|veth.*|docker.*|br-.*"'';
+  fleetDashboard = {
+    uid = "fleet";
+    title = "Fleet";
+    schemaVersion = 39;
+    time = {
+      from = "now-24h";
+      to = "now";
+    };
+    refresh = "1m";
+    panels = [
+      (panel {
+        title = "Up";
+        type = "stat";
+        gridPos = {
+          x = 0;
+          y = 0;
+          w = 10;
+          h = 6;
+        };
+        targets = [ { expr = ''up{job="node"}''; } ];
+        options = {
+          colorMode = "background";
+          textMode = "value_and_name";
+          reduceOptions.calcs = [ "lastNotNull" ];
+        };
+        fieldConfig.defaults = {
+          mappings = [
+            {
+              type = "value";
+              options = {
+                "0" = {
+                  text = "down";
+                  color = "red";
+                };
+                "1" = {
+                  text = "up";
+                  color = "green";
+                };
+              };
+            }
+          ];
+        };
+      })
+      (panel {
+        title = "Running";
+        type = "table";
+        gridPos = {
+          x = 10;
+          y = 0;
+          w = 14;
+          h = 6;
+        };
+        # One row per host: the revision it runs and the device its root is on.
+        targets = [
+          {
+            expr = "fleet_revision_info * on (instance) group_left (device) fleet_root_device_info";
+            instant = true;
+            format = "table";
+          }
+        ];
+        transformations = [
+          {
+            id = "organize";
+            options.excludeByName = {
+              Time = true;
+              job = true;
+              Value = true;
+            };
+          }
+        ];
+      })
+      (panel {
+        title = "CPU busy";
+        unit = "percentunit";
+        gridPos = {
+          x = 0;
+          y = 6;
+          w = 12;
+          h = 8;
+        };
+        targets = [
+          {
+            expr = ''1 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[$__rate_interval]))'';
+          }
+        ];
+      })
+      (panel {
+        title = "Memory used";
+        unit = "percentunit";
+        gridPos = {
+          x = 12;
+          y = 6;
+          w = 12;
+          h = 8;
+        };
+        targets = [ { expr = "1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes"; } ];
+      })
+      (panel {
+        title = "Root filesystem used";
+        unit = "percentunit";
+        gridPos = {
+          x = 0;
+          y = 14;
+          w = 12;
+          h = 8;
+        };
+        targets = [
+          {
+            expr = ''1 - node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}'';
+          }
+        ];
+      })
+      (panel {
+        title = "Hottest thermal zone";
+        unit = "celsius";
+        gridPos = {
+          x = 12;
+          y = 14;
+          w = 12;
+          h = 8;
+        };
+        targets = [ { expr = "max by (instance) (node_thermal_zone_temp)"; } ];
+      })
+      (panel {
+        title = "Network";
+        unit = "bps";
+        gridPos = {
+          x = 0;
+          y = 22;
+          w = 12;
+          h = 8;
+        };
+        targets = [
+          {
+            expr = "8 * sum by (instance) (rate(node_network_receive_bytes_total{${physical}}[$__rate_interval]))";
+            legendFormat = "{{instance}} in";
+          }
+          {
+            expr = "8 * sum by (instance) (rate(node_network_transmit_bytes_total{${physical}}[$__rate_interval]))";
+            legendFormat = "{{instance}} out";
+          }
+        ];
+      })
+      (panel {
+        title = "Load, 5 minutes";
+        gridPos = {
+          x = 12;
+          y = 22;
+          w = 12;
+          h = 8;
+        };
+        targets = [ { expr = "node_load5"; } ];
+      })
+    ];
+  };
+  dashboards = pkgs.linkFarm "fleet-dashboards" {
+    "fleet.json" = pkgs.writeText "fleet.json" (builtins.toJSON fleetDashboard);
+  };
+in
+{
+  assertions = [
+    {
+      assertion = hostname == net.metricsCollector;
+      message = ''
+        ${hostname} imports modules/metrics.nix, but net.metricsCollector is
+        "${net.metricsCollector}". Every target opens its exporter to the
+        collector's address alone, so a store anywhere else scrapes nothing.
+      '';
+    }
+  ];
+
+  services.victoriametrics = {
+    enable = true;
+    listenAddress = vmAddress;
+
+    # Months, when there is no suffix.
+    retentionPeriod = "12";
+    extraOptions = [
+      # Stop accepting samples rather than fill the disk, if the 12-month
+      # estimate of 4 GB is wrong by orders of magnitude. A backstop, idle
+      # unless something has already gone wrong: it acts at about 95% full, and
+      # the planned DiskFilling alert fires at 85%. What is left then is weeks
+      # of room for Home Assistant, the UniFi database, Docker and the nightly
+      # upgrade, which share this disk, and far more than the space
+      # VictoriaMetrics' own merges need at the 10 GB budget. The real margin is
+      # larger: it measures space available to unprivileged users (statfs
+      # Bavail), and on core5 ext4 reserves another 51 GB for root, the default
+      # 5%, read with `stat -f /` on 2026-10-11.
+      "-storage.minFreeDiskSpaceBytes=50GiB"
+    ];
+
+    prometheusConfig = {
+      global.scrape_interval = interval;
+      scrape_configs = [
+        {
+          job_name = "node";
+          # `instance` is the host's name rather than its address, which is the
+          # label everything downstream reads, alert messages included.
+          static_configs = map (name: {
+            targets = [ "${net.hosts.${name}.ip}:${toString net.ports.nodeExporter}" ];
+            labels.instance = name;
+          }) net.metricsTargets;
+          # node_network_info carries each interface's MAC address as
+          # `address`. An empty value removes the label, so it is never stored.
+          metric_relabel_configs = [
+            {
+              source_labels = [ "__name__" ];
+              regex = "node_network_info";
+              target_label = "address";
+              replacement = "";
+            }
+          ];
+        }
+        {
+          # Its own ingestion and disk use, against the budget in the doc.
+          job_name = "victoriametrics";
+          static_configs = [
+            {
+              targets = [ vmAddress ];
+              labels.instance = hostname;
+            }
+          ];
+        }
+      ];
+    };
+  };
+
+  services.grafana = {
+    enable = true;
+
+    # From `unstable`, as Home Assistant is, and for the same reason: core5's
+    # package set carries nixos-raspberrypi's overlays, which change the Python
+    # that Grafana's build uses, so core5's own Grafana is a derivation
+    # cache.nixos.org never built, and CI would compile it, frontend and all.
+    # Checked 2026-10-11, both before and after core5 moved to the fleet's
+    # nixpkgs: core5's own (13.0.3, then 13.0.9) was absent from
+    # cache.nixos.org and unstable's (13.1.6) was present. No override: any
+    # change to the package changes its store path and loses Hydra's build.
+    #
+    # The costs. `unstable` moves with every flake.lock bump, and the nightly
+    # upgrade applies it unattended. Grafana's database migrations are one-way,
+    # so before rolling core5 back past a Grafana upgrade, delete
+    # /var/lib/grafana/data/grafana.db rather than run an older Grafana on it:
+    # it holds nothing provisioning does not recreate, save the admin password,
+    # which is recreated from sops. The module still comes from core5's
+    # nixpkgs, so module and package can drift apart; settings are free-form
+    # ini, and preflight evaluates core5, which keeps that small. A new major
+    # version arrives without anyone watching; the fleet dashboard uses only
+    # built-in panels, which keeps that small too.
+    package = unstable.grafana;
+    settings = {
+      server = {
+        http_addr = host.ip;
+        http_port = net.ports.grafana;
+      };
+
+      security = {
+        # Read when Grafana creates its admin account, on its first start, and
+        # never again. Changing the secret afterwards changes nothing; the
+        # password is then changed in Grafana's own profile page.
+        admin_password = "$__file{${config.sops.secrets.grafana-admin-password.path}}";
+        # Encrypts secrets Grafana keeps in its database, of which there are
+        # none: the one datasource is VictoriaMetrics on loopback, with no
+        # credentials. So it is made on core5 at first start rather than kept
+        # in sops, and losing it costs nothing.
+        secret_key = "$__file{${config.services.grafana.dataDir}/secret-key}";
+        disable_gravatar = true;
+      };
+
+      # Nothing leaves core5 on Grafana's account. nixpkgs already turns the
+      # first two off, and they are stated so that a changed default cannot
+      # turn them back on; it leaves the rest on.
+      analytics = {
+        reporting_enabled = false;
+        check_for_updates = false;
+        check_for_plugin_updates = false;
+        feedback_links_enabled = false;
+      };
+      # At every start Grafana fetches a set of plugins from grafana.com, and
+      # the keys it checks plugin signatures with, unless told not to. The
+      # plugins built into it, which are all this uses, need neither.
+      plugins = {
+        preinstall_disabled = true;
+        public_key_retrieval_disabled = true;
+      };
+      news.news_feed_enabled = false;
+      snapshots.external_enabled = false;
+    };
+
+    provision = {
+      enable = true;
+      datasources.settings = {
+        apiVersion = 1;
+        datasources = [
+          {
+            name = "VictoriaMetrics";
+            uid = "victoriametrics";
+            # It answers PromQL, so Grafana's own Prometheus datasource is the
+            # one to use, and no plugin is needed.
+            type = "prometheus";
+            url = "http://${vmAddress}";
+            isDefault = true;
+            # The scrape interval, so `$__rate_interval` never asks rate() for
+            # a window holding fewer than two samples.
+            jsonData.timeInterval = interval;
+          }
+        ];
+      };
+      dashboards.settings.providers = [
+        {
+          name = "fleet";
+          options.path = dashboards;
+        }
+      ];
+    };
+  };
+
+  sops.secrets.grafana-admin-password.owner = "grafana";
+
+  # lib/hardening.nix, over what nixpkgs already sets. Both modules set
+  # ProtectSystem to "full", which leaves /var writable; strict narrows that
+  # to each service's own state.
+  systemd.services.victoriametrics.serviceConfig = hardening // {
+    ProtectSystem = lib.mkForce hardening.ProtectSystem;
+  };
+  systemd.services.grafana = {
+    serviceConfig = hardening // {
+      ProtectSystem = lib.mkForce hardening.ProtectSystem;
+      ReadWritePaths = [ config.services.grafana.dataDir ];
+    };
+    preStart = ''
+      if [ ! -s ${config.services.grafana.dataDir}/secret-key ]; then
+        (umask 077; ${lib.getExe pkgs.openssl} rand -hex 32 | tr -d '\n' > ${config.services.grafana.dataDir}/secret-key)
+      fi
+    '';
+  };
+
+  # Grafana is the one listener on core5's address; VictoriaMetrics is on
+  # loopback. The LAN interface only, as for Home Assistant: servers reaches it
+  # directly, trusted through gate, and no other segment at all.
+  networking.firewall.interfaces.${host.iface}.allowedTCPPorts = [ net.ports.grafana ];
+}

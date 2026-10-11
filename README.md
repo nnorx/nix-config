@@ -10,9 +10,9 @@ addressing.
 | Host | Hardware | Address | Role |
 |---|---|---|---|
 | **gate** | CWWK N100, 4x Intel i226 | `.1` in every segment | The router. nftables, NAT, Kea DHCP across five VLANs, its own recursive Unbound, and WireGuard for remote access |
-| **core4** | Raspberry Pi 4 (8GB) | 192.168.20.32 | AdGuard Home + Unbound, pimon agent |
-| **lifeline** | Raspberry Pi 4 | 192.168.20.11 | AdGuard Home + Unbound, pimon agent. An independent second DNS path |
-| **core5** | Raspberry Pi 5, NVMe | 192.168.20.49 | Home Assistant, UniFi controller, pimon collector, Docker |
+| **core4** | Raspberry Pi 4 (8GB) | 192.168.20.32 | AdGuard Home + Unbound, pimon agent, node_exporter |
+| **lifeline** | Raspberry Pi 4 | 192.168.20.11 | AdGuard Home + Unbound, pimon agent, node_exporter. An independent second DNS path |
+| **core5** | Raspberry Pi 5, NVMe | 192.168.20.49 | Home Assistant, UniFi controller, pimon collector, the metrics store and Grafana, Docker |
 
 ```
    internet ── modem ── gate ─┬─ lan1 ── wired machine        (untagged trusted)
@@ -55,7 +55,7 @@ hosts/
   common/              Fleet-wide: locale, users, addressing, deploy aliases
     pi.nix             Pi-only boot and SD-card layout
   core4/ lifeline/     AdGuard + Unbound
-  core5/               Home Assistant, UniFi controller, pimon collector, NVMe root
+  core5/               Home Assistant, UniFi, pimon collector, metrics, NVMe root
   gate/                The router
     routing.nix        VLANs, NAT, firewall policy, Kea
     wireguard.nix      Remote peers and what each may reach
@@ -74,6 +74,8 @@ modules/
   offbox-push.nix      Both pushes: newest backup, age-encrypted, to a private repo
   alerts.nix           Push notifications and heartbeats for the jobs above and upgrades
   pimon.nix            Monitoring agent or collector
+  metrics.nix          VictoriaMetrics and Grafana, scraping the fleet (core5 only)
+  node-exporter.nix    Host metrics and host-status facts, on each scraped host
   firewall.nix         Default-deny. SSH scoped per interface, never globally
   ssh.nix              Key-only auth, modern crypto
   fail2ban.nix         Brute-force protection
@@ -315,6 +317,41 @@ by an hour or more. A night with no success still alerts, about 30 hours after
 the last one. Point the project's notifications at the same
 ntfy topic so both kinds of alert arrive in one place. To cover another unit,
 add it to `fleetAlerts.failure` or `fleetAlerts.heartbeat` in its host.
+
+## Metrics
+
+core5 scrapes node_exporter on every host in `metricsTargets` (`lib/net.nix`)
+every 30 seconds, into VictoriaMetrics, which keeps 12 months. Grafana is at
+core5's address on `ports.grafana`, http://192.168.20.49:3030, reachable from
+trusted and servers. Its Fleet dashboard shows whether each host is up and
+what it runs. [docs/observability.md](docs/observability.md) has the design,
+and the alert rules still to come.
+
+Each host also exports host-status's two facts: `fleet_revision_info`, whose
+`revision` label is the commit it is running, and `fleet_root_device_info`,
+whose `device` label is where its root is mounted from. So the store sees a
+host on the wrong system. Queries for Grafana's Explore view:
+
+```
+up{job="node"}               # 1 per host it can scrape, 0 for one it cannot
+fleet_revision_info          # each host's running revision
+fleet_root_device_info       # each host's root device
+```
+
+Grafana's `admin` password is a secret on core5, and evaluation fails without
+it. Grafana reads it once, when it creates the account on its first start, so
+changing the secret later changes nothing: change it in Grafana's own profile
+page, and the secret to match. To set it, from the repo, in your own
+terminal, with the password from the password manager at the prompt:
+
+```bash
+read -rs pw
+printf '%s' "$pw" | jq -R . | sops set --value-stdin secrets/core5.yaml '["grafana-admin-password"]'
+unset pw
+```
+
+VictoriaMetrics listens on core5's loopback alone. For its own query UI,
+`ssh -L 8428:127.0.0.1:8428 core5` and then http://localhost:8428/vmui.
 
 ## CI and the binary cache
 
