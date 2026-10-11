@@ -163,9 +163,11 @@ let
   #
   # The same segment, because every scrape is meant to stay on it: core5 to a
   # host anywhere else would cross gate's forward chain, which has no rule for
-  # it, and the scrape would fail as a down host. gate is the exception to
-  # come, scraped at its gateway address on the collector's segment.
+  # it, and the scrape would fail as a down host. gate has no `ip`, and is
+  # scraped at the gateway of its `metricsSegment`, which is held to the same
+  # rule.
   collector = hosts.${net.metricsCollector} or { };
+  scrapeSegment = h: h.segment or h.metricsSegment or null;
   metricsChecks = [
     {
       assertion = collector ? ip;
@@ -178,14 +180,28 @@ let
   ]
   ++ map (name: {
     assertion =
-      hosts ? ${name} && hosts.${name} ? ip && hosts.${name}.segment or null == collector.segment or null;
+      hosts ? ${name}
+      && (hosts.${name} ? ip || hosts.${name} ? metricsSegment)
+      && scrapeSegment hosts.${name} == collector.segment or null;
     message = ''
       net.metricsTargets lists "${name}", which is not a host with an address on
-      the collector's segment, ${collector.segment or "?"}. The collector scrapes
-      each target at its address, and a scrape from another segment would have
-      to cross gate's forward chain, which has no rule for it.
+      the collector's segment, ${collector.segment or "?"}, nor one whose
+      `metricsSegment` is that segment. The collector scrapes each target at
+      its address, and a scrape from another segment would have to cross
+      gate's forward chain, which has no rule for it.
     '';
-  }) net.metricsTargets;
+  }) net.metricsTargets
+  # `metricsSegment` stands in for an `ip`, for a host that holds an address
+  # on every segment. Both at once would leave two answers to where the host
+  # is scraped, and the exporters bind only one of them.
+  ++ lib.mapAttrsToList (name: host: {
+    assertion = !(host ? ip) && segments ? ${host.metricsSegment};
+    message = ''
+      net.hosts.${name} sets metricsSegment "${host.metricsSegment}", which must
+      name a declared segment, on a host with no `ip`. Its exporters bind that
+      segment's gateway address, and core5 scrapes them there.
+    '';
+  }) (lib.filterAttrs (_: h: h ? metricsSegment) hosts);
 
   # One number, one name. Two names for a port read as two services, and a
   # firewall rule written for one opens the other: gate's tunnel grants and the

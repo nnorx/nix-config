@@ -374,6 +374,10 @@ both are in.
    Then core5: gate in `metricsTargets`, and the blackbox exporter with ICMP
    probes to the public resolvers. Answers WAN state, conntrack,
    per-interface throughput and pool exhaustion.
+   Landed as one PR, with each WireGuard peer's last handshake added, and
+   without the blackbox exporter, which is still to do. So WAN state is the
+   link, the lease and the default route as gate sees them, not yet whether
+   traffic leaves the house.
 3. **DNS metrics.** First gate, then the Pis: the Unbound exporter on gate,
    core4 and lifeline, over each Unbound's control socket, and blackbox DNS
    probes from core5 to each resolver through AdGuard on port 53, which is the

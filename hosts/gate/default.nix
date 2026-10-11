@@ -28,6 +28,7 @@ in
     ./wireguard.nix
     ./govee.nix
     ./ddns.nix
+    ./metrics.nix
 
     # gate's own resolver, on loopback only.
     #

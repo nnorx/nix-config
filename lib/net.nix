@@ -199,10 +199,17 @@
     # than gate's. modules/net-assertions.nix catches the `pimonAgents` half
     # with a message that names the cause; `allowFrom` is still bare.
     #
-    # Phase 8 instrumentation is the thing likely to force an address here.
-    # Decide what it would denote first: gate holds one per segment, not one
-    # overall.
+    # Metrics did not force one either. What the scraper needs is narrower:
+    # the address gate is reached at from the collector's segment, which is
+    # `metricsSegment` below. docs/observability.md, "gate's address", has why.
     gate = {
+      # The segment gate's exporters bind and are scraped on: its gateway
+      # address there, and that address alone. hosts/gate/metrics.nix opens
+      # their ports on the interface carrying it, to the collector alone.
+      # modules/net-assertions.nix holds it to the collector's own segment, so
+      # a scrape never crosses gate's forward chain.
+      metricsSegment = "servers";
+
       # Interfaces sshd is reachable on. Listed rather than derived, because
       # this is a security control and deriving it would mean a future
       # interface silently becoming an SSH surface.
@@ -317,12 +324,13 @@
   # (modules/node-exporter.nix), which opens its port to the collector alone.
   # See docs/observability.md. Named rather than derived from `hosts`, for the
   # same reason as pimonAgents: being a host is not the same fact as being
-  # scraped. gate joins with a `metricsSegment` of its own, having no `ip`.
+  # scraped. gate has no `ip`, and is scraped at its `metricsSegment`.
   metricsCollector = "core5";
   metricsTargets = [
     "core4"
     "lifeline"
     "core5"
+    "gate"
   ];
 
   # Ports forming contracts *between* hosts, so they can't live in one module:
@@ -368,6 +376,11 @@
     nodeExporter = 9100;
     victoriaMetrics = 8428;
     grafana = 3030;
+
+    # Kea's statistics, on gate's metricsSegment address beside node_exporter.
+    # Kea keeps pool usage itself but serves it only as JSON over its control
+    # socket, which this exporter translates.
+    keaExporter = 9547;
 
     # WireGuard on gate's WAN, which every peer's config names. 443 rather
     # than 51820, because restrictive Wi-Fi blocks unusual UDP ports more often

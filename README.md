@@ -338,6 +338,25 @@ fleet_revision_info          # each host's running revision
 fleet_root_device_info       # each host's root device
 ```
 
+gate is scraped at its servers gateway, and answers the router's questions
+(`hosts/gate/metrics.nix`):
+
+```
+node_network_carrier{instance="gate",device="wan"}     # 1 while the WAN link is up
+fleet_wan_addresses                                    # 1 while wan holds a DHCP lease
+fleet_wan_lease_remaining_seconds                      # reset by each renewal
+fleet_wan_default_routes                               # 1 while the default route is out wan
+node_nf_conntrack_entries{instance="gate"} / node_nf_conntrack_entries_limit{instance="gate"}
+rate(node_network_receive_bytes_total{instance="gate"}[5m]) * 8   # bits/s in, per interface
+rate(node_network_transmit_bytes_total{instance="gate"}[5m]) * 8  # and out
+rate(node_network_receive_errs_total{instance="gate"}[5m])        # errors, per interface
+kea_dhcp4_addresses_assigned_total{pool=""} / kea_dhcp4_addresses_total{pool=""}   # pool used, per subnet
+time() - fleet_wireguard_last_handshake_timestamp_seconds  # seconds since each peer's handshake
+```
+
+A handshake timestamp of 0 means the peer has not completed one since `wg0`
+last came up, so its age reads as decades.
+
 Grafana's `admin` password is a secret on core5, and evaluation fails without
 it. Grafana reads it once, when it creates the account on its first start, so
 changing the secret later changes nothing: change it in Grafana's own profile

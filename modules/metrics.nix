@@ -1,6 +1,6 @@
 # The fleet's metrics store and dashboards, on the collector: VictoriaMetrics
-# scraping node_exporter on every host in net.metricsTargets, and Grafana in
-# front of it. docs/observability.md has the decisions and their reasons;
+# scraping node_exporter on every host in net.metricsTargets and Kea's exporter
+# on gate, and Grafana in front of it. docs/observability.md has the decisions and their reasons;
 # this file has only what implementing them needed.
 #
 # State is VictoriaMetrics' data and Grafana's database, both under /var/lib,
@@ -21,6 +21,18 @@ let
   hardening = import ../lib/hardening.nix;
   vmAddress = "127.0.0.1:${toString net.ports.victoriaMetrics}";
   interval = "30s";
+
+  # Each target at the address its exporters bind (modules/node-exporter.nix),
+  # with `instance` set to the host's name rather than that address, which is
+  # the label everything downstream reads, alert messages included.
+  scrapeAddress =
+    name: net.hosts.${name}.ip or net.segments.${net.hosts.${name}.metricsSegment}.gateway;
+  staticConfigs =
+    port: names:
+    map (name: {
+      targets = [ "${scrapeAddress name}:${toString port}" ];
+      labels.instance = name;
+    }) names;
 
   # The fleet dashboard. Small on purpose: whether each host is up and what it
   # is running, then the resources most likely to explain a problem, one line
@@ -259,12 +271,7 @@ in
       scrape_configs = [
         {
           job_name = "node";
-          # `instance` is the host's name rather than its address, which is the
-          # label everything downstream reads, alert messages included.
-          static_configs = map (name: {
-            targets = [ "${net.hosts.${name}.ip}:${toString net.ports.nodeExporter}" ];
-            labels.instance = name;
-          }) net.metricsTargets;
+          static_configs = staticConfigs net.ports.nodeExporter net.metricsTargets;
           # node_network_info carries each interface's MAC address as
           # `address`. An empty value removes the label, so it is never stored.
           metric_relabel_configs = [
@@ -286,7 +293,14 @@ in
             }
           ];
         }
-      ];
+      ]
+      # Kea's pool usage per segment, from gate, the one DHCP server
+      # (hosts/gate/metrics.nix). Its labels are the subnets and pools from
+      # lib/net.nix, and nothing about a lease or a client.
+      ++ lib.optional (lib.elem "gate" net.metricsTargets) {
+        job_name = "kea";
+        static_configs = staticConfigs net.ports.keaExporter [ "gate" ];
+      };
     };
   };
 
