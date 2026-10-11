@@ -204,6 +204,65 @@ The restart is what creates the profiles; nothing watches the key file, so
 without it they wait for the next boot. Then put the printed public key in
 `lib/wireguard-keys.nix` and deploy gate.
 
+## VS Code telemetry
+
+VS Code is Microsoft's build (`unstable.vscode` in `hosts/forge/dev.nix`), and
+its settings and extensions come from Settings Sync, so its telemetry setting
+is not in this repo. Unset, `telemetry.telemetryLevel` is `all`: usage data,
+errors and crash reports. Home Manager's `programs.vscode` could declare it,
+but only by making `settings.json` a read-only link into the store, which
+neither the editor nor Settings Sync can write. So it is set by hand, once, and
+Settings Sync carries it.
+
+As of VS Code 1.139, `off`:
+
+- stops VS Code's own usage, error and crash telemetry. The crash reporter is
+  started from `~/.vscode/argv.json`, which VS Code rewrites to
+  `"enable-crash-reporter": false` to match, so that part takes a restart.
+- stops experiments, which VS Code only runs at `all`.
+- covers Microsoft's extensions, which read the same setting, and third-party
+  ones that choose to. The setting's own description warns that some do not.
+  An extension with its own switch, such as GitLens's
+  `gitlens.telemetry.enabled`, needs that turned off too.
+
+It does not stop what the editor needs to work: Settings Sync's traffic to the
+account, the marketplace for extensions and their updates, and whatever service
+an extension exists to reach. `telemetry.feedback.enabled` is a separate
+switch, for the issue reporter and surveys.
+
+**Setting it.** Open Settings (Ctrl+,), search for `telemetry.telemetryLevel`,
+and choose `off`; or, from **Preferences: Open User Settings (JSON)**, add
+`"telemetry.telemetryLevel": "off"`. Then restart VS Code.
+
+**How Settings Sync carries it.** Settings Sync keeps one copy of the user
+`settings.json` in the account, and every machine signed in to that account
+with settings sync on applies it. It leaves out machine-scoped settings, those
+marked not to sync, and anything in `settingsSync.ignoredSettings`.
+`telemetry.telemetryLevel` is application-scoped and not marked, so setting it
+on any machine sets it on all of them, as long as it stays out of
+`settingsSync.ignoredSettings`. Two gaps remain. A new install sends at the
+default until it has signed in and pulled the settings, so sign in to Settings
+Sync before doing anything else in it. And a machine on another account, or
+with settings sync off, keeps its own value.
+
+**Checking.**
+
+```bash
+grep -E 'telemetryLevel|enable-crash-reporter' \
+  ~/.config/Code/User/settings.json ~/.vscode/argv.json
+```
+
+should print `"off"` and `false`. **Settings Sync: Show Synced Data** shows the
+account's copy, which is what the other machines receive; its `settings.json`
+should have the same line. On 2026-10-11 forge had both, and feedback off too.
+
+Not done yet: pinning it on forge regardless of Sync. On Linux, VS Code reads
+policies from `/etc/vscode/policy.json`, a flat JSON object whose values
+override user settings, and `TelemetryLevel` is one of them, so
+`environment.etc."vscode/policy.json"` could set it from `hosts/forge/dev.nix`
+without touching `settings.json`. That would also cover a reinstall's first
+launch.
+
 ## Secure Boot
 
 Enable it after the install, in this order.
