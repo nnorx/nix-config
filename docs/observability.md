@@ -375,14 +375,16 @@ both are in.
    probes to the public resolvers. Answers WAN state, conntrack,
    per-interface throughput and pool exhaustion.
    Landed as one PR, with each WireGuard peer's last handshake added, and
-   without the blackbox exporter, which is still to do. So WAN state is the
+   without the blackbox exporter, which moved to step 3. So WAN state is the
    link, the lease and the default route as gate sees them, not yet whether
    traffic leaves the house.
 3. **DNS metrics.** First gate, then the Pis: the Unbound exporter on gate,
    core4 and lifeline, over each Unbound's control socket, and blackbox DNS
    probes from core5 to each resolver through AdGuard on port 53, which is the
    end-to-end failure ratio. AdGuard Home has no Prometheus endpoint and
-   nixpkgs no exporter for it, so its own counters stay in its UI.
+   nixpkgs no exporter for it, so its own counters stay in its UI. The same
+   blackbox exporter carries step 2's ICMP probes to the public resolvers,
+   which `WanDown` needs.
 4. **Alert rules.** vmalert and Alertmanager on core5, the ntfy receivers, the
    watchdog check in healthchecks.io, the rule set above, the GitHub timer for
    `RevisionBehind`, and the stack's units in `fleetAlerts.failure`.

@@ -163,6 +163,10 @@ in
       RuntimeDirectory = baseNameOf textfileDir;
       RuntimeDirectoryMode = "0755";
       RuntimeDirectoryPreserve = true;
+      # Every 30 seconds, systemd's own "Starting" and "Finished" lines would
+      # be thousands a day in gate's journal. Notice and above still come
+      # through, so a failed run is logged as before.
+      LogLevelMax = "notice";
     };
   };
   systemd.timers.gate-metrics-facts = {

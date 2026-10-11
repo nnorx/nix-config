@@ -1,7 +1,7 @@
 # The fleet's metrics store and dashboards, on the collector: VictoriaMetrics
 # scraping node_exporter on every host in net.metricsTargets and Kea's exporter
-# on gate, and Grafana in front of it. docs/observability.md has the decisions and their reasons;
-# this file has only what implementing them needed.
+# on gate, and Grafana in front of it. docs/observability.md has the decisions
+# and their reasons; this file has only what implementing them needed.
 #
 # State is VictoriaMetrics' data and Grafana's database, both under /var/lib,
 # which on core5 is the NVMe root. Neither is backed up: Grafana's dashboards
