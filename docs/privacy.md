@@ -313,9 +313,32 @@ the house's own domain first.
 
 ### Results
 
-_To be filled in from the script's output: per segment, the domains worth
-knowing about, which devices they are likely to be, and a verdict for each
-the way the repo-side flows have one. iot is the segment this exists for._
+Run on 2026-10-10 over about 200,000 queries per resolver: four days on
+core4 and six weeks on lifeline, which answers far less of the house's
+traffic.
+
+- **iot.** Devices reaching their vendors' clouds, some of which need that
+  to work, and app analytics the blocklists already refuse. A personal
+  device was on this segment for a few days, and its lookups are in these
+  counts. Follow-up: NNO-27 decides which devices need the internet at all.
+- **servers.** The switch and AP contact their vendor. Apart from that,
+  the segment reaches only time servers. This confirms F10.
+- **vpn.** The tunnel peers, filtered as at home. Nothing new.
+- **The resolvers themselves.** Time, GitHub, the binary caches and the
+  two alert services, as the inventory above lists, plus one-off manual
+  tests.
+- **No segment.** Lookups from before the 2026-09-05 cutover, when every
+  client was on the flat network. lifeline still holds them under
+  AdGuard's default retention. Follow-up: NNO-26, for the retention and to
+  clear that history once.
+- **trusted.** Not summarised here, since it is the household's own
+  browsing. Its most-blocked entries are app and OS analytics and push
+  services, which is the blocklists working. Devices also ask for a few
+  thousand names that exist only inside the house; whether those reach
+  the root servers is for NNO-26 to check.
+- **guest** is absent, as it should be: it resolves through public
+  resolvers.
+- **work** is absent by design.
 
 ## Suggested follow-ups
 
