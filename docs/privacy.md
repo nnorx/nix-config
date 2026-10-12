@@ -102,10 +102,18 @@ the A record only when it changes. Cloudflare sees the token, the hostname and
 the address, which is what an A record is. **needed**: WireGuard peers dial
 that name.
 
-**DHCP on `wan`.** gate takes its address from the ISP with dhcpcd, whose
-NixOS-generated config starts with `hostname`, so each request tells the ISP
-gate's hostname. The MAC address is in every request regardless. **narrow**
-(F12), and low value: the name is `gate`.
+**DHCP on `wan`.** gate takes its address from the ISP with dhcpcd. NixOS's
+generated config starts with `hostname`, which sent gate's name in each
+request until F12 added `hostname ""` for `wan` (`hosts/gate/default.nix`).
+Each request also carried dhcpcd's default vendor class,
+`dhcpcd-<version>:Linux-<kernel release>:x86_64:<CPU vendor>`, which told
+the ISP the OS and, as the kernel changed, when gate upgraded; a bare
+`vendorclassid` in the same block drops it. What a request carries now, from
+dhcpcd's source and a VM capture of a client with gate's dhcpcd settings:
+the MAC address, which every request needs; no client ID, since NixOS's
+config names neither `clientid` nor `duid`, so the server can key the lease
+only on the MAC; and a parameter request list, which fingerprints dhcpcd but
+not the house. **narrow** (F12), done.
 
 **The guest segment** gets Cloudflare and Quad9 from DHCP rather than the
 fleet's resolvers (`publicResolverSegments` in `hosts/gate/routing.nix`), so
