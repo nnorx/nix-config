@@ -132,7 +132,8 @@ segmentation and gate-reboot items are still open.
       connection found 22 and 80 open, so the carrier was not masking ports.
       nmap also reports an IPv6 address for the DDNS name from a mobile
       network; that is the carrier's DNS64, not a record (the zone holds an A
-      record only). Rescan over IPv6 once Phase 8 brings it
+      record only). Rescan over IPv6 once Phase 8 brings it, as
+      [ipv6.md](ipv6.md#the-port-scan-over-ipv6) describes
 - [x] `dnssec-failed.org` fails to resolve, proving DNSSEC validation is live.
       2026-09-12: SERVFAIL on both resolvers, against Unbound directly on 5335
       and through AdGuard on 53. A signed control zone returns NOERROR with the
@@ -297,6 +298,12 @@ One at a time, weeks apart, now that the house is boring.
       front of the IoT VLAN. Disabling v6 on the WAN was a legitimate temporary
       choice through the cutover, but it should be revisited rather than
       forgotten.
+
+      Planned 2026-10-11 in [ipv6.md](ipv6.md): a read-only check and then a
+      `nixos-rebuild test` probe for what the ISP delegates, and if it
+      delegates anything, IPv6 for trusted, then guest, then work if wanted,
+      behind an explicit inbound deny, with DNS staying on IPv4. The PRs
+      are listed there in order.
 - [ ] **Policy-based routing through a commercial VPN**, only if wanted.
       WireGuard on an N100 tops out well under line rate, so route one VLAN
       through it rather than everything, and add a kill switch so the tunnel
