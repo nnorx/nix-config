@@ -97,6 +97,10 @@
     # Off by default already. Set, so neither the welcome page nor settings
     # can turn it on.
     BraveWebDiscoveryEnabled = false;
+    # Chromium's metrics switch, which Brave uses only for crash reports to
+    # cr.brave.com. Off by default on stable, but the welcome page ticks the
+    # box and a crash asks again; set, neither can turn it on.
+    MetricsReportingEnabled = false;
   };
 
   # Carries Cascadia Code NF, which the starship prompt's icons need. Select it

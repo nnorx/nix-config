@@ -421,9 +421,9 @@ managed policy: `BraveStatsPingEnabled`, `BraveP3AEnabled` and
 `/etc/brave/policies/managed/nixos.json`, which Brave reads on Linux. Each
 also locks its setting, and `brave://policy` lists them. Crash reports, to
 `cr.brave.com`, are off by default on the stable channel, but the welcome
-page's box for them is ticked, and Brave asks again after a crash. Chromium's
-`MetricsReportingEnabled` policy, which Brave reads as the crash report
-switch, would settle both, and is not set.
+page's box for them is ticked, and Brave asks again after a crash, so
+Chromium's `MetricsReportingEnabled`, which Brave reads as the crash report
+switch, is set false too.
 
 **VS Code** (`unstable.vscode`, `hosts/forge/dev.nix`). Microsoft's build, with
 settings and extensions from Settings Sync, so nothing about telemetry is
