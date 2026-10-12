@@ -1,6 +1,7 @@
 # The systemd sandboxing these fleet services start from, kept in one place so
 # they cannot drift apart:
 #
+#   modules/adguardhome.nix    AdGuard's query counts for node_exporter
 #   modules/alerts.nix         the notify and heartbeat oneshots
 #   modules/metrics.nix        VictoriaMetrics and Grafana
 #   modules/node-exporter.nix  the host-status facts for node_exporter
