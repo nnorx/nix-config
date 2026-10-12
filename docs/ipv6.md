@@ -11,8 +11,8 @@ The gate metrics this rollout is watched through landed in #157
 
 ## Where it stands
 
-Read from gate's configuration on 2026-10-11. gate was not asked; the first
-PR below has it say so itself.
+Read from gate's configuration on 2026-10-11, and checked on gate itself on
+2026-10-12, as noted below.
 
 - **The kernel has IPv6, and dhcpcd listens for it on `wan`.**
   `networking.enableIPv6` is at its default, and dhcpcd runs on `wan` with
@@ -26,7 +26,10 @@ PR below has it say so itself.
 - **2026-10-01: no global IPv6 on `wan`.** With dhcpcd configured as above,
   that means the ISP sent no RA at all, or one with neither a prefix for
   SLAAC nor the managed flag, which would have had dhcpcd ask for an address.
-  It says nothing about delegation, which only a request answers.
+  It says nothing about delegation, which only a request answers. Still so
+  on 2026-10-12: `wan` holds a link-local address only, and gate has no IPv6
+  default route. The kernel's `accept_ra` on `wan` is 0, as it should be,
+  since dhcpcd handles RAs there itself.
 - **gate takes RAs from its own LAN.** Every interface except `wan` has the
   kernel's host defaults, `accept_ra = 1` and `autoconf = 1`, and the
   firewall accepts ICMPv6 on input. So a device on any segment that sends an
@@ -37,7 +40,9 @@ PR below has it say so itself.
   gate's
   own IPv6 traffic, to anything dual-stacked such as the binary caches,
   through itself. Low severity today, and cheap to close; it is the first
-  gate PR below.
+  gate PR below. Checked on 2026-10-12: `lan0`, `lan0.30` and `br-trusted`
+  all have `accept_ra = 1` and `autoconf = 1`, and no interface on gate holds
+  a global IPv6 address, so nothing on the LAN is advertising one yet.
 
 The useful property for everything that follows: **gate's forward policy is
 written in interface names, so most of it already holds for IPv6.**
@@ -93,7 +98,8 @@ The first number is 1 if the ISP sends RAs naming itself the default router,
 the second counts global addresses on `wan`. Both print counts, never
 addresses. The metrics PR below makes the same two numbers permanent, so the
 answer is on a graph before the probe runs. A 0 on the first does not rule
-delegation out: some ISPs answer DHCPv6 without advertising.
+delegation out: some ISPs answer DHCPv6 without advertising. On
+2026-10-12 both were 0, so the probe below is what decides it.
 
 ### The probe: ask once, with a reboot as the undo
 
@@ -432,6 +438,8 @@ WireGuard off, once trusted is advertising:
 
   On IPv4 the firewall is all that stands between such a socket and `wan`,
   and the same is true on IPv6; the scan confirms it rather than finding out.
+  On 2026-10-12 the list was WireGuard's UDP 443 on both families, dhcpcd's
+  DHCPv4 client on 68, and its DHCPv6 client on 546, all expected.
 
 Record the results in router.md's checklist with the date, and no addresses.
 
