@@ -1,8 +1,9 @@
 # Device identity
 
-A decision record. Nothing here is built: it settles how gate and core5 can
-name individual devices without this public repo saying which hardware they
-are, so that the follow-up pull requests build it rather than re-argue it.
+A decision record. Step 1 of the migration order below is built, and nothing
+reads it yet; the rest is not. It settles how gate and core5 can name
+individual devices without this public repo saying which hardware they are,
+so that the follow-up pull requests build it rather than re-argue it.
 
 ## The question
 
@@ -187,8 +188,8 @@ another device; and every `goveeLights` entry is a device on iot.
 
 `secrets/gate.yaml` gains `mac-<name>` per device, and nothing else moves.
 
-The header of `lib/net.nix` keeps the private input open on purpose. Step 1
-replaces that with a pointer here.
+The header of `lib/net.nix` kept the private input open on purpose. Step 1
+replaced that with a pointer here.
 
 ### Public consumers
 

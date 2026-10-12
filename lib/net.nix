@@ -2,8 +2,12 @@
 #
 # Hosts and modules read addresses from here instead of embedding literals, so
 # a renumbering touches one file. Consumers reference attribute *names*, never
-# values, which keeps the option open of moving this file into a private flake
-# input later without editing anything that reads it.
+# values.
+#
+# The file is public and stays one file. Nothing in it identifies hardware: a
+# device has a role name and an address here, and the MAC its address is
+# reserved for is in gate's sops file. docs/device-identity.md has the split,
+# what a role name may say, and why there is no private flake input.
 {
   # The live topology. Every host and every DHCP client is addressed from
   # here; the flat network the fleet grew up on is gone.
@@ -271,6 +275,36 @@
       vpnIface = "wg0";
     };
   };
+
+  # Devices a rule names: a role and an address, nothing that identifies the
+  # hardware. Each one's MAC, which Kea reserves the address for, is
+  # `mac-<name>` in secrets/gate.yaml. Addresses sit below the segment's pool,
+  # in the range reserved for statics and reservations, so Kea leases them to
+  # nothing else. A role name says what a rule needs and no more: no model, no
+  # room (docs/device-identity.md, "What is identifying").
+  devices = {
+    govee-1 = {
+      segment = "iot";
+      ip = "192.168.30.21";
+    };
+    govee-2 = {
+      segment = "iot";
+      ip = "192.168.30.22";
+    };
+    govee-3 = {
+      segment = "iot";
+      ip = "192.168.30.23";
+    };
+  };
+
+  # The Govee lights, for the rules in hosts/gate/govee.nix and core5. Named
+  # rather than derived from `devices`, like pimonAgents: a rule reads a role,
+  # not "every device on iot".
+  goveeLights = [
+    "govee-1"
+    "govee-2"
+    "govee-3"
+  ];
 
   # The MTU of the WireGuard tunnel, on gate and on every peer. WireGuard's
   # default is 1420, which assumes a clean 1500-byte path. Mobile networks are
