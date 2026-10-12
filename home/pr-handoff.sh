@@ -8,6 +8,9 @@ usage: pr-handoff [--base <branch>] [--force-with-lease]
            push this branch and open its PR, or update the open one
        pr-handoff merge <number>
            squash-merge a PR with its prepared message, then delete the branch
+       pr-handoff gitlens [<base>]
+           open what this branch adds since it left <base>, the default
+           branch unless given, in GitLens
 EOF
   exit 64
 }
@@ -17,21 +20,47 @@ die() {
   exit 1
 }
 
-# confirm <question> <diff command...>: yes or no, and `d` pages through the
-# change in full before asking again. The summary above the question is
-# enough for a docs fix, not for code going out under Nick's name.
+# confirm <question> <base branch> <head commit> <diff command...>: yes or no.
+# `d` pages through the change in full before asking again, and `g` opens it
+# in GitLens, where it is easier to move between files. The summary above the
+# question is enough for a docs fix, not for code going out under Nick's name.
 confirm() {
-  local question=$1 reply
-  shift
+  local question=$1 into=$2 tip=$3 reply
+  shift 3
   while :; do
-    read -r -p "$question [y/N/d=diff] " reply </dev/tty
+    read -r -p "$question [y/N/d=diff/g=GitLens] " reply </dev/tty
     case $reply in
       [yY] | [yY][eE][sS]) return 0 ;;
       # Quitting less early ends the diff with SIGPIPE, which is not a failure.
       [dD]) "$@" | less -R || true ;;
+      [gG]) gitlens "$into" "$tip" || true ;;
       *) return 1 ;;
     esac
   done
+}
+
+# gitlens <base branch> <head commit>: opens what the head adds since it left
+# origin/<base> in GitLens's Search & Compare view, in the VS Code window
+# already open, through the extension's own link format. The left side is the
+# merge base, so this is the PR's three-dot diff. path= names the main
+# checkout, which GitLens matches before anything else; a worktree shares its
+# refs, so the comparison is the same from either. Returns rather than dies:
+# at a prompt, a failure here should not abandon the publish or merge.
+gitlens() {
+  local from to repo
+  command -v code >/dev/null || {
+    echo "pr-handoff: no code on PATH to open GitLens with" >&2
+    return 1
+  }
+  git fetch --quiet origin "$1" || return 1
+  # A PR's head may exist only on GitHub, when merging from another clone.
+  git cat-file -e "$2^{commit}" 2>/dev/null || git fetch --quiet origin "$2" || return 1
+  from=$(git merge-base "origin/$1" "$2") || return 1
+  to=$(git rev-parse "$2^{commit}") || return 1
+  repo=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+  # forge's code passes Wayland flags that its CLI warns about on every call.
+  code --open-url "vscode://eamodio.gitlens/link/r/-/compare/$from...$to?path=$repo" 2>&1 |
+    grep -v "is not in the list of known options" >&2 || true
 }
 
 default_branch() {
@@ -117,7 +146,8 @@ publish() {
     echo "!! Uncommitted changes, which will not be pushed."
   fi
   show
-  confirm "Push $branch and $action?" git diff --color=always "origin/$base...HEAD" ||
+  confirm "Push $branch and $action?" "$base" HEAD \
+    git diff --color=always "origin/$base...HEAD" ||
     die "nothing published"
 
   git push "${force[@]}" -u origin "$branch"
@@ -131,10 +161,10 @@ publish() {
 
 merge() {
   [[ $# -eq 1 && $1 =~ ^[0-9]+$ ]] || usage
-  local n=$1 info state branch base
-  info=$(gh pr view "$n" --json state,headRefName,baseRefName \
-    -q '"\(.state) \(.headRefName) \(.baseRefName)"')
-  read -r state branch base <<<"$info"
+  local n=$1 info state branch base tip
+  info=$(gh pr view "$n" --json state,headRefName,baseRefName,headRefOid \
+    -q '"\(.state) \(.headRefName) \(.baseRefName) \(.headRefOid)"')
+  read -r state branch base tip <<<"$info"
   [[ $state == OPEN ]] || die "#$n is $state"
   read_handoff "$dir/$branch.squash.md"
   [[ $head == *"(#$n)" ]] || head="$head (#$n)"
@@ -143,7 +173,8 @@ merge() {
   gh pr checks "$n" || echo "!! Not every check has passed."
   show
   # GitHub's diff of the PR, which is what merges, whatever is checked out here.
-  confirm "Squash-merge #$n into $base and delete $branch?" gh pr diff "$n" --color=always ||
+  confirm "Squash-merge #$n into $base and delete $branch?" "$base" "$tip" \
+    gh pr diff "$n" --color=always ||
     die "nothing merged"
 
   gh pr merge "$n" --squash --delete-branch --subject "$head" --body-file "$body"
@@ -164,6 +195,10 @@ case ${1-} in
   merge)
     shift
     merge "$@"
+    ;;
+  gitlens)
+    [[ $# -le 2 ]] || usage
+    gitlens "${2:-$(default_branch)}" HEAD
     ;;
   -h | --help) usage ;;
   *) publish "$@" ;;
