@@ -106,6 +106,19 @@ in
   # is why the Phase 7 sequence started there rather than with the cable.
   networking.interfaces.${host.wanIface}.useDHCP = true;
 
+  # Keep gate's name out of its requests to the ISP (F12 in docs/privacy.md).
+  # NixOS's dhcpcd.conf starts with a bare `hostname`, which sends the system
+  # hostname, and the module has no option to drop it. A later `hostname ""`
+  # clears it again (dhcpcd's if-options.c, despite what its man page says
+  # about an empty name), and with `fqdn` at its default of disabled, DHCPv4
+  # then sends neither option 12 nor 81, and DHCPv6 no FQDN. The interface
+  # block keeps this on wan even if the `interface` blocks the module
+  # generates for static IPv6 come to precede extraConfig.
+  networking.dhcpcd.extraConfig = ''
+    interface ${host.wanIface}
+    hostname ""
+  '';
+
   # The fleet cap is 200M, sized for SD-card wear. gate has NVMe with 218G
   # free and is the host whose logs are worth having: a week of firewall drops
   # and DHCP churn is the evidence for every question this box will raise.
