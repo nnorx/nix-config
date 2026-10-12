@@ -14,7 +14,7 @@
 # attribute.
 { lib, net, ... }:
 let
-  inherit (net) segments hosts;
+  inherit (net) segments hosts devices;
 
   # Address arithmetic, kept to whole octets. Real prefix maths in Nix means
   # bit twiddling on parsed integers, and every segment here is byte-aligned;
@@ -145,6 +145,99 @@ let
     ) (lib.filterAttrs (_: seg: seg ? peers) segments)
   );
 
+  # An address as one number, for comparing against a pool's ends.
+  addressValue = addr: lib.foldl (acc: o: acc * 256 + lib.toInt o) 0 (octets addr);
+  inPool =
+    seg: addr:
+    seg ? pool
+    && addressValue seg.pool.first <= addressValue addr
+    && addressValue addr <= addressValue seg.pool.last;
+
+  # Every address this file assigns, with the attribute that assigns it.
+  addressOwners = lib.groupBy (o: o.ip) (
+    lib.mapAttrsToList (name: host: {
+      inherit (host) ip;
+      owner = "net.hosts.${name}";
+    }) (lib.filterAttrs (_: host: host ? ip) hosts)
+    ++ lib.concatLists (
+      lib.mapAttrsToList (
+        name: seg:
+        lib.mapAttrsToList (peer: ip: {
+          inherit ip;
+          owner = "net.segments.${name}.peers.${peer}";
+        }) seg.peers
+      ) (lib.filterAttrs (_: seg: seg ? peers) segments)
+    )
+    ++ lib.mapAttrsToList (name: device: {
+      inherit (device) ip;
+      owner = "net.devices.${name}";
+    }) devices
+  );
+
+  # Devices a rule names (docs/device-identity.md). Each address is a Kea
+  # reservation on gate, so the segment needs a pool, since gate runs Kea only
+  # where one exists, and the address must sit outside it, where Kea leases it
+  # to nothing else. The address is the device's identity in every rule that
+  # names it, so a host, a peer or another device holding it too would be
+  # granted that device's access.
+  deviceChecks = lib.concatLists (
+    lib.mapAttrsToList (
+      name: device:
+      let
+        seg = segments.${device.segment} or null;
+        others = lib.remove "net.devices.${name}" (map (o: o.owner) addressOwners.${device.ip});
+      in
+      [
+        {
+          assertion = seg ? pool;
+          message = ''
+            net.devices.${name} is on segment "${device.segment}", which is not a
+            declared segment with a DHCP pool. Its address is a Kea reservation,
+            and gate runs Kea only on segments with a pool.
+          '';
+        }
+        {
+          assertion = !(seg ? pool) || (isHostAddress seg device.ip && device.ip != seg.gateway);
+          message = ''
+            net.devices.${name} is ${device.ip}, which is not a host address in
+            ${seg.subnet or "?"} other than the gateway ${seg.gateway or "?"}: it is
+            outside the subnet, its network or broadcast address, or the gateway
+            itself. Kea would reserve an address the device cannot hold.
+          '';
+        }
+        {
+          assertion = !(inPool seg device.ip);
+          message = ''
+            net.devices.${name} is ${device.ip}, inside the ${device.segment} pool
+            ${seg.pool.first or "?"} - ${seg.pool.last or "?"}. Kea can lease a pool address to
+            another device before this one asks for its reservation, and that
+            device would then hold the address the rules name.
+          '';
+        }
+        {
+          assertion = others == [ ];
+          message = ''
+            net.devices.${name} has address ${device.ip}, which ${lib.concatStringsSep ", " others}
+            also holds. Rules that name the device by address would grant its
+            access to the other holder too.
+          '';
+        }
+      ]
+    ) devices
+  );
+
+  # The Govee rules on gate and core5 read each light's address from
+  # net.devices, and the lights are on iot: gate routes the scan into iot and
+  # nowhere else.
+  goveeChecks = map (name: {
+    assertion = (devices.${name}.segment or null) == "iot";
+    message = ''
+      net.goveeLights lists "${name}", which is not a device on iot in
+      net.devices. The Govee rules read each light's address from there, and
+      gate carries the lights' traffic to and from iot only.
+    '';
+  }) net.goveeLights;
+
   # hosts/core5 dereferences `net.hosts.<agent>.ip` unguarded to build its
   # firewall, so an agent without an address fails core5's evaluation with an
   # "attribute 'ip' missing" trace that names neither this list nor the host.
@@ -231,5 +324,12 @@ let
 in
 {
   assertions =
-    segmentChecks ++ hostChecks ++ peerChecks ++ agentChecks ++ metricsChecks ++ portChecks;
+    segmentChecks
+    ++ hostChecks
+    ++ peerChecks
+    ++ deviceChecks
+    ++ goveeChecks
+    ++ agentChecks
+    ++ metricsChecks
+    ++ portChecks;
 }
