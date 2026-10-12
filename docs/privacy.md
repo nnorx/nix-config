@@ -482,11 +482,33 @@ location, such as Firefox for a site that requests it, geoclue sends the Wi-Fi
 networks in range and gets coordinates back. **off** (F13), if nothing on
 forge needs it; the issue should first check what in Plasma asks.
 
-**DNS away from home.** With neither tunnel profile up, forge uses whatever
-resolver the local network hands out, in plaintext: every lookup, the tunnel
-endpoint's hostname among them, which ties the laptop to the house's address
-for anyone logging that network's DNS. **narrow** (F11): an encrypted
-resolver when forge is not at home, or the split tunnel up by default.
+**DNS away from home** (`hosts/forge/dns.nix`). With neither tunnel profile
+up and forge away from home, every lookup goes over DNS-over-TLS to Quad9
+(`encryptedResolvers` in `lib/net.nix`), the tunnel endpoint's hostname
+among them. It is strict: nothing goes in plaintext, to Quad9 or to the
+network forge has joined, and where port 853 is refused lookups fail
+instead. Quad9 sees every name forge looks up away from home, from the
+address that network gives it, filtered only by its own list of malicious
+domains rather than AdGuard's. forge knows it is home when DHCP hands it
+exactly the fleet's resolvers, and there every lookup still goes to AdGuard,
+in plaintext on the LAN as before. A connection comes up asking its own
+network's resolvers over TLS, which a hotel's does not speak, so the moment
+before forge has decided leaks nothing either. A captive portal needs
+`portal-dns`, which hands that network its resolver back in plaintext until
+forge reconnects ([laptop.md](laptop.md#dns-away-from-home)). Left over:
+Docker containers resolve through resolved's upstream list, which away from
+home is Quad9 on plain port 53.
+
+Passed over: the split tunnel up by default, which NetworkManager cannot
+bring up only away from home, which at home sends DNS into a tunnel that
+never comes up, and which needs the endpoint looked up before it exists;
+opportunistic TLS, which falls back to plaintext, silently, on exactly the
+networks that block 853; DNS-over-HTTPS, which resolved does not speak, so
+it needs a proxy, and gains only networks that block 853, which strict TLS
+reports rather than hides; and recursing on forge, which asks authoritative
+servers in plaintext. Firefox's own DoH (F1) is redundant with this away
+from home and takes lookups away from AdGuard at home. **narrow** (F11),
+and narrowed.
 
 **Steam and Plasma.** Steam talks to Valve, which is what it is for; its
 hardware survey asks first. Plasma's user feedback is off unless enabled in

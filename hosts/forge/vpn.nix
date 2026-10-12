@@ -16,10 +16,11 @@
 # forge is on trusted anyway, and a profile left up there sends DNS into a
 # tunnel that never comes up.
 #
-# The endpoint is a hostname, resolved when a profile comes up. If the home
-# address changes while one is up, the tunnel goes quiet and cannot look the
-# name up again, since all DNS is going through it. Down and up again: down
-# restores the local network's DNS, and up resolves the new address.
+# The endpoint is a hostname, resolved when a profile comes up, over TLS to the
+# resolver ./dns.nix uses away from home. If the home address changes while one
+# is up, the tunnel goes quiet and cannot look the name up again, since all DNS
+# is going through it. Down and up again: down restores that resolver, and up
+# resolves the new address.
 {
   config,
   pkgs,

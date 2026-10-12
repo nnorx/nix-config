@@ -24,6 +24,7 @@
     ./desktop.nix
     ./dev.nix
     ./vpn.nix
+    ./dns.nix
     ./claude.nix
     ./night-shift.nix
     ../../modules/baseline.nix
