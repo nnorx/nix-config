@@ -79,7 +79,8 @@ let
     env = {
       # Usage telemetry and error reports off (docs/privacy.md, forge). Not
       # CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, which also stops the
-      # auto-updater.
+      # auto-updater. Telemetry off also stops feature-flag fetching, which
+      # turns off some features; docs/privacy.md lists them.
       DISABLE_TELEMETRY = "1";
       DISABLE_ERROR_REPORTING = "1";
     }

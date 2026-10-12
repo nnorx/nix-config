@@ -420,10 +420,25 @@ and the Mac. Prompts and the files it reads go to Anthropic, which is the
 tool. Beyond that it sends usage telemetry and error reports by default.
 `home/claude.nix` sets `DISABLE_TELEMETRY` and `DISABLE_ERROR_REPORTING` under
 `env` in the user settings on all three machines, which turns both off, and
-the night shift's agents read the same settings. Telemetry off also stops its
-feature-flag fetches, so it runs on built-in defaults. It is installed by its
-own installer and updates itself, which stays on: that is why the switch is
-not `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, which stops the updater too.
+the night shift's agents read the same settings. It is installed by its own
+installer and updates itself, which stays on: that is why the switch is not
+`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, which stops the updater too.
+
+Telemetry off also stops Claude Code fetching its feature flags, and no
+setting separates the two, so the features behind a flag go with it. Chosen
+knowingly, on 2026-10-11. What is lost, per Claude Code's documentation:
+
+- **An MCP tool with an invalid input schema is sent anyway**, and every
+  request then fails with a 400 naming the tool by position, instead of the
+  tool being left out.
+- **Artifact comments**, skills and plugins synced from the claude.ai account,
+  the advisor tool, `/skill-doctor`, `claude import`, and messaging sessions
+  on other machines. The fleet's own plugins come from nix and are unaffected.
+
+What stays: auto mode, which a session without flags asks the server for
+(the night shift passes `--permission-mode auto`), and Remote Control, from
+v2.1.283. If either goes missing after an upgrade, this is the first thing to
+undo.
 The sandbox's `allowedDomains` limits what commands reach, not what Claude
 Code itself sends. **off** (F3), for the telemetry and error reports.
 
