@@ -111,12 +111,16 @@ in
   # hostname, and the module has no option to drop it. A later `hostname ""`
   # clears it again (dhcpcd's if-options.c, despite what its man page says
   # about an empty name), and with `fqdn` at its default of disabled, DHCPv4
-  # then sends neither option 12 nor 81, and DHCPv6 no FQDN. The interface
-  # block keeps this on wan even if the `interface` blocks the module
-  # generates for static IPv6 come to precede extraConfig.
+  # then sends neither option 12 nor 81, and DHCPv6 no FQDN. A bare
+  # `vendorclassid` likewise drops the default vendor class (option 60, and
+  # DHCPv6's vendor option), "dhcpcd-<version>:Linux-<kernel>:...", which
+  # told the ISP the OS and, as the kernel changed, when gate upgraded. The
+  # interface block keeps this on wan even if the `interface` blocks the
+  # module generates for static IPv6 come to precede extraConfig.
   networking.dhcpcd.extraConfig = ''
     interface ${host.wanIface}
     hostname ""
+    vendorclassid
   '';
 
   # The fleet cap is 200M, sized for SD-card wear. gate has NVMe with 218G

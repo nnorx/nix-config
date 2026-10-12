@@ -105,16 +105,15 @@ that name.
 **DHCP on `wan`.** gate takes its address from the ISP with dhcpcd. NixOS's
 generated config starts with `hostname`, which sent gate's name in each
 request until F12 added `hostname ""` for `wan` (`hosts/gate/default.nix`).
-What a request carries now, from dhcpcd's source and a VM capture of a client
-with gate's dhcpcd settings: the MAC address, which every request needs; no
-client ID, since NixOS's config names neither `clientid` nor `duid`, so the
-server can key the lease only on the MAC; a parameter request list, which fingerprints dhcpcd but
-not the house; and dhcpcd's default vendor class,
-`dhcpcd-<version>:Linux-<kernel release>:x86_64:<CPU vendor>`. The vendor
-class identifies no more than the MAC does, since every NixOS box on that
-kernel sends the same string, but it tells the ISP the OS and when gate
-upgrades. A bare `vendorclassid` in the same block would drop it. **narrow**
-(F12), done for the hostname.
+Each request also carried dhcpcd's default vendor class,
+`dhcpcd-<version>:Linux-<kernel release>:x86_64:<CPU vendor>`, which told
+the ISP the OS and, as the kernel changed, when gate upgraded; a bare
+`vendorclassid` in the same block drops it. What a request carries now, from
+dhcpcd's source and a VM capture of a client with gate's dhcpcd settings:
+the MAC address, which every request needs; no client ID, since NixOS's
+config names neither `clientid` nor `duid`, so the server can key the lease
+only on the MAC; and a parameter request list, which fingerprints dhcpcd but
+not the house. **narrow** (F12), done.
 
 **The guest segment** gets Cloudflare and Quad9 from DHCP rather than the
 fleet's resolvers (`publicResolverSegments` in `hosts/gate/routing.nix`), so
