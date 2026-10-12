@@ -3,7 +3,7 @@
 # they serve answers docs/router.md's questions without the WAN address.
 #
 # `nix build .#checks.x86_64-linux.gate-metrics`. It needs KVM, which forge's
-# daemon has; CI evaluates it without building.
+# daemon has; CI's vm-tests job runs it on pull requests.
 #
 # gate is hosts/gate/routing.nix and ./metrics.nix themselves, with
 # modules/node-exporter.nix, on VM NICs given gate's interface names. Its WAN

@@ -87,3 +87,70 @@ jobs:
             args+=(".#nixosConfigurations.$h.config.system.build.etc")
           done
           nix build --no-link --print-build-logs --accept-flake-config "${args[@]}"
+
+  # Runs the NixOS VM tests on pull requests. `check` only evaluates them, so
+  # without this a change that breaks gate's firewall or DNS tests, the main
+  # protection for the one host with no fallback router, merges green.
+  #
+  # Every pull request, with no path filter: the tests import host modules
+  # and lib/net.nix, and a filter that missed an import would let a break
+  # through. The tests are listed by evaluating checks.x86_64-linux, so a new
+  # one is covered without editing this file, and built in one call with
+  # --keep-going, so one failure does not hide another.
+  #
+  # One test at a time (--max-jobs 1). Each boots four or five VMs, and the
+  # runner has four vCPUs. Some assertions are timing-bound: gate-dns wants
+  # a refusal within a second, and gate-iot-egress reads a 5-second socket
+  # timeout as "blocked". Tests contending for CPU could fail, or pass, for
+  # the wrong reason.
+  #
+  # PR-only, cancel-in-progress and read-only Cachix for the same reasons as
+  # build-etc.
+  vm-tests:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    # On forge the six tests take 31 to 86 seconds each, about five and a half
+    # minutes in a row. A runner is slower, a fresh store fetches every VM's
+    # closure, and a flake.lock bump can leave some of it to build.
+    timeout-minutes: 60
+    concurrency:
+      group: vm-tests-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # main @ 2026-09-09
+        with:
+          diagnostic-endpoint: ""
+          # The tests require the `kvm` system feature. On GitHub's runners
+          # /dev/kvm exists but the runner user cannot open it. This input
+          # adds a udev rule opening it to every user before Nix is installed,
+          # so Nix detects it and offers `kvm`. It is the default, set here
+          # so the job does not rest on one. Without KVM, Nix refuses to build
+          # the tests rather than running them slowly under emulation.
+          kvm: true
+      # Read-only: no authToken. A pull request's build must never reach the
+      # cache every host trusts.
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: nnorx-nix-config
+      # So the log shows whether the runner has KVM before any test starts.
+      # `ls` fails the step if /dev/kvm is missing.
+      - run: |
+          ls -l /dev/kvm
+          nix config show system-features
+      # The eval is its own assignment so that `bash -e` stops on its failure,
+      # which a pipe or process substitution would swallow, leaving no tests
+      # and a green run.
+      - run: |
+          names=$(nix eval --json --accept-flake-config .#checks.x86_64-linux --apply builtins.attrNames)
+          mapfile -t tests < <(jq -r '.[]' <<<"$names")
+          if [ ${#tests[@]} -eq 0 ]; then
+            echo "no tests in checks.x86_64-linux" >&2
+            exit 1
+          fi
+          echo "VM tests: ${tests[*]}"
+          args=()
+          for t in "${tests[@]}"; do
+            args+=(".#checks.x86_64-linux.$t")
+          done
+          nix build --no-link --print-build-logs --keep-going --max-jobs 1 --accept-flake-config "${args[@]}"

@@ -7,7 +7,7 @@
 # commands this runs, as Nick would run them on gate.
 #
 # `nix build .#checks.x86_64-linux.gate-iot-egress`. It needs KVM, which
-# forge's daemon has; CI evaluates it without building.
+# forge's daemon has; CI's vm-tests job runs it on pull requests.
 #
 # The topology is ./gate-dns.nix's: gate is hosts/gate/routing.nix itself, the
 # fleet's resolvers are one VM holding both their addresses, and "the

@@ -3,7 +3,7 @@
 # a client falls back rather than waits.
 #
 # `nix build .#checks.x86_64-linux.gate-dns`. It needs KVM, which forge's
-# daemon has; CI evaluates it without building.
+# daemon has; CI's vm-tests job runs it on pull requests.
 #
 # The router is hosts/gate/routing.nix itself, on VM NICs given gate's
 # interface names, so the ruleset under test is the one gate renders. What it
