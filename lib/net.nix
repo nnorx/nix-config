@@ -400,6 +400,10 @@
     # socket, which this exporter translates.
     keaExporter = 9547;
 
+    # Unbound's statistics, on each resolver's address beside node_exporter,
+    # read over Unbound's local control socket (modules/unbound.nix).
+    unboundExporter = 9167;
+
     # WireGuard on gate's WAN, which every peer's config names. 443 rather
     # than 51820, because restrictive Wi-Fi blocks unusual UDP ports more often
     # than the one HTTP/3 uses.

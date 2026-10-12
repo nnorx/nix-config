@@ -215,11 +215,13 @@ those queries was checked too:
   soon as it has been loaded.
 - gate's `dns-redirect` rule has a counter, which counts packets and records
   no addresses. pimon reports host health only.
-- No metrics are deployed yet. The design in
-  [observability.md](observability.md) scrapes Unbound's counters, which are
-  totals with neither names nor clients, and probes each resolver from core5.
-  AdGuard has no metrics endpoint, and an exporter built on its statistics
-  API would inherit the rule, since excluded queries are never counted.
+- The metrics store on core5 keeps each resolver's DNS counts for 12 months
+  ([observability.md](observability.md#dns-failure-ratios)). Unbound's are
+  totals with neither names nor clients, work's queries among them and not to
+  be told apart. AdGuard's come from its statistics API, which inherits the
+  rule, since excluded queries are never counted, and the collector keeps
+  only totals of what the API returns, not its busiest clients and domains.
+  `tests/dns-metrics.nix` checks both.
 
 **Lookup services stay off.** Safe browsing and parental control each send a
 hash prefix of every name to AdGuard's servers. Both are off by default, and

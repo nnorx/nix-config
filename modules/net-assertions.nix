@@ -191,6 +191,19 @@ let
       gate's forward chain, which has no rule for it.
     '';
   }) net.metricsTargets
+  # A resolver's DNS metrics are scraped like its node_exporter: Unbound's
+  # through their own exporter, AdGuard's through node_exporter's textfile
+  # collector. Both need the resolver to be a target, and the rule opening the
+  # Unbound exporter's port is written for a host scraped across the wire,
+  # not for the collector scraping itself.
+  ++ map (name: {
+    assertion = lib.elem name net.metricsTargets && name != net.metricsCollector;
+    message = ''
+      net.resolvers lists "${name}", which must also be in net.metricsTargets
+      and must not be net.metricsCollector. Its DNS metrics are scraped like
+      its node_exporter (modules/unbound.nix, modules/adguardhome.nix).
+    '';
+  }) net.resolvers
   # `metricsSegment` stands in for an `ip`, for a host that holds an address
   # on every segment. Both at once would leave two answers to where the host
   # is scraped, and the exporters bind only one of them.

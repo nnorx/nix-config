@@ -221,6 +221,107 @@ metricsTargets = [ "core4" "lifeline" "core5" "gate" ];
 collector's own segment, so scraping never depends on gate forwarding. When
 pimon is retired, `pimonAgents` and its assertion go with it.
 
+## DNS failure ratios
+
+**Per resolver, from Unbound's exporter and from AdGuard's own statistics.
+Totals only: no metric names a client or a domain.**
+
+On core4 and lifeline, `modules/unbound.nix` turns on Unbound's
+`extended-statistics` and runs nixpkgs' `unbound_exporter` over the local
+control socket the cache dump already uses, on `ports.unboundExporter` at the
+host's address, open to core5 alone. Unbound's statistics are counters of
+answers by response code, cache hits, a histogram of recursion times, DNSSEC
+results and dropped queries. Its one client is AdGuard on loopback, and it has
+no field for a name.
+
+AdGuard Home has no metrics endpoint and nixpkgs has no exporter for it, but
+its statistics API answers for the current hour alone
+(`/control/stats?recent=3600000`). `modules/adguardhome.nix` reads it every 30
+seconds, as a login of its own called `metrics`, and writes the totals where
+node_exporter's textfile collector picks them up, as `fleet_adguard_*`. The
+hour's totals start again from zero on the hour, and `rate()` takes that as a
+counter reset, so a rate over any window is right except for the queries
+between the hour's last read and its end. The response also lists the busiest
+clients and domains; the collector drops them, keeping only totals, and
+reports the upstreams by role (`primary`, `fallback`) rather than address.
+When AdGuard does not answer, only `fleet_adguard_up 0` is written.
+
+The questions, as queries. The DNS dashboard on core5 draws each of them, with
+`$__rate_interval` for the window:
+
+- **Queries.** From clients, work aside:
+  `sum by (instance) (rate(fleet_adguard_queries_total[5m]))`. Reaching
+  Unbound, which is everything AdGuard did not block:
+  `sum by (instance) (rate(unbound_queries_total[5m]))`.
+- **SERVFAIL ratio**, of Unbound's answers. A recursion that timed out
+  upstream and an answer that failed validation both end here:
+  `sum by (instance) (rate(unbound_answer_rcodes_total{rcode="SERVFAIL"}[5m])) / sum by (instance) (rate(unbound_answer_rcodes_total[5m]))`.
+- **Timeout ratio**, in two places. AdGuard asks its fallback only when Unbound
+  errs or takes longer than `upstream_timeout`, so the fallback's share of
+  AdGuard's upstream answers is Unbound timing out as AdGuard sees it:
+  `sum by (instance) (rate(fleet_adguard_upstream_responses_total{upstream!="primary"}[5m])) / sum by (instance) (rate(fleet_adguard_upstream_responses_total[5m]))`.
+  And the queries Unbound discarded unanswered, too long in its queue or with
+  its request list full:
+  `sum by (instance) (rate({__name__=~"unbound_(queries_discard_timeout|queries_wait_limit|request_list_exceeded_total)"}[5m])) / sum by (instance) (rate(unbound_queries_total[5m]))`.
+- **Blocked ratio**, over an hour since blocking is bursty:
+  `sum by (instance) (rate(fleet_adguard_blocked_total[1h])) / sum by (instance) (rate(fleet_adguard_queries_total[1h]))`.
+- **Cache hit rate**, Unbound's, the only cache, since AdGuard's is off:
+  `sum by (instance) (rate(unbound_cache_hits_total[5m])) / sum by (instance) (rate(unbound_queries_total[5m]))`.
+- **Upstream latency.** Unbound's recursion, cache misses alone:
+  `histogram_quantile(0.9, sum by (instance, le) (rate(unbound_response_time_seconds_bucket[5m])))`.
+  AdGuard waiting on Unbound, cache hits included:
+  `sum by (instance) (rate(fleet_adguard_upstream_seconds_total{upstream="primary"}[5m])) / sum by (instance) (rate(fleet_adguard_upstream_responses_total{upstream="primary"}[5m]))`.
+- **DNSSEC failures**, answers that failed validation:
+  `sum by (instance) (rate(unbound_answers_bogus[5m]))`, and the records found
+  bogus on the way, `unbound_rrset_bogus_total`.
+
+**The work segment stays out by construction.** AdGuard's persistent client
+for the segment sets `ignore_statistics`, so its queries are never counted,
+and the API has nothing of them to return. Unbound counts them, since they
+reach it from AdGuard on loopback like everyone else's, but only within totals
+that have no client in them: they say how busy the house was, work's lookups
+included, never whose. `tests/dns-metrics.nix` checks both, with queries from
+a work address that leave AdGuard's counts where they were and raise
+Unbound's.
+
+**What this does not see.** A resolver that stops answering on port 53
+altogether shows as `fleet_adguard_up` 0 or a failed scrape, not as a ratio.
+The end-to-end check of that is the blackbox DNS probe, still to come in step
+3. And gate's own Unbound has no exporter yet.
+
+### The metrics login
+
+AdGuard has no read-only role, so `metrics` is a second admin login, kept
+apart from Nick's so his password reaches no service. Its password and its
+bcrypt hash are a pair in each resolver's sops file,
+`adguard-metrics-password` and `adguard-metrics-hash`, and evaluation fails
+until both are there. The password reaches the collector as a systemd
+credential, from a root-only netrc that sops renders: node_exporter, which
+shares the collector's user, cannot read it there. To make both, from the
+repo, in your own terminal (zsh), inside
+`nix shell nixpkgs#sops nixpkgs#jq nixpkgs#openssl nixpkgs#apacheHttpd`:
+
+```bash
+for h in core4 lifeline; do
+  pw=$(openssl rand -hex 32)
+  printf '"%s"' "$pw" | sops set --value-stdin secrets/$h.yaml '["adguard-metrics-password"]'
+  printf %s "$pw" | htpasswd -niBC 10 metrics | cut -d: -f2- | tr -d '\n' | jq -R . | sops set --value-stdin secrets/$h.yaml '["adguard-metrics-hash"]'
+done; unset pw h
+```
+
+And to check each pair without printing either half. The hash must be 60 bytes
+exactly: sops splices it into AdGuard's configuration, and a stray newline or
+quote there would stop AdGuard from starting.
+
+```bash
+for h in core4 lifeline; do
+  hash=$(sops decrypt --extract '["adguard-metrics-hash"]' secrets/$h.yaml)
+  n=$(sops decrypt --extract '["adguard-metrics-hash"]' secrets/$h.yaml | wc -c)
+  [[ $n -eq 60 && $hash =~ '^\$2y\$10\$[./A-Za-z0-9]{53}$' ]] && echo "$h: hash shape ok" || echo "$h: hash shape BAD"
+  sops decrypt --extract '["adguard-metrics-password"]' secrets/$h.yaml | htpasswd -vi =(printf 'metrics:%s\n' "$hash") metrics >/dev/null 2>&1 && echo "$h: pair matches" || echo "$h: pair MISMATCH"
+done; unset hash n h
+```
+
 ## Alerts
 
 **Rules evaluated on core5 by vmalert, delivered by Alertmanager to the ntfy
@@ -385,6 +486,11 @@ both are in.
    nixpkgs no exporter for it, so its own counters stay in its UI. The same
    blackbox exporter carries step 2's ICMP probes to the public resolvers,
    which `WanDown` needs.
+   The Pis' half landed first, in NNO-23: the Unbound exporter on core4 and
+   lifeline, and AdGuard's own counts after all, read from its statistics API
+   ("DNS failure ratios" above). Still to come: gate's Unbound exporter, and
+   the blackbox exporter with its DNS and ICMP probes, which
+   `ResolverFailing` and `WanDown` need.
 4. **Alert rules.** vmalert and Alertmanager on core5, the ntfy receivers, the
    watchdog check in healthchecks.io, the rule set above, the GitHub timer for
    `RevisionBehind`, and the stack's units in `fleetAlerts.failure`.

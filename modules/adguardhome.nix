@@ -3,7 +3,9 @@
 #
 # The admin password hash is bcrypt, so publishing it exposes it to offline
 # cracking. It lives in secrets/<hostname>.yaml (sops/age) and is spliced into
-# the config at activation, reaching neither git nor the Nix store.
+# the config at activation, reaching neither git nor the Nix store. So are the
+# password and hash of the second login, which reads AdGuard's statistics for
+# the metrics store (below).
 {
   adminUser,
   upstreamDns,
@@ -36,9 +38,104 @@ let
           name = adminUser;
           password = config.sops.placeholder.adguard-admin-hash;
         }
-      ];
+      ]
+      ++ lib.optional metrics {
+        name = metricsUser;
+        password = config.sops.placeholder.adguard-metrics-hash;
+      };
     }
   );
+
+  # AdGuard's counts for the metrics store, on the fleet's resolvers, which
+  # every host running this module is. AdGuard has no metrics endpoint, so a
+  # timer reads its statistics API and writes the totals where
+  # node_exporter's textfile collector reads them (modules/node-exporter.nix).
+  metrics = lib.elem hostname net.resolvers;
+  textfileDir = "/run/fleet-metrics";
+
+  # A login of its own, so the admin's password stays with Nick. AdGuard has
+  # no read-only role: this one could change settings through the API, and
+  # mutableSettings puts them back at the next start. Its password and hash
+  # are a pair in sops, made together (docs/observability.md has the command).
+  metricsUser = "metrics";
+
+  # AdGuard names an upstream by address and port, adding DNS's port when the
+  # configured one has none. Each is reported as the role it has here rather
+  # than by address, so a query reads `upstream="fallback"`.
+  withPort = u: if lib.hasInfix ":" u then u else "${u}:53";
+  roles = builtins.toJSON {
+    primary = map withPort upstreamDns;
+    fallback = map withPort fallbackDns;
+  };
+
+  # The current hour's statistics, which AdGuard keeps as running totals that
+  # start again from zero on the hour. Read as counters, rate() takes each of
+  # those starts as a counter reset, so a rate over any window is right but
+  # for the queries between the hour's last read and its end. Only totals are
+  # read: the response also lists the busiest clients and domains, and
+  # nothing here passes them on. The work segment is in none of it, since
+  # AdGuard leaves that segment out of its statistics entirely.
+  render = pkgs.writeText "adguard-metrics.jq" ''
+    def role: . as $a
+      | if ($roles.primary | index([$a])) then "primary"
+        elif ($roles.fallback | index([$a])) then "fallback"
+        else "other" end;
+
+    (.top_upstreams_responses | add // {}) as $n
+    | (.top_upstreams_avg_time | add // {}) as $t
+    | ([$n | to_entries[] | {role: (.key | role), n: .value, s: (.value * ($t[.key] // 0))}]
+       | group_by(.role) | map({key: .[0].role, value: {n: (map(.n) | add), s: (map(.s) | add)}})
+       | from_entries) as $up
+    | (["primary", "fallback"] + ($up | keys) | unique) as $seen
+    | "# HELP fleet_adguard_up Whether AdGuard's statistics API answered.",
+      "# TYPE fleet_adguard_up gauge",
+      "fleet_adguard_up 1",
+      "# HELP fleet_adguard_queries_total Queries AdGuard counted this hour. Starts again on the hour.",
+      "# TYPE fleet_adguard_queries_total counter",
+      "fleet_adguard_queries_total \(.num_dns_queries)",
+      "# HELP fleet_adguard_blocked_total Queries blocked by a filter list this hour. Starts again on the hour.",
+      "# TYPE fleet_adguard_blocked_total counter",
+      "fleet_adguard_blocked_total \(.num_blocked_filtering)",
+      "# HELP fleet_adguard_processing_seconds_total Time AdGuard spent answering this hour's queries. Starts again on the hour.",
+      "# TYPE fleet_adguard_processing_seconds_total counter",
+      "fleet_adguard_processing_seconds_total \(.avg_processing_time * .num_dns_queries)",
+      "# HELP fleet_adguard_upstream_responses_total Answers from each upstream role this hour, cache and errors aside. Starts again on the hour.",
+      "# TYPE fleet_adguard_upstream_responses_total counter",
+      ($seen[] | "fleet_adguard_upstream_responses_total{upstream=\"\(.)\"} \($up[.].n // 0)"),
+      "# HELP fleet_adguard_upstream_seconds_total Time spent waiting on each upstream role this hour. Starts again on the hour.",
+      "# TYPE fleet_adguard_upstream_seconds_total counter",
+      ($seen[] | "fleet_adguard_upstream_seconds_total{upstream=\"\(.)\"} \($up[.].s // 0)")
+  '';
+
+  # Every 30 seconds, the scrape interval. When AdGuard does not answer, or
+  # answers something unreadable, only fleet_adguard_up 0 is written, so the
+  # counters stop rather than drop to zero, which rate() would take as a reset.
+  collect = pkgs.writeShellApplication {
+    name = "adguard-metrics";
+    runtimeInputs = with pkgs; [
+      coreutils
+      curl
+      jq
+    ];
+    text = ''
+      tmp=$(mktemp -p ${textfileDir})
+      trap 'rm -f "$tmp"' EXIT
+
+      url="http://127.0.0.1:${toString cfg.port}/control/stats?recent=3600000"
+      if body=$(curl -sf --max-time 10 --netrc-file "$CREDENTIALS_DIRECTORY/netrc" "$url") &&
+        out=$(printf %s "$body" | jq -r --argjson roles '${roles}' -f ${render}); then
+        printf '%s\n' "$out" >"$tmp"
+      else
+        {
+          echo "# HELP fleet_adguard_up Whether AdGuard's statistics API answered."
+          echo '# TYPE fleet_adguard_up gauge'
+          echo 'fleet_adguard_up 0'
+        } >"$tmp"
+      fi
+      chmod 0644 "$tmp"
+      mv "$tmp" ${textfileDir}/adguard.prom
+    '';
+  };
 
   # Runs as root via the "+" prefix on ExecStartPre. The stock preStart runs as
   # the service's DynamicUser, whose transient UID does not exist when sops
@@ -329,6 +426,42 @@ in
           id = i + 1;
           inherit (builtins.elemAt blocklists i) url name;
         }) (builtins.length blocklists);
+    };
+  };
+
+  # AdGuard's counts for the metrics store, read as node_exporter's user, as
+  # host-status's facts are, into the same directory. The password reaches the
+  # unit as a systemd credential, so the rendered file stays root's, and
+  # node_exporter, on the same user, cannot read it there.
+  sops.secrets.adguard-metrics-password = lib.mkIf metrics { };
+  sops.secrets.adguard-metrics-hash = lib.mkIf metrics { };
+  sops.templates."adguard-metrics.netrc" = lib.mkIf metrics {
+    content = ''
+      machine 127.0.0.1 login ${metricsUser} password ${config.sops.placeholder.adguard-metrics-password}
+    '';
+  };
+
+  systemd.services.adguard-metrics = lib.mkIf metrics {
+    description = "Write AdGuard's query counts for node_exporter";
+    serviceConfig = import ../lib/hardening.nix // {
+      Type = "oneshot";
+      ExecStart = lib.getExe collect;
+      User = config.services.prometheus.exporters.node.user;
+      LoadCredential = [ "netrc:${config.sops.templates."adguard-metrics.netrc".path}" ];
+      RuntimeDirectory = baseNameOf textfileDir;
+      RuntimeDirectoryMode = "0755";
+      RuntimeDirectoryPreserve = true;
+      # Every 30 seconds, systemd's own "Starting" and "Finished" lines would
+      # be thousands a day. A failed run still logs at notice and above.
+      LogLevelMax = "notice";
+    };
+  };
+  systemd.timers.adguard-metrics = lib.mkIf metrics {
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnBootSec = 0;
+      OnUnitActiveSec = "30s";
+      AccuracySec = "1s";
     };
   };
 }

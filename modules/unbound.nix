@@ -67,6 +67,12 @@ let
     done
     exit 0
   '';
+
+  # Statistics for the metrics store, on the fleet's resolvers alone. gate runs
+  # this module too, and an exporter there is a change to gate of its own.
+  metrics = lib.elem hostname net.resolvers;
+  host = net.hosts.${hostname};
+  collector = net.hosts.${net.metricsCollector};
 in
 {
   services.unbound = {
@@ -171,6 +177,11 @@ in
         log-replies = false;
         log-local-actions = false;
 
+        # For the exporter below: response codes, query types and the
+        # recursion-time histogram, on top of the plain totals. Counters in
+        # memory, like those, with no client and no name in any of them.
+        extended-statistics = lib.mkIf metrics true;
+
         # Sized for a Pi 4. gate is a 4-core N100 and takes the same values.
         num-threads = 4;
         msg-cache-size = "64m";
@@ -226,4 +237,36 @@ in
       ExecStartPost = loadCache;
     };
   };
+
+  # Unbound's own counters, for core5 to scrape (modules/metrics.nix): answers
+  # by response code, cache hits, recursion times, DNSSEC failures and the
+  # queries it dropped. They are totals over every query AdGuard forwards,
+  # work's among them, and none of them names a client or a domain: AdGuard on
+  # loopback is the only client Unbound has.
+  #
+  # Over the control socket the cache dump already uses, which needs no
+  # certificates. The exporter runs as Unbound's user to reach it, as nixpkgs
+  # sets it up, so it holds nothing Unbound's own process does not: the
+  # socket answers every unbound-control command, not only statistics. It asks
+  # with stats_noreset, so the counters run from Unbound's start and a scrape
+  # never resets them.
+  services.prometheus.exporters.unbound = lib.mkIf metrics {
+    enable = true;
+    # The host's address alone, as node_exporter binds it
+    # (modules/node-exporter.nix), and for the same reasons.
+    listenAddress = host.ip;
+    port = net.ports.unboundExporter;
+    unbound = {
+      host = "unix://${config.services.unbound.localControlSocketPath}";
+      ca = null;
+      certificate = null;
+      key = null;
+    };
+  };
+
+  # From the collector's address alone, on the LAN interface, as for
+  # node_exporter.
+  networking.firewall.extraCommands = lib.mkIf metrics ''
+    iptables -A nixos-fw -i ${host.iface} -p tcp --dport ${toString net.ports.unboundExporter} -s ${collector.ip} -j nixos-fw-accept
+  '';
 }
