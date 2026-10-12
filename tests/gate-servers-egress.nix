@@ -26,6 +26,9 @@ let
   wire = {
     wan = 1;
     trunk = 2;
+    # Nothing on it. gate's config expects lan1, and without the device its
+    # boot waits five minutes for it.
+    wired = 3;
   };
 
   # A Pi, by the address lib/net.nix gives it, and a stranger, as the switch
@@ -103,6 +106,7 @@ assert !(builtins.any (h: (h.ip or null) == addressOf.stranger) (builtins.attrVa
         virtualisation.interfaces = {
           wan.vlan = wire.wan;
           lan0.vlan = wire.trunk;
+          lan1.vlan = wire.wired;
         };
 
         # Kea requires carrier on every interface it serves, and leases are
