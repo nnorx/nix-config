@@ -1,5 +1,4 @@
-| `phg [<base>]` | The same change opened in GitLens, in the VS Code window already open, so you can move between files; against `<base>` for a stacked branch |
-Answer `d` at its prompt to page through the full diff first, or `g` to open it in GitLens |# nix-config
+# nix-config
 
 Reproducible configuration for a small homelab: a NixOS fleet of three
 Raspberry Pis and an x86 router, plus Home Manager for the machines I develop
@@ -450,9 +449,10 @@ Run `direnv allow` once in a fresh clone.
 | `ngc` | Garbage collect, 30+ days |
 | `nix run .#preflight` | What CI runs: format, check, evaluate everything, report what changed |
 | `nix fmt` | Format alone |
-| `pr-handoff` / `pr-handoff merge <N>` | Publish or squash-merge a PR that Claude prepared, after showing what it will send. Answer `d` at its prompt to page through the full diff first |
+| `pr-handoff` / `pr-handoff merge <N>` | Publish or squash-merge a PR that Claude prepared, after showing what it will send. Answer `d` at its prompt to page through the full diff first, or `g` to open it in GitLens |
 | `ph` / `phm <N>` | Short for `pr-handoff` and `pr-handoff merge <N>` |
 | `phd` / `phds` | What the current branch changes since it left the default branch, in full or as a file list: what its PR will show |
+| `phg [<base>]` | The same change opened in GitLens, in the VS Code window already open, so you can move between files; against `<base>` for a stacked branch |
 | `wt [query]` | cd into an agent's worktree, picked with fzf; a query that matches one jumps straight there (dev hosts) |
 | `ns`, `nsr`, `nss`, `nsf` | `night-shift`, and its `run`, `status` and `file` (forge) |
 | `claude --bg -w <name> "<task>"` | Start a background agent in its own worktree. `claude agents` lists them (Enter opens one, ← goes back), `claude attach <name>` opens one from the shell, `claude rm <id>` removes one once its PR has merged |
