@@ -382,6 +382,7 @@ VictoriaMetrics listens on core5's loopback alone. For its own query UI,
 |---|---|---|
 | `check.yml` | every push and PR | `nix run .#preflight`, and its brief on what the change touches in the run's summary |
 | `check.yml`, `build-etc` | PR | Builds each fleet host's `/etc` (the Pis on an aarch64 runner, gate on x86), so a script that fails shellcheck or a ruleset that fails its check turns the PR red instead of `cache.yml` after merge. `/etc` has every service but not the kernel, so it takes minutes |
+| `check.yml`, `vm-tests` | PR | Builds, and so runs, every NixOS VM test in the flake's `checks.x86_64-linux`, one at a time on a runner with KVM. They cover gate's firewall and DNS rules, its exporters and forge's DNS away from home, and `check` only evaluates them, so without this a change that breaks one merges green |
 | `cache.yml` | push to `main` | Builds every Pi's system closure on native aarch64 runners, pushes to Cachix |
 | `update-flake.yml` | Mondays 12:00 UTC | Opens a PR bumping `flake.lock` |
 | `image-updates.yml` | Tuesdays 12:00 UTC | Keeps an `images` issue open while a pinned container image is behind its registry |
