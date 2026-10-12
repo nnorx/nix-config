@@ -85,6 +85,24 @@
   # From unstable, where browser security releases land first.
   environment.systemPackages = [ unstable.brave ];
 
+  # Managed policies, which brave://policy lists. Brave on Linux reads every
+  # JSON file in /etc/brave/policies/managed: brave-core sets
+  # linux_policy_path to /etc/brave/policies, and Chromium adds "managed".
+  # Names from brave-core's policy_definitions/BraveSoftware at the tag forge
+  # runs. A policy set either way also locks the setting. docs/privacy.md,
+  # "forge", has what each one stops.
+  environment.etc."brave/policies/managed/nixos.json".text = builtins.toJSON {
+    BraveStatsPingEnabled = false;
+    BraveP3AEnabled = false;
+    # Off by default already. Set, so neither the welcome page nor settings
+    # can turn it on.
+    BraveWebDiscoveryEnabled = false;
+    # Chromium's metrics switch, which Brave uses only for crash reports to
+    # cr.brave.com. Off by default on stable, but the welcome page ticks the
+    # box and a crash asks again; set, neither can turn it on.
+    MetricsReportingEnabled = false;
+  };
+
   # Carries Cascadia Code NF, which the starship prompt's icons need. Select it
   # as the terminal font.
   fonts.packages = [ pkgs.cascadia-code ];
