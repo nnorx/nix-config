@@ -19,10 +19,17 @@
   # - ModemManager probes for cellular modems, which a Framework 16 does not
   #   have. Re-enable it for a USB LTE dongle.
   # - The touch keyboard: the panel is not a touchscreen.
+  # - geoclue, which answers a location request by sending the Wi-Fi networks
+  #   in range to beacondb. Nothing here needs it: Night Light is in Constant
+  #   mode, and the journal, back to 2026-09-29, has no start of geoclue. Plasma
+  #   enables it only by default. Firefox falls back to its own provider, which
+  #   nixpkgs also points at beacondb, so a site allowed at the prompt still
+  #   gets a location, and Firefox sends the networks itself.
   services.orca.enable = false;
   services.speechd.enable = false;
   programs.kde-pim.enable = false;
   networking.modemmanager.enable = false;
+  services.geoclue2.enable = false;
   environment.plasma6.excludePackages = with pkgs.kdePackages; [
     plasma-keyboard
     qtvirtualkeyboard

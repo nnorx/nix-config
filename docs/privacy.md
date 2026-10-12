@@ -476,11 +476,20 @@ NixOS enables its refresh timer, which downloads LVFS's metadata. Reports are
 uploaded only when asked. Discover is installed alongside, because fwupd is,
 and shows the same updates. **needed**.
 
-**Location lookups.** Plasma turns on geoclue, which NixOS points at beacondb
-(`api.beacondb.net`) with submission off. When an application asks for the
-location, such as Firefox for a site that requests it, geoclue sends the Wi-Fi
-networks in range and gets coordinates back. **off** (F13), if nothing on
-forge needs it; the issue should first check what in Plasma asks.
+**Location lookups** (`hosts/forge/desktop.nix`). Plasma turns on geoclue,
+which NixOS points at beacondb (`api.beacondb.net`) with submission off. When
+an application asks for the location, geoclue sends the Wi-Fi networks in
+range and gets coordinates back. forge turns it off. Night Light, Plasma's one
+regular client, is in Constant mode and needs no location, and the journal,
+back to 2026-09-29, never shows geoclue starting. Its other clients on forge
+are Plasma's Night Light settings page, the desktop portal's location
+interface for sandboxed applications (forge runs none), and Firefox.
+
+Firefox does not fail without it. When geoclue cannot answer, it falls back
+to its own network provider, which nixpkgs also points at beacondb, and scans
+for Wi-Fi networks itself. A site that asks for the location, and that Nick
+allows at Firefox's prompt, still sends the networks in range to beacondb,
+now from Firefox. Brave does not use geoclue. **off** (F13), for geoclue.
 
 **DNS away from home** (`hosts/forge/dns.nix`). With neither tunnel profile
 up and forge away from home, every lookup goes over DNS-over-TLS to Quad9
