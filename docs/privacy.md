@@ -205,6 +205,13 @@ those queries was checked too:
 
 - AdGuard's debug logging, which writes per-query lines with client
   addresses to the journal, is off (`log.verbose`).
+- AdGuard writes the name of a lookup to the journal when an exchange with
+  Unbound fails, at error level, whatever `log.verbose` says. The line has
+  no client address, but work's lookups fail like anyone's, and the journal
+  keeps a month. The unit drops those lines with `LogFilterPatterns=`, so
+  journald never stores them, and its other lines, real errors included,
+  still come through. The fallback's share of AdGuard's upstream answers
+  counts the same failures without the names.
 - Unbound sees work's queries, attributed to 127.0.0.1 because they come
   from AdGuard. Its query logging is off (`log-queries`, `log-replies`,
   `log-local-actions`), so it keeps nothing about them beyond its cache.

@@ -172,6 +172,24 @@ in
   # script then overwrites the result with the sops-rendered copy.
   systemd.services.adguardhome.serviceConfig.ExecStartPre = lib.mkAfter [ "+${installConfig}" ];
 
+  # Each time Unbound fails an exchange, AdGuard's DNS proxy writes the name
+  # looked up to the journal, at error level and so whatever `log.verbose`
+  # says (dnsproxy's proxy/exchange.go):
+  #
+  #   [error] dnsproxy: exchange failed upstream=<addr> question="<name> IN <type>" ...
+  #
+  # Work's queries among them, kept for the journal's month rather than the
+  # query log's 84 hours. AdGuard has no setting below its whole log, and it
+  # writes every level to stderr, so the journal holds all of it at info and
+  # LogLevelMax= would drop its real errors too. journald drops only these
+  # lines instead. What they told is in fleet_adguard_upstream_responses_total:
+  # AdGuard asks its fallback after each such failure, so the fallback's share
+  # is the same signal, counted. docs/privacy.md, "The work segment is
+  # recorded nowhere"; tests/dns-metrics.nix checks the filter.
+  systemd.services.adguardhome.serviceConfig.LogFilterPatterns = [
+    "~\\[error\\] dnsproxy: exchange failed upstream=\\S+ question="
+  ];
+
   services.adguardhome = {
     enable = true;
     mutableSettings = false;

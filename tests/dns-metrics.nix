@@ -347,6 +347,15 @@ in
         core5.succeed("dig +time=10 +tries=1 @${resolver.ip} fallback.example.org | grep -q 192.0.2.1")
         stats = adguard()
         assert one(stats, "fleet_adguard_upstream_responses_total", upstream="fallback") >= 1
+        # Each failed exchange with Unbound wrote the name to AdGuard's
+        # stderr, and journald dropped the line. The rest of AdGuard's log is
+        # still there, so the filter is not dropping everything. --sync waits
+        # for journald to take in what was written before it.
+        resolver.succeed("journalctl --sync")
+        failed = resolver.succeed("journalctl -q --no-pager -o cat -u adguardhome -g 'exchange failed' || true")
+        assert failed.strip() == "", f"a failed exchange is in the journal:\n{failed}"
+        assert "fallback.example.org" not in resolver.succeed("journalctl -q --no-pager -o cat -u adguardhome")
+        resolver.succeed("journalctl -q --no-pager -o cat -u adguardhome -g 'dnsproxy: starting dns proxy server' | grep -q .")
         # Stopping Unbound stopped its exporter, which requires it, and
         # starting Unbound again does not start the exporter with it.
         resolver.succeed("systemctl start unbound.service prometheus-unbound-exporter.service")
