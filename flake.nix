@@ -286,6 +286,9 @@
       checks.x86_64-linux.gate-iot-egress = pkgsFor.x86_64-linux.testers.runNixOSTest (
         import ./tests/gate-iot-egress.nix { inherit net; }
       );
+      checks.x86_64-linux.gate-servers-egress = pkgsFor.x86_64-linux.testers.runNixOSTest (
+        import ./tests/gate-servers-egress.nix { inherit net; }
+      );
       checks.x86_64-linux.forge-dns = pkgsFor.x86_64-linux.testers.runNixOSTest (
         import ./tests/forge-dns.nix { inherit net; }
       );
