@@ -602,8 +602,9 @@ traffic.
 
 ## Internet for iot
 
-A design, from NNO-27. Nothing in this section is deployed: it is what the
-PRs [at its end](#the-prs-in-order) build, one at a time.
+A design, from NNO-27, built by the PRs [at its end](#the-prs-in-order), one
+at a time. Step 1, the counter and the trial set, is built (NNO-44); the rest
+is not.
 
 **Today every iot device reaches the whole internet.** `networking.nat`
 appends `iifname { every segment } oifname "wan" accept` to gate's
@@ -656,6 +657,7 @@ address for, in gate's sops file. The ways a class can be expressed:
   deploy reloads the ruleset, and for a device without a reservation the
   entry goes stale if its lease moves. It is how a device is tried without
   the internet for a week before it joins a class for good.
+  [The trial set, by hand](#the-trial-set-by-hand) has the commands.
 
 ### Allowing by name
 
@@ -810,6 +812,40 @@ Assistant's Govee rules on gate and core5 are untouched by this.
 device-identity.md narrows those to the lamps' addresses on its own
 schedule.
 
+### The trial set, by hand
+
+What step 1 put on gate, in `hosts/gate/routing.nix`: the `iot-egress`
+chain, the `iot-trial` set, and two named counters, `iot-wan` for every new
+iot flow out `wan` and `iot-trial-dropped` for the members' share of them,
+which are dropped. The set is empty in the repo and filled only by these
+commands, on gate, with a device's current iot address:
+
+```
+sudo nft add element inet nixos-fw iot-trial '{ <address> }'      # on trial
+sudo nft delete element inet nixos-fw iot-trial '{ <address> }'   # off trial
+sudo nft list set inet nixos-fw iot-trial                         # who is on it
+sudo nft list counters table inet nixos-fw                        # both counters
+sudo nft flush chain inet nixos-fw iot-egress                     # all of iot back out, at once
+```
+
+None of it survives a reload. A deploy that changes gate's ruleset reloads
+it, as does `sudo systemctl reload nftables`, and either recreates the table:
+the set comes back empty, the counters at zero, and a flushed chain with its
+rules. A reboot starts the same way. So after any gate deploy during a
+trial, add the address again. While the chain is flushed, neither counter
+counts.
+
+A member keeps resolving: its queries to the Pis go out the trunk, and a
+redirected one is accepted by `ct status dnat accept` before the jump to
+`iot-egress`. What it loses is every new connection out `wan`.
+`tests/gate-iot-egress.nix` checks both in VMs, with the commands above.
+
+After deploying, before anything is on trial: `sudo nft list chain inet
+nixos-fw forward-allow` shows the jump to `iot-egress` after the two
+`dport 853` rules and before nat's `oifname "wan" accept`, `iot-wan` rises
+as iot's devices go about their business, and `iot-trial-dropped` stays at
+zero.
+
 ### A local-only segment, later
 
 For a device that needs no internet and should not be named in public. Not
@@ -844,7 +880,7 @@ deploys behind `deploy-guard` ([recovery.md](recovery.md)).
    test beside `tests/gate-dns.nix` checks that a member is dropped, that a
    non-member still reaches the internet and the Pis, and that flushing the
    chain restores both. Firewall only: `nrs` behind `deploy-guard`, no
-   reboot. It can land now.
+   reboot. Built in NNO-44; [the commands](#the-trial-set-by-hand).
 2. **Hands-on, no PR: trial one lamp.** Its address in the trial set for a
    week, then all three. Each time: Home Assistant still controls it, the
    app shows it offline, the counter rises, and the log shows it retrying.

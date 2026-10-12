@@ -377,6 +377,52 @@ in
     '';
   };
 
+  # iot's way out to the internet: docs/privacy.md, "Internet for iot".
+  #
+  # Every new iot flow out `wan` is counted in `iot-wan`, and one from an
+  # address in `iot-trial` is dropped and counted in `iot-trial-dropped`. The
+  # set is declared empty and Nick fills it by hand, so nothing about a device
+  # reaches this repo; privacy.md has the commands. It is runtime state, not
+  # policy: reloading the ruleset recreates this table, which empties the set
+  # and zeroes the counters, and nftables.service reloads on any deploy that
+  # changes the ruleset.
+  #
+  # The chain returns what it does not drop rather than accepting it, so nat's
+  # `iifname { segments } oifname wan accept` stays the one accept out `wan`,
+  # and `sudo nft flush chain inet nixos-fw iot-egress` puts iot back as it
+  # was before this chain, without a deploy. A drop rather than a reject, so a
+  # device whose firmware retries on failure waits out its own timeout between
+  # attempts instead of retrying in a loop.
+  #
+  # DNS is not affected: a redirected query is accepted by the firewall
+  # module's `ct status dnat accept` ahead of the jump, and one sent straight
+  # to the Pis goes out the trunk, not `wan`.
+  #
+  # Appended to the firewall module's table as dns-redirect is to nat's, and
+  # `family` declared here for the same reason given there.
+  networking.nftables.tables."nixos-fw" = {
+    family = "inet";
+    content = ''
+      set iot-trial {
+        type ipv4_addr
+        comment "iot devices on trial without the internet, added by hand"
+      }
+
+      counter iot-wan {
+        comment "new iot flows out wan"
+      }
+
+      counter iot-trial-dropped {
+        comment "new flows out wan from iot-trial, dropped"
+      }
+
+      chain iot-egress {
+        counter name "iot-wan"
+        ip saddr @iot-trial counter name "iot-trial-dropped" drop comment "on trial without the internet"
+      }
+    '';
+  };
+
   networking = {
     # Tagged sub-interfaces on the trunk, derived from taggedSegments above.
     vlans = builtins.listToAttrs (
@@ -443,12 +489,16 @@ in
       # reports as ECONNREFUSED on its next call. A QUIC client on an
       # unconnected socket may not notice it, and waits out its handshake as
       # it would under a drop, which is no worse.
+      #
+      # iot's jump to `iot-egress`, above, comes after both, so what it counts
+      # is what would otherwise reach nat's accept.
       extraForwardRules = lib.mkBefore ''
         iifname ${nftSet (quoted deniedUpstream)} oifname "${wan}" ip daddr ${nftSet upstreamPrivate} drop comment "only trusted reaches upstream management"
         ${lib.optionalString (refuseDotIfaces != [ ]) ''
           iifname ${nftSet (quoted refuseDotIfaces)} oifname "${wan}" tcp dport 853 counter reject with tcp reset comment "refuse DoT, so clients fall back to port 53"
           iifname ${nftSet (quoted refuseDotIfaces)} oifname "${wan}" udp dport 853 counter reject comment "refuse DoQ, so clients fall back to port 53"
         ''}
+        iifname "${tagged "iot"}" oifname "${wan}" jump iot-egress comment "iot's way out, counted, and refused for iot-trial"
         iifname "${trustedBr}" oifname "${trunk}" accept comment "trusted reaches servers"
         iifname "${tagged "iot"}" oifname "${trunk}" meta l4proto { tcp, udp } th dport 53 accept comment "iot resolves via the Pis, nothing else"
         iifname "${tagged "work"}" oifname "${trunk}" meta l4proto { tcp, udp } th dport 53 accept comment "work resolves via the Pis, nothing else"
