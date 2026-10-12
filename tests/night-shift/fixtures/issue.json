@@ -1,0 +1,42 @@
+{
+  "id": "issue-1",
+  "identifier": "TST-1",
+  "title": "Fix the widget",
+  "description": "Make the widget work again.",
+  "url": "https://linear.app/test/issue/TST-1",
+  "priority": 3,
+  "priorityLabel": "Medium",
+  "createdAt": "2026-10-01T09:00:00.000Z",
+  "updatedAt": "2026-10-01T09:05:00.000Z",
+  "state": { "name": "Queued", "type": "unstarted" },
+  "creator": { "id": "user-nick" },
+  "project": null,
+  "team": {
+    "states": {
+      "nodes": [
+        { "id": "state-backlog", "name": "Backlog", "type": "backlog", "position": 0 },
+        { "id": "state-queued", "name": "Queued", "type": "unstarted", "position": 1 },
+        { "id": "state-running", "name": "Running", "type": "started", "position": 2 },
+        { "id": "state-ready", "name": "Handoff ready", "type": "started", "position": 3 },
+        { "id": "state-needs", "name": "Needs you", "type": "started", "position": 4 },
+        { "id": "state-released", "name": "Released", "type": "completed", "position": 6 },
+        { "id": "state-done", "name": "Done", "type": "completed", "position": 5 },
+        { "id": "state-canceled", "name": "Canceled", "type": "canceled", "position": 7 }
+      ]
+    }
+  },
+  "labels": {
+    "nodes": [
+      { "name": "demo", "parent": { "name": "repo" } },
+      { "name": "Bug", "parent": null }
+    ]
+  },
+  "comments": { "nodes": [] },
+  "history": {
+    "pageInfo": { "hasNextPage": false },
+    "nodes": [
+      { "createdAt": "2026-10-01T09:00:00.000Z", "actorId": "user-nick", "toState": { "name": "Backlog" } },
+      { "createdAt": "2026-10-01T09:05:00.000Z", "actorId": "user-nick", "toState": { "name": "Queued" } }
+    ]
+  }
+}

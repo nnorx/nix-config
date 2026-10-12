@@ -306,6 +306,14 @@
                   jq
                   coreutils
                   gnused
+                  # The rest for the night-shift dispatcher's tests
+                  # (tests/night-shift/run.sh), which run it as forge does.
+                  gawk
+                  gnugrep
+                  # flock, and script for the case that needs a terminal. On
+                  # macOS, the portable flock instead, since util-linux is
+                  # built for Linux first; the terminal case skips there.
+                  (if stdenv.hostPlatform.isLinux then util-linux else flock)
                 ];
                 runtimeEnv = {
                   PREFLIGHT_EVAL = "${./scripts/preflight-eval.nix}";

@@ -1,0 +1,31 @@
+# shellcheck shell=bash
+# claude, for tests/night-shift/run.sh. Logs every call to $NS_CASE/log.jsonl
+# as {tool: "claude", args, cwd}. `agents --json --all` prints the roster,
+# $NS_CASE/roster.json, or [] without one. `--bg -n <name>` adds a running
+# session to the roster, the way claude lists one it started, so the
+# dispatcher's next look finds it. stop, rm and --resume only log.
+set -euo pipefail
+
+dir=$NS_CASE
+roster=$dir/roster.json
+printf '%s\0' "$@" | jq -Rsc --arg cwd "$PWD" '{tool: "claude", args: (split("\u0000") | .[:-1]), cwd: $cwd}' >>"$dir/log.jsonl"
+[[ -f $roster ]] || echo '[]' >"$roster"
+
+case ${1-} in
+  agents) cat "$roster" ;;
+  --bg)
+    name=""
+    while (($#)); do
+      [[ $1 != -n ]] || name=$2
+      shift
+    done
+    if [[ -n $name ]]; then
+      n=$(($(jq length "$roster") + 1))
+      jq --arg n "$n" --arg name "$name" --arg cwd "$PWD" \
+        '. + [{id: "job-\($n)", sessionId: "session-\($n)", name: $name, cwd: $cwd, state: "running"}]' \
+        "$roster" >"$roster.tmp"
+      mv "$roster.tmp" "$roster"
+    fi
+    ;;
+  --version) echo "0.0.0 (night-shift test stub)" ;;
+esac

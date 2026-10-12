@@ -1,0 +1,16 @@
+# shellcheck shell=bash
+# systemd-run and bwrap, for tests/night-shift/run.sh: logs the call to
+# $NS_CASE/log.jsonl as {tool: <name>, args}, then runs what follows --, in
+# place, the way both run their command. NS_STUB names which was called.
+set -euo pipefail
+
+printf '%s\0' "$@" | jq -Rsc --arg tool "$NS_STUB" '{tool: $tool, args: (split("\u0000") | .[:-1])}' >>"$NS_CASE/log.jsonl"
+while (($#)) && [[ $1 != -- ]]; do
+  shift
+done
+(($#)) || {
+  echo "$NS_STUB stub: no -- before the command" >&2
+  exit 1
+}
+shift
+exec "$@"
