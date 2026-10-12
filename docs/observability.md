@@ -223,8 +223,8 @@ pimon is retired, `pimonAgents` and its assertion go with it.
 
 ## DNS failure ratios
 
-**Per resolver, from Unbound's exporter and from AdGuard's own statistics.
-Totals only: no metric names a client or a domain.**
+**Per resolver, from Unbound's exporter, AdGuard's own statistics and core5's
+probes. Totals only: no metric names a client or a domain.**
 
 On core4 and lifeline, `modules/unbound.nix` turns on Unbound's
 `extended-statistics` and runs nixpkgs' `unbound_exporter` over the local
@@ -284,16 +284,57 @@ included, never whose. `tests/dns-metrics.nix` checks both, with queries from
 a work address that leave AdGuard's counts where they were and raise
 Unbound's.
 
-**What this does not see.** A resolver that stops answering on port 53
-altogether shows as `fleet_adguard_up` 0 or a failed scrape, not as a ratio.
-The end-to-end check of that is the blackbox DNS probe, still to come in step
-3. And gate's own Unbound has no exporter yet.
+### Probes from core5
+
+**What no exporter on a host can say about itself: whether the resolver
+answers a client, and whether traffic leaves the house.** The blackbox
+exporter runs on core5's loopback (`modules/blackbox.nix`), on
+`ports.blackboxExporter`, and VictoriaMetrics scrapes its `/probe` for each
+target every 30 seconds, with the target's name as `instance`.
+
+- **`probe-resolver`**: each resolver at its address on port 53, over UDP, as
+  a client on servers would ask. The question is `net.resolverProbe`, a name in
+  `lan`, which Unbound answers NXDOMAIN from its own static local zone, so the
+  probe passes through AdGuard and Unbound and needs neither the WAN nor the
+  cache. A resolver that answers it is up; whether recursion works is the
+  SERVFAIL ratio's question, so a WAN outage reads as `WanDown` and not also
+  as both resolvers failing. `modules/unbound.nix` asserts the zone is there.
+  AdGuard leaves the name out of its query log and statistics by rule
+  (`ignored`), so the probes neither fill the log nor count as client
+  queries. When Unbound is down, AdGuard's fallback answers the probe
+  NXDOMAIN too, and the probe passes, as clients are answered; `unbound_up`
+  and the fallback's share say which path answered.
+- **`probe-ping`**: an ICMP echo to each address in `net.publicResolvers`,
+  from core5 through gate and out of `wan`. What leaves the house is two pings
+  every 30 seconds to resolvers it already uses. It needs no capability: the
+  exporter opens an unprivileged ICMP socket, which NixOS's default
+  `net.ipv4.ping_group_range` allows.
+
+The queries, which the DNS and fleet dashboards draw:
+
+- **Resolver answering**, the share of probes answered over the window:
+  `avg_over_time(probe_success{job="probe-resolver"}[5m])`. Its complement is
+  the end-to-end failure ratio.
+- **Resolver answer time**, the query's round trip from core5:
+  `probe_dns_duration_seconds{job="probe-resolver", phase="request"}`.
+- **Public resolvers reachable**:
+  `avg_over_time(probe_success{job="probe-ping"}[5m])`, which falls to 0
+  for both when the house's traffic stops leaving it.
+- **Round trip to them**:
+  `probe_icmp_duration_seconds{job="probe-ping", phase="rtt"}`.
+
+**Still unseen.** gate's own Unbound has no exporter yet.
 
 ### The metrics login
 
-AdGuard has no read-only role, so `metrics` is a second admin login, kept
-apart from Nick's so his password reaches no service. Its password and its
-bcrypt hash are a pair in each resolver's sops file,
+**`metrics` is a full admin login.** AdGuard has no read-only role, so the
+login can do anything Nick's can, from wherever AdGuard's UI is reachable:
+each resolver's LAN interface, which trusted and servers reach, and over the
+tunnel for peers granted `adguard` in `hosts/gate/wireguard.nix`. It is a login
+of its own so that Nick's password reaches no service. The timer uses it over
+loopback alone, and `mutableSettings` puts back anything changed through it at
+AdGuard's next start, which is the extent of the protection. Its password and
+its bcrypt hash are a pair in each resolver's sops file,
 `adguard-metrics-password` and `adguard-metrics-hash`, and evaluation fails
 until both are there. The password reaches the collector as a systemd
 credential, from a root-only netrc that sops renders: node_exporter, which
@@ -476,9 +517,10 @@ both are in.
    probes to the public resolvers. Answers WAN state, conntrack,
    per-interface throughput and pool exhaustion.
    Landed as one PR, with each WireGuard peer's last handshake added, and
-   without the blackbox exporter, which moved to step 3. So WAN state is the
-   link, the lease and the default route as gate sees them, not yet whether
-   traffic leaves the house.
+   without the blackbox exporter, which moved to step 3 and landed there, in
+   NNO-23. So gate reports WAN state as the link, the lease and the default
+   route as it sees them, and whether traffic leaves the house is core5's
+   ICMP probes to the public resolvers ("Probes from core5" above).
 3. **DNS metrics.** First gate, then the Pis: the Unbound exporter on gate,
    core4 and lifeline, over each Unbound's control socket, and blackbox DNS
    probes from core5 to each resolver through AdGuard on port 53, which is the
@@ -486,11 +528,14 @@ both are in.
    nixpkgs no exporter for it, so its own counters stay in its UI. The same
    blackbox exporter carries step 2's ICMP probes to the public resolvers,
    which `WanDown` needs.
-   The Pis' half landed first, in NNO-23: the Unbound exporter on core4 and
-   lifeline, and AdGuard's own counts after all, read from its statistics API
-   ("DNS failure ratios" above). Still to come: gate's Unbound exporter, and
-   the blackbox exporter with its DNS and ICMP probes, which
-   `ResolverFailing` and `WanDown` need.
+   Landed for the Pis first, as one PR (NNO-23): the Unbound exporter on core4
+   and lifeline; AdGuard's own counts after all, read from its statistics API;
+   and on core5 the blackbox exporter, with the DNS probes to each resolver
+   and step 2's ICMP probes, which `ResolverFailing` and `WanDown` need. The
+   DNS probe asks a name Unbound answers itself, so it says whether the
+   resolver answers, not whether recursion works, which the SERVFAIL ratio
+   says instead ("DNS failure ratios" above). Still to come: gate's Unbound
+   exporter, a gate PR of its own.
 4. **Alert rules.** vmalert and Alertmanager on core5, the ntfy receivers, the
    watchdog check in healthchecks.io, the rule set above, the GitHub timer for
    `RevisionBehind`, and the stack's units in `fleetAlerts.failure`.

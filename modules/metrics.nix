@@ -1,6 +1,7 @@
 # The fleet's metrics store and dashboards, on the collector: VictoriaMetrics
 # scraping node_exporter on every host in net.metricsTargets, Unbound's exporter
-# on each resolver and Kea's on gate, and Grafana in front of it.
+# on each resolver, Kea's on gate and the probes in ./blackbox.nix, and Grafana
+# in front of it.
 # docs/observability.md has the decisions and their reasons; this file has only
 # what implementing them needed.
 #
@@ -231,8 +232,34 @@ let
         };
         targets = [ { expr = "node_load5"; } ];
       })
+      (panel {
+        title = "Public resolvers answering pings";
+        unit = "percentunit";
+        gridPos = {
+          x = 0;
+          y = 30;
+          w = 12;
+          h = 8;
+        };
+        # From core5 through gate and out of wan (modules/blackbox.nix): the
+        # share of echo requests answered, which falls to nothing when the
+        # house's traffic stops leaving it.
+        targets = [ { expr = ''avg_over_time(probe_success{job="probe-ping"}[$__rate_interval])''; } ];
+      })
+      (panel {
+        title = "Public resolvers, round trip";
+        unit = "s";
+        gridPos = {
+          x = 12;
+          y = 30;
+          w = 12;
+          h = 8;
+        };
+        targets = [ { expr = ''probe_icmp_duration_seconds{job="probe-ping", phase="rtt"}''; } ];
+      })
     ];
   };
+
   # Each resolver's health, one line per resolver, from Unbound's exporter and
   # AdGuard's counts (modules/unbound.nix, modules/adguardhome.nix). Nothing
   # here can be split by client: neither source has one. AdGuard's counts
@@ -412,6 +439,32 @@ let
         options = upOptions;
         fieldConfig.defaults.mappings = upMappings;
       })
+      (panel {
+        title = "Answering, from core5";
+        unit = "percentunit";
+        gridPos = {
+          x = 0;
+          y = 32;
+          w = 12;
+          h = 8;
+        };
+        # The share of core5's probes each resolver answered, through AdGuard
+        # on port 53, with the NXDOMAIN Unbound gives its probe name
+        # (modules/blackbox.nix). It needs neither the WAN nor recursion, so a
+        # WAN outage shows in SERVFAIL, not here.
+        targets = [ { expr = ''avg_over_time(probe_success{job="probe-resolver"}[$__rate_interval])''; } ];
+      })
+      (panel {
+        title = "Answer time, from core5";
+        unit = "s";
+        gridPos = {
+          x = 12;
+          y = 32;
+          w = 12;
+          h = 8;
+        };
+        targets = [ { expr = ''probe_dns_duration_seconds{job="probe-resolver", phase="request"}''; } ];
+      })
     ];
   };
 
@@ -421,6 +474,9 @@ let
   };
 in
 {
+  # The probes, whose jobs join the scrape configuration below.
+  imports = [ ./blackbox.nix ];
+
   assertions = [
     {
       assertion = hostname == net.metricsCollector;

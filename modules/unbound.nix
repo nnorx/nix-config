@@ -73,6 +73,7 @@ let
   metrics = lib.elem hostname net.resolvers;
   host = net.hosts.${hostname};
   collector = net.hosts.${net.metricsCollector};
+  probeZone = lib.last (lib.splitString "." net.resolverProbe);
 in
 {
   services.unbound = {
@@ -263,6 +264,20 @@ in
       key = null;
     };
   };
+
+  # core5's probe asks for a name this Unbound must answer itself, from one of
+  # the static local zones above, so that it needs neither the WAN nor the
+  # cache and never reaches the root servers (modules/blackbox.nix).
+  assertions = lib.mkIf metrics [
+    {
+      assertion = lib.elem ''"${probeZone}." static'' config.services.unbound.settings.server.local-zone;
+      message = ''
+        net.resolverProbe is ${net.resolverProbe}, but modules/unbound.nix has no
+        static local zone "${probeZone}". core5's probe would be recursed to the
+        root servers, every 30 seconds, and fail without the WAN.
+      '';
+    }
+  ];
 
   # From the collector's address alone, on the LAN interface, as for
   # node_exporter.

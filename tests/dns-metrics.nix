@@ -21,6 +21,8 @@ let
   collector = net.hosts.${net.metricsCollector};
   unbound = "http://${resolver.ip}:${toString net.ports.unboundExporter}/metrics";
   node = "http://${resolver.ip}:${toString net.ports.nodeExporter}/metrics";
+  blackbox = "http://127.0.0.1:${toString net.ports.blackboxExporter}/probe";
+  store = "127.0.0.1:${toString net.ports.victoriaMetrics}";
 
   # A device on the work segment, on the same wire as the resolver: an address
   # from that segment's pool, with a route to the resolver on the link, and
@@ -141,7 +143,20 @@ in
         boot.kernel.sysctl."net.ipv4.ip_nonlocal_bind" = 1;
       };
 
-    core5 = onServers collector.ip;
+    # The collector's probes, with a store of its own scraping them every 5
+    # seconds, so the scrape jobs and their labels are tested as well as the
+    # exporter. Its ping targets are the public resolvers, which no VM reaches.
+    core5 = {
+      imports = [
+        (onServers collector.ip)
+        ../modules/blackbox.nix
+      ];
+      services.victoriametrics = {
+        enable = true;
+        listenAddress = store;
+        prometheusConfig.global.scrape_interval = "5s";
+      };
+    };
 
     # Another host on servers, as the switch or the AP is, refused by the
     # exporters. It answers DNS as the resolver's fallback, with one address
@@ -224,6 +239,10 @@ in
         resolver.succeed("systemctl reset-failed adguard-metrics.service; systemctl start adguard-metrics.service")
         return scrape("${node}")
 
+    def probe(module, target):
+        text = core5.succeed(f"curl -sf --max-time 10 '${blackbox}?module={module}&target={target}'")
+        return one(text, "probe_success")
+
     def dig(m, name, n=1):
         for i in range(n):
             m.succeed(f"dig +time=5 +tries=1 @${resolver.ip} {name} > /dev/null")
@@ -297,11 +316,29 @@ in
                 for needle in ("${collector.ip}", "${workIp}", "example", "blocked.test", ".lan"):
                     assert needle not in line, line
 
+    with subtest("core5's probes: each resolver answers, and pings leave"):
+        core5.wait_for_unit("prometheus-blackbox-exporter.service")
+        before = one(adguard(), "fleet_adguard_queries_total")
+        assert probe("resolver", "${resolver.ip}") == 1
+        assert probe("ping", "${fallback.ip}") == 1
+        # Through the store, under the resolver's name.
+        core5.wait_until_succeeds("curl -sf --get http://${store}/api/v1/query --data-urlencode 'query=probe_success{job=\"probe-resolver\",instance=\"core4\"} == 1' | grep -q '\"core4\"'", timeout=60)
+        # A failure looks like one: the public resolvers are out of reach here.
+        core5.wait_until_succeeds("curl -sf --get http://${store}/api/v1/query --data-urlencode 'query=probe_success{job=\"probe-ping\"} == 0' | grep -q probe-ping", timeout=60)
+        # The probes pass through AdGuard without being counted there.
+        assert one(adguard(), "fleet_adguard_queries_total") <= before
+        # Nor logged, where the queries before them are. AdGuard keeps recent
+        # entries in memory, so this asks it rather than reading the file.
+        querylog = resolver.succeed("curl -sf -u metrics:${password} 'http://127.0.0.1:${toString net.ports.adguardWeb}/control/querylog?limit=1000'")
+        assert "blocked.test" in querylog, "the query log is empty"
+        assert "${net.resolverProbe}" not in querylog, "the probe is in the query log"
+
     with subtest("AdGuard down is fleet_adguard_up 0, with no counters"):
         resolver.succeed("systemctl stop adguardhome.service")
         down = adguard()
         assert one(down, "fleet_adguard_up") == 0
         assert not series(down, "fleet_adguard_queries_total")
+        assert probe("resolver", "${resolver.ip}") == 0
         resolver.succeed("systemctl start adguardhome.service")
         resolver.wait_until_succeeds("dig +time=2 +tries=1 @127.0.0.1 example.lan | grep -q 'status: NXDOMAIN'", timeout=60)
 

@@ -53,11 +53,21 @@ let
   metrics = lib.elem hostname net.resolvers;
   textfileDir = "/run/fleet-metrics";
 
-  # A login of its own, so the admin's password stays with Nick. AdGuard has
-  # no read-only role: this one could change settings through the API, and
-  # mutableSettings puts them back at the next start. Its password and hash
-  # are a pair in sops, made together (docs/observability.md has the command).
+  # A login of its own, so the admin's password reaches no service. It is a
+  # full admin login all the same: AdGuard has no read-only role, and the login
+  # works wherever AdGuard's UI is reachable, which is each resolver's LAN
+  # interface and, over the tunnel, peers granted `adguard` in
+  # hosts/gate/wireguard.nix. The timer uses it over loopback alone, its
+  # password reaches the unit as a systemd credential, and mutableSettings
+  # puts back anything changed through it at AdGuard's next start. Its password
+  # and hash are a pair in sops, made together (docs/observability.md).
   metricsUser = "metrics";
+
+  # core5's probe, two a minute from one address (modules/blackbox.nix). Left
+  # out of the log and the statistics, where it would be the busiest name
+  # and client, and out of the counts below, which are then the clients'
+  # alone. It still passes through AdGuard and Unbound like any query.
+  ignored = [ "||${net.resolverProbe}^" ];
 
   # AdGuard names an upstream by address and port, adding DNS's port when the
   # configured one has none. Each is reported as the role it has here rather
@@ -211,6 +221,8 @@ in
         enabled = true;
         file_enabled = true;
         interval = "84h";
+        inherit ignored;
+        ignored_enabled = true;
       };
 
       # Per-client and per-domain counts behind the dashboard. Its limit is a
@@ -219,6 +231,8 @@ in
       statistics = {
         enabled = true;
         interval = "24h";
+        inherit ignored;
+        ignored_enabled = true;
       };
 
       # Debug logging writes per-query lines, client addresses among them, to

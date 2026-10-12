@@ -77,6 +77,7 @@ modules/
   alerts.nix           Push notifications and heartbeats for the jobs above and upgrades
   pimon.nix            Monitoring agent or collector
   metrics.nix          VictoriaMetrics and Grafana, scraping the fleet (core5 only)
+  blackbox.nix         Its probes: each resolver on port 53, and pings out of the house
   node-exporter.nix    Host metrics and host-status facts, on each scraped host
   firewall.nix         Default-deny. SSH scoped per interface, never globally
   ssh.nix              Key-only auth, modern crypto
