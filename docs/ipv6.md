@@ -103,13 +103,17 @@ delegation out: some ISPs answer DHCPv6 without advertising. On
 
 ### The probe: ask once, with a reboot as the undo
 
-A branch, `ipv6-probe`, never merged, that adds one block to dhcpcd:
+A branch, `ipv6-probe`, never merged, that adds two lines to the
+`interface wan` block `hosts/gate/default.nix` already has, which keeps
+gate's hostname and vendor class out of its requests (F12, #171):
 
 ```nix
 networking.dhcpcd.extraConfig = ''
   interface wan
-    ia_na 1
-    ia_pd 2/::/56 -
+  hostname ""
+  vendorclassid
+  ia_na 1
+  ia_pd 2/::/56 -
 '';
 ```
 
@@ -139,8 +143,8 @@ sudo nixos-rebuild test --flake github:nnorx/nix-config/ipv6-probe --accept-flak
 undo**. The change to `dhcpcd.conf` restarts dhcpcd, and with
 `networking.dhcpcd.persistent` at its default of false a restart
 deconfigures `wan` first: the house is offline for the seconds it takes to
-re-lease. The same client identifier normally gets the same IPv4 address
-back. `fleet_wan_addresses` and `fleet_wan_default_routes` in Grafana show
+re-lease. gate sends no client identifier, so the ISP keys the lease on
+the `wan` MAC and normally hands the same IPv4 address back. `fleet_wan_addresses` and `fleet_wan_default_routes` in Grafana show
 the lease going and coming back. SSH from trusted does not depend on `wan`,
 so the session survives whatever the ISP does.
 
@@ -383,8 +387,12 @@ have to:
 | Commit messages, PR text, pasted logs | Nothing. dhcpcd's journal prints the prefix; mask it as above before pasting |
 
 DHCPv6 tells the ISP nothing new: dhcpcd's DUID is built from the `wan`
-MAC, which every DHCPv4 request already carries. When F12 in privacy.md
-stops gate sending its hostname, check DHCPv6 as well as DHCPv4.
+MAC, which every DHCPv4 request already carries. F12 (#171) clears the
+hostname and the vendor class in the `interface wan` block, which covers
+DHCPv6's FQDN and vendor options as well as DHCPv4's, but no DHCPv6
+exchange has happened yet to show it. The probe is the first, so check its
+requests on the wire as #171's PR describes for DHCPv4, with `udp src port
+546` and the DHCPv6 option names.
 
 ## Watching it
 
