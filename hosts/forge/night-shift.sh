@@ -563,7 +563,11 @@ start_one() {
     name="${ident,,}-$(jq -r .title <<<"$i" | slug)"
     wt=$repo/.claude/worktrees/$name
     branch=worktree-$name
-    if ! git -C "$repo" worktree add --quiet -b "$branch" "$wt" "$base"; then
+    # --no-track: setting the branch's upstream writes .git/config, which fails
+    # while a sandboxed Claude session in the repo holds its placeholder at
+    # .git/config.lock. git has made the branch by then, so the next run would
+    # fail on that instead. Nothing reads the upstream; pr-handoff sets its own.
+    if ! git -C "$repo" worktree add --quiet --no-track -b "$branch" "$wt" "$base"; then
       stop_issue "$i" "$NEEDS" "Not started: could not make the worktree \`$wt\` on \`$branch\`. One may be left from an earlier run." "No worktree"
       return 0
     fi
