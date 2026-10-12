@@ -62,7 +62,7 @@ in
     ];
     partOf = [ "${iot}-netdev.service" ];
 
-    serviceConfig = {
+    serviceConfig = import ../../lib/hardening.nix // {
       # Socket and PID file in its own runtime directory, which
       # ProtectSystem=strict leaves writable. `smcroutectl -u
       # /run/smcroute/sock show` lists the route as installed.
@@ -77,20 +77,13 @@ in
         "CAP_NET_ADMIN"
         "CAP_NET_RAW"
       ];
-      NoNewPrivileges = true;
-      ProtectSystem = "strict";
-      ProtectHome = true;
-      PrivateTmp = true;
       ProtectKernelModules = true;
-      ProtectKernelTunables = true;
-      ProtectControlGroups = true;
       RestrictAddressFamilies = [
         "AF_INET"
         "AF_INET6"
         "AF_NETLINK"
         "AF_UNIX"
       ];
-      RestrictNamespaces = true;
       LockPersonality = true;
       MemoryDenyWriteExecute = true;
       SystemCallArchitectures = "native";

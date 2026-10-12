@@ -1,9 +1,13 @@
 # The systemd sandboxing these fleet services start from, kept in one place so
 # they cannot drift apart:
 #
-#   modules/alerts.nix       the notify and heartbeat oneshots
-#   modules/offbox-push.nix  each backup push
-#   modules/pimon.nix        the monitoring agent and collector
+#   modules/alerts.nix         the notify and heartbeat oneshots
+#   modules/metrics.nix        VictoriaMetrics and Grafana
+#   modules/node-exporter.nix  the host-status facts for node_exporter
+#   modules/offbox-push.nix    each backup push
+#   modules/pimon.nix          the monitoring agent and collector
+#   hosts/gate/govee.nix       smcroute
+#   hosts/gate/metrics.nix     gate's WAN lease and WireGuard handshakes
 #
 # Each merges this into its serviceConfig with `//` and keeps its own settings,
 # and its reasons for them, beside it. Plain data rather than a module, so a
