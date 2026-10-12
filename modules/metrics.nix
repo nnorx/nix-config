@@ -1,7 +1,9 @@
 # The fleet's metrics store and dashboards, on the collector: VictoriaMetrics
-# scraping node_exporter on every host in net.metricsTargets and Kea's exporter
-# on gate, and Grafana in front of it. docs/observability.md has the decisions
-# and their reasons; this file has only what implementing them needed.
+# scraping node_exporter on every host in net.metricsTargets, Unbound's exporter
+# on each resolver, Kea's on gate and the probes in ./blackbox.nix, and Grafana
+# in front of it.
+# docs/observability.md has the decisions and their reasons; this file has only
+# what implementing them needed.
 #
 # State is VictoriaMetrics' data and Grafana's database, both under /var/lib,
 # which on core5 is the NVMe root. Neither is backed up: Grafana's dashboards
@@ -65,7 +67,7 @@ let
         i: t:
         {
           inherit datasource;
-          refId = lib.elemAt [ "A" "B" "C" ] i;
+          refId = lib.elemAt [ "A" "B" "C" "D" ] i;
           legendFormat = "{{instance}}";
         }
         // t
@@ -75,6 +77,28 @@ let
   # The network panel leaves out loopback and Docker's interfaces, which on
   # core5 would count each container's traffic a second time.
   physical = ''device!~"lo|veth.*|docker.*|br-.*"'';
+
+  # An up-or-down stat, each series a coloured tile.
+  upOptions = {
+    colorMode = "background";
+    textMode = "value_and_name";
+    reduceOptions.calcs = [ "lastNotNull" ];
+  };
+  upMappings = [
+    {
+      type = "value";
+      options = {
+        "0" = {
+          text = "down";
+          color = "red";
+        };
+        "1" = {
+          text = "up";
+          color = "green";
+        };
+      };
+    }
+  ];
   fleetDashboard = {
     uid = "fleet";
     title = "Fleet";
@@ -95,28 +119,8 @@ let
           h = 6;
         };
         targets = [ { expr = ''up{job="node"}''; } ];
-        options = {
-          colorMode = "background";
-          textMode = "value_and_name";
-          reduceOptions.calcs = [ "lastNotNull" ];
-        };
-        fieldConfig.defaults = {
-          mappings = [
-            {
-              type = "value";
-              options = {
-                "0" = {
-                  text = "down";
-                  color = "red";
-                };
-                "1" = {
-                  text = "up";
-                  color = "green";
-                };
-              };
-            }
-          ];
-        };
+        options = upOptions;
+        fieldConfig.defaults.mappings = upMappings;
       })
       (panel {
         title = "Running";
@@ -228,13 +232,251 @@ let
         };
         targets = [ { expr = "node_load5"; } ];
       })
+      (panel {
+        title = "Public resolvers answering pings";
+        unit = "percentunit";
+        gridPos = {
+          x = 0;
+          y = 30;
+          w = 12;
+          h = 8;
+        };
+        # From core5 through gate and out of wan (modules/blackbox.nix): the
+        # share of echo requests answered, which falls to nothing when the
+        # house's traffic stops leaving it.
+        targets = [ { expr = ''avg_over_time(probe_success{job="probe-ping"}[$__rate_interval])''; } ];
+      })
+      (panel {
+        title = "Public resolvers, round trip";
+        unit = "s";
+        gridPos = {
+          x = 12;
+          y = 30;
+          w = 12;
+          h = 8;
+        };
+        targets = [ { expr = ''probe_icmp_duration_seconds{job="probe-ping", phase="rtt"}''; } ];
+      })
     ];
   };
+
+  # Each resolver's health, one line per resolver, from Unbound's exporter and
+  # AdGuard's counts (modules/unbound.nix, modules/adguardhome.nix). Nothing
+  # here can be split by client: neither source has one. AdGuard's counts
+  # leave the work segment out, and Unbound's include it in their totals.
+  rate = expr: "rate(${expr}[$__rate_interval])";
+  perResolver = expr: "sum by (instance) (${rate expr})";
+  ratio = num: den: "${perResolver num} / ${perResolver den}";
+  dnsDashboard = {
+    uid = "dns";
+    title = "DNS";
+    schemaVersion = 39;
+    time = {
+      from = "now-24h";
+      to = "now";
+    };
+    refresh = "1m";
+    panels = [
+      (panel {
+        title = "Queries per second";
+        gridPos = {
+          x = 0;
+          y = 0;
+          w = 12;
+          h = 8;
+        };
+        # AdGuard's count is every client but the work segment. Unbound's is
+        # what AdGuard forwarded, which is everything it did not block,
+        # work's included.
+        targets = [
+          {
+            expr = perResolver "fleet_adguard_queries_total";
+            legendFormat = "{{instance}} AdGuard";
+          }
+          {
+            expr = perResolver "unbound_queries_total";
+            legendFormat = "{{instance}} Unbound";
+          }
+        ];
+      })
+      (panel {
+        title = "Blocked";
+        unit = "percentunit";
+        gridPos = {
+          x = 12;
+          y = 0;
+          w = 12;
+          h = 8;
+        };
+        targets = [ { expr = ratio "fleet_adguard_blocked_total" "fleet_adguard_queries_total"; } ];
+      })
+      (panel {
+        title = "SERVFAIL";
+        unit = "percentunit";
+        gridPos = {
+          x = 0;
+          y = 8;
+          w = 12;
+          h = 8;
+        };
+        # Of Unbound's answers. A recursion that timed out upstream, and an
+        # answer that failed DNSSEC validation, both end here.
+        targets = [
+          {
+            expr = ratio ''unbound_answer_rcodes_total{rcode="SERVFAIL"}'' "unbound_answer_rcodes_total";
+          }
+        ];
+      })
+      (panel {
+        title = "Timeouts";
+        unit = "percentunit";
+        gridPos = {
+          x = 12;
+          y = 8;
+          w = 12;
+          h = 8;
+        };
+        # The two places a query goes unanswered in time. AdGuard asks its
+        # fallback only when Unbound errs or takes longer than
+        # upstream_timeout, so the fallback's share of AdGuard's upstream
+        # answers is Unbound timing out from AdGuard's side. Unbound's own
+        # drops are queries it discarded unanswered: too long in its queue,
+        # or its request list full.
+        targets = [
+          {
+            expr = ratio ''fleet_adguard_upstream_responses_total{upstream!="primary"}'' "fleet_adguard_upstream_responses_total";
+            legendFormat = "{{instance}} answered by fallback";
+          }
+          {
+            expr = ratio ''{__name__=~"unbound_(queries_discard_timeout|queries_wait_limit|request_list_exceeded_total)"}'' "unbound_queries_total";
+            legendFormat = "{{instance}} dropped by Unbound";
+          }
+        ];
+      })
+      (panel {
+        title = "Cache hits";
+        unit = "percentunit";
+        gridPos = {
+          x = 0;
+          y = 16;
+          w = 12;
+          h = 8;
+        };
+        # Unbound's cache, which is the only one: AdGuard's is off.
+        targets = [ { expr = ratio "unbound_cache_hits_total" "unbound_queries_total"; } ];
+      })
+      (panel {
+        title = "Latency";
+        unit = "s";
+        gridPos = {
+          x = 12;
+          y = 16;
+          w = 12;
+          h = 8;
+        };
+        # Unbound's recursion, which is cache misses alone, and what clients
+        # wait on AdGuard for, cache hits and blocks included.
+        targets = [
+          {
+            expr = "histogram_quantile(0.5, sum by (instance, le) (${rate "unbound_response_time_seconds_bucket"}))";
+            legendFormat = "{{instance}} recursion, median";
+          }
+          {
+            expr = "histogram_quantile(0.9, sum by (instance, le) (${rate "unbound_response_time_seconds_bucket"}))";
+            legendFormat = "{{instance}} recursion, 90th percentile";
+          }
+          {
+            expr = ratio "fleet_adguard_processing_seconds_total" "fleet_adguard_queries_total";
+            legendFormat = "{{instance}} AdGuard answer, mean";
+          }
+          {
+            expr = ratio ''fleet_adguard_upstream_seconds_total{upstream="primary"}'' ''fleet_adguard_upstream_responses_total{upstream="primary"}'';
+            legendFormat = "{{instance}} AdGuard to Unbound, mean";
+          }
+        ];
+      })
+      (panel {
+        title = "DNSSEC failures per second";
+        gridPos = {
+          x = 0;
+          y = 24;
+          w = 12;
+          h = 8;
+        };
+        # Answers that failed validation, which clients get as SERVFAIL, and
+        # the records Unbound found bogus on the way to them.
+        targets = [
+          {
+            expr = perResolver "unbound_answers_bogus";
+            legendFormat = "{{instance}} answers";
+          }
+          {
+            expr = perResolver "unbound_rrset_bogus_total";
+            legendFormat = "{{instance}} records";
+          }
+        ];
+      })
+      (panel {
+        title = "Sources up";
+        type = "stat";
+        gridPos = {
+          x = 12;
+          y = 24;
+          w = 12;
+          h = 8;
+        };
+        targets = [
+          {
+            # The scrape, and the exporter reaching Unbound behind it.
+            expr = ''min by (instance) ({job="unbound", __name__=~"up|unbound_up"})'';
+            legendFormat = "{{instance}} Unbound";
+          }
+          {
+            expr = "fleet_adguard_up";
+            legendFormat = "{{instance}} AdGuard";
+          }
+        ];
+        options = upOptions;
+        fieldConfig.defaults.mappings = upMappings;
+      })
+      (panel {
+        title = "Answering, from core5";
+        unit = "percentunit";
+        gridPos = {
+          x = 0;
+          y = 32;
+          w = 12;
+          h = 8;
+        };
+        # The share of core5's probes each resolver answered, through AdGuard
+        # on port 53, with the NXDOMAIN Unbound gives its probe name
+        # (modules/blackbox.nix). It needs neither the WAN nor recursion, so a
+        # WAN outage shows in SERVFAIL, not here.
+        targets = [ { expr = ''avg_over_time(probe_success{job="probe-resolver"}[$__rate_interval])''; } ];
+      })
+      (panel {
+        title = "Answer time, from core5";
+        unit = "s";
+        gridPos = {
+          x = 12;
+          y = 32;
+          w = 12;
+          h = 8;
+        };
+        targets = [ { expr = ''probe_dns_duration_seconds{job="probe-resolver", phase="request"}''; } ];
+      })
+    ];
+  };
+
   dashboards = pkgs.linkFarm "fleet-dashboards" {
     "fleet.json" = pkgs.writeText "fleet.json" (builtins.toJSON fleetDashboard);
+    "dns.json" = pkgs.writeText "dns.json" (builtins.toJSON dnsDashboard);
   };
 in
 {
+  # The probes, whose jobs join the scrape configuration below.
+  imports = [ ./blackbox.nix ];
+
   assertions = [
     {
       assertion = hostname == net.metricsCollector;
@@ -282,6 +524,13 @@ in
               replacement = "";
             }
           ];
+        }
+        {
+          # Unbound's statistics on each resolver (modules/unbound.nix):
+          # totals, with no client and no name in them. AdGuard's counts come
+          # through each resolver's node_exporter, in the job above.
+          job_name = "unbound";
+          static_configs = staticConfigs net.ports.unboundExporter net.resolvers;
         }
         {
           # Its own ingestion and disk use, against the budget in the doc.

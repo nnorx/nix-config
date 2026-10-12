@@ -297,6 +297,12 @@
     "lifeline"
   ];
 
+  # The name core5 asks each resolver every 30 seconds, to see that it answers
+  # (modules/blackbox.nix). In `lan`, which Unbound answers NXDOMAIN itself
+  # (modules/unbound.nix), so the probe needs neither the WAN nor the cache, and
+  # AdGuard leaves it out of its log and statistics (modules/adguardhome.nix).
+  resolverProbe = "resolver-probe.lan";
+
   # Public resolvers, for what must not depend on the fleet's own: AdGuard's
   # bootstrap and fallback, core5, and the guest segment. Two operators, so
   # one outage does not take both, and not Google: keeping it out of the DNS
@@ -399,6 +405,14 @@
     # Kea keeps pool usage itself but serves it only as JSON over its control
     # socket, which this exporter translates.
     keaExporter = 9547;
+
+    # Unbound's statistics, on each resolver's address beside node_exporter,
+    # read over Unbound's local control socket (modules/unbound.nix).
+    unboundExporter = 9167;
+
+    # Probes from core5, on its loopback: DNS to each resolver, ICMP to the
+    # public resolvers (modules/blackbox.nix).
+    blackboxExporter = 9115;
 
     # WireGuard on gate's WAN, which every peer's config names. 443 rather
     # than 51820, because restrictive Wi-Fi blocks unusual UDP ports more often

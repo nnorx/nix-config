@@ -215,11 +215,15 @@ those queries was checked too:
   soon as it has been loaded.
 - gate's `dns-redirect` rule has a counter, which counts packets and records
   no addresses. pimon reports host health only.
-- No metrics are deployed yet. The design in
-  [observability.md](observability.md) scrapes Unbound's counters, which are
-  totals with neither names nor clients, and probes each resolver from core5.
-  AdGuard has no metrics endpoint, and an exporter built on its statistics
-  API would inherit the rule, since excluded queries are never counted.
+- The metrics store on core5 keeps each resolver's DNS counts for 12 months
+  ([observability.md](observability.md#dns-failure-ratios)). Unbound's are
+  totals with neither names nor clients, work's queries among them and not to
+  be told apart. AdGuard's come from its statistics API, which inherits the
+  rule, since excluded queries are never counted, and the collector keeps
+  only totals of what the API returns, not its busiest clients and domains.
+  core5's probe of each resolver is left out of AdGuard's log and
+  statistics by name (`ignored`), so it neither fills the log nor counts as a
+  client. `tests/dns-metrics.nix` checks all of it.
 
 **Lookup services stay off.** Safe browsing and parental control each send a
 hash prefix of every name to AdGuard's servers. Both are off by default, and
@@ -360,6 +364,14 @@ gate for every packet it sends, so resolving through gate's Unbound would add
 no dependency and send nothing to a third party. That needs
 `modules/unbound.nix` to bind an address on gate, which has no `ip` in
 `lib/net.nix`.
+
+**Pings to the public resolvers** (`modules/blackbox.nix`). An ICMP echo to
+each address in `net.publicResolvers` every 30 seconds, from the WAN address,
+to see that traffic leaves the house. They carry nothing but the echo, to the
+two operators that already answer core5's DNS. core5's DNS probes of the
+resolvers stay in the house, except that while a resolver's Unbound is down,
+AdGuard asks its fallback, a public resolver, for the probe's name in `lan`,
+which says nothing about the house. **needed**: it is what `WanDown` reads.
 
 **Off-box backups** (`modules/offbox-push.nix`). The newest UniFi and Home
 Assistant backups, age-encrypted to a key core5 does not hold, pushed over SSH
