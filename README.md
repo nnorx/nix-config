@@ -1,4 +1,5 @@
-# nix-config
+| `phg [<base>]` | The same change opened in GitLens, in the VS Code window already open, so you can move between files; against `<base>` for a stacked branch |
+Answer `d` at its prompt to page through the full diff first, or `g` to open it in GitLens |# nix-config
 
 Reproducible configuration for a small homelab: a NixOS fleet of three
 Raspberry Pis and an x86 router, plus Home Manager for the machines I develop

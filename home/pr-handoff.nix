@@ -30,5 +30,7 @@
     # since not every repo's default branch is main.
     phd = "git diff origin/HEAD...";
     phds = "git diff --stat origin/HEAD...";
+    # The same, opened in GitLens in the VS Code window already open.
+    phg = "pr-handoff gitlens";
   };
 }
