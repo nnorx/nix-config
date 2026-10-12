@@ -43,14 +43,14 @@ The follow-ups are collected, as issue titles, at the end.
 | core5 | Home Assistant weather | api.met.no | narrow (F8) |
 | core5 | Home Assistant's other defaults | Home Assistant's servers | off (F9) |
 | guest segment | All of its DNS | Cloudflare and Quad9 | needed |
-| forge | Firefox | Mozilla, and its DoH resolver | off (F1) |
-| forge | Brave | Brave | off (F2) |
-| forge | VS Code | Microsoft, the extension marketplace | off (F4) |
-| forge, WSL, Mac | Claude Code | Anthropic | off (F3) for telemetry |
-| forge | Night shift | Linear, ntfy.sh, GitHub's API | narrow (F14) |
+| forge | Firefox | Mozilla | off (F1), done |
+| forge | Brave | Brave | off (F2), done |
+| forge | VS Code | Microsoft, the extension marketplace | off (F4), done |
+| forge, WSL, Mac | Claude Code | Anthropic | off (F3) for telemetry, done |
+| forge | Night shift | Linear, ntfy.sh, GitHub's API | narrow (F14), done |
 | forge | Firmware metadata | LVFS | needed |
-| forge | Location lookups | beacondb | off (F13) |
-| forge | DNS away from home | Whatever network it is on | narrow (F11) |
+| forge | Location lookups | beacondb | off (F13), done |
+| forge | DNS away from home | Quad9, over TLS | narrow (F11), done |
 | forge | Steam, Plasma | Valve, KDE | needed |
 | GitHub Actions | CI, cache, lock bumps | GitHub, Cachix, registries | needed |
 
@@ -872,24 +872,24 @@ needs it.
 
 Each is one issue, titled the way a PR for it would be.
 
-| | Issue | Verdict |
-|---|---|---|
-| F1 | `forge: firefox policies for telemetry, studies, crash reports and DoH` | off |
-| F2 | `forge: brave policies for its usage ping, P3A and web discovery` | off |
-| F3 | `home: turn off claude code's telemetry and error reports` | off |
-| F4 | `docs/laptop.md: vs code telemetry off, and how settings sync carries it` | off |
-| F5 | `core5: resolve through gate's unbound rather than public resolvers` | narrow |
-| F6 | `adguardhome: send the fallback over DNS-over-TLS` | narrow |
-| F7 | `adguardhome: fewer blocklist operators for the same coverage` | narrow |
-| F8 | `docs/home-assistant.md: give met.no a coarse location` | narrow |
-| F9 | `home-assistant: list default_config's integrations, without cloud and alerts` | off |
-| F10 | `gate: keep the switch and AP off the internet` | narrow |
-| F11 | `forge: encrypted DNS away from home` | narrow |
-| F12 | `gate: stop sending its hostname in DHCP requests on wan` | narrow |
-| F13 | `forge: turn geoclue off` | off |
-| F14 | `forge: night-shift pushes carry the identifier, not the title` | narrow |
-| F15 | `unbound: serve the root zone locally, so single-label names stay home` | narrow |
-| F16 | `adguardhome: maintained telemetry lists for windows and the house's tvs` | narrow, done in NNO-34 |
+| | Issue | Verdict | Status |
+|---|---|---|---|
+| F1 | `forge: firefox policies for telemetry, studies, crash reports and DoH` | off | done, #158 |
+| F2 | `forge: brave policies for its usage ping, P3A and web discovery` | off | done, #163, crash reports too |
+| F3 | `home: turn off claude code's telemetry and error reports` | off | done, #159 |
+| F4 | `docs/laptop.md: vs code telemetry off, and how settings sync carries it` | off | done, #160 |
+| F5 | `core5: resolve through gate's unbound rather than public resolvers` | narrow | not filed: to weigh against keeping monitoring off the resolvers it watches ([observability.md](observability.md)) first |
+| F6 | `adguardhome: send the fallback over DNS-over-TLS` | narrow | |
+| F7 | `adguardhome: fewer blocklist operators for the same coverage` | narrow | |
+| F8 | `docs/home-assistant.md: give met.no a coarse location` | narrow | |
+| F9 | `home-assistant: list default_config's integrations, without cloud and alerts` | off | |
+| F10 | `gate: keep the switch and AP off the internet` | narrow | filed, NNO-45, as only the fleet's hosts on servers reaching it |
+| F11 | `forge: encrypted DNS away from home` | narrow | done, #162 |
+| F12 | `gate: stop sending its hostname in DHCP requests on wan` | narrow | filed, NNO-46 |
+| F13 | `forge: turn geoclue off` | off | done, #165 |
+| F14 | `forge: night-shift pushes carry the identifier, not the title` | narrow | done, #161 |
+| F15 | `unbound: serve the root zone locally, so single-label names stay home` | narrow | filed, NNO-33 |
+| F16 | `adguardhome: maintained telemetry lists for windows and the house's tvs` | narrow | done, #152 |
 
 F10 changes gate's firewall, so it goes behind deploy-guard. F5 changes gate
 and core5 together, and F6 the resolvers, which take it that night. F15
