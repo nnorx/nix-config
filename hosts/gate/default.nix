@@ -121,5 +121,8 @@ in
   environment.systemPackages = with pkgs; [
     ethtool
     pciutils
+    # `conntrack -D`, to end a device's open connections when it goes on
+    # trial without the internet (docs/privacy.md, "The trial set, by hand").
+    conntrack-tools
   ];
 }

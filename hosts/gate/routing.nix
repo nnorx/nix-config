@@ -379,10 +379,15 @@ in
 
   # iot's way out to the internet: docs/privacy.md, "Internet for iot".
   #
-  # Every new iot flow out `wan` is counted in `iot-wan`, and one from an
-  # address in `iot-trial` is dropped and counted in `iot-trial-dropped`. The
-  # set is declared empty and Nick fills it by hand, so nothing about a device
-  # reaches this repo; privacy.md has the commands. It is runtime state, not
+  # Every iot attempt to open a connection out `wan` is counted in `iot-wan`,
+  # and one from an address in `iot-trial` is dropped and counted in
+  # `iot-trial-dropped`. Attempts, not flows: a dropped SYN is never
+  # confirmed, so each retry arrives here as new again, as does every packet
+  # of a UDP exchange with no reply yet. Only new connections reach this
+  # chain (the forward chain accepts established ones first), so putting a
+  # device on trial also needs its open ones ended with `conntrack -D`.
+  # The set is declared empty and Nick fills it by hand, so nothing about a
+  # device reaches this repo; privacy.md has the commands. It is runtime state, not
   # policy: reloading the ruleset recreates this table, which empties the set
   # and zeroes the counters, and nftables.service reloads on any deploy that
   # changes the ruleset.
@@ -409,11 +414,11 @@ in
       }
 
       counter iot-wan {
-        comment "new iot flows out wan"
+        comment "iot attempts to open a connection out wan"
       }
 
       counter iot-trial-dropped {
-        comment "new flows out wan from iot-trial, dropped"
+        comment "attempts out wan from iot-trial, dropped"
       }
 
       chain iot-egress {

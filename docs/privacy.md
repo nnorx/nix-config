@@ -815,18 +815,30 @@ schedule.
 ### The trial set, by hand
 
 What step 1 put on gate, in `hosts/gate/routing.nix`: the `iot-egress`
-chain, the `iot-trial` set, and two named counters, `iot-wan` for every new
-iot flow out `wan` and `iot-trial-dropped` for the members' share of them,
-which are dropped. The set is empty in the repo and filled only by these
-commands, on gate, with a device's current iot address:
+chain, the `iot-trial` set, and two named counters, `iot-wan` for iot's
+attempts to open a connection out `wan` and `iot-trial-dropped` for the
+members' share of them, which are dropped. They count attempts, not
+connections: a dropped attempt that the device retries counts once per try,
+and a one-way UDP exchange once per packet, so read them as evidence of
+trying rather than as a count of flows. The set is empty in the repo and
+filled only by these commands, on gate, with a device's current iot address:
 
 ```
 sudo nft add element inet nixos-fw iot-trial '{ <address> }'      # on trial
+sudo conntrack -D -s <address>                                    # and end what it already has open
 sudo nft delete element inet nixos-fw iot-trial '{ <address> }'   # off trial
 sudo nft list set inet nixos-fw iot-trial                         # who is on it
 sudo nft list counters table inet nixos-fw                        # both counters
 sudo nft flush chain inet nixos-fw iot-egress                     # all of iot back out, at once
 ```
+
+The `conntrack -D` matters. The firewall accepts established connections
+before it reaches `forward-allow`, where the jump to `iot-egress` is, so the
+set only stops new ones. A device that already holds a connection to its
+cloud, as most do, would otherwise keep it, stay online in the vendor's app,
+and barely move the counter, which would make the trial read as a pass. It
+reports how many entries it deleted; 0 is fine for a device that had none
+open.
 
 None of it survives a reload. A deploy that changes gate's ruleset reloads
 it, as does `sudo systemctl reload nftables`, and either recreates the table:
