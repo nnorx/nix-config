@@ -109,11 +109,9 @@ jobs:
   vm-tests:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    # On forge the six tests take about ten minutes in a row: 31 to 86
-    # seconds each, except gate-servers-egress at five and a half, nearly all
-    # of it gate waiting for a lan1 the test never gives it. A runner is
-    # slower, a fresh store fetches every VM's closure, and a flake.lock bump
-    # can leave some of it to build.
+    # On forge the six tests take 31 to 86 seconds each, about five and a half
+    # minutes in a row. A runner is slower, a fresh store fetches every VM's
+    # closure, and a flake.lock bump can leave some of it to build.
     timeout-minutes: 60
     concurrency:
       group: vm-tests-${{ github.ref }}
