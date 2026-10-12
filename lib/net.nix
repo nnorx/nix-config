@@ -306,6 +306,24 @@
     "9.9.9.9" # Quad9
   ];
 
+  # forge's DNS away from home, over TLS: hosts/forge/dns.nix. `name` is what
+  # the certificate must carry. One operator at both of its addresses rather
+  # than two operators, since systemd-resolved stays on whichever server last
+  # answered, so a second operator would collect lookups after any hiccup in
+  # the first. Quad9 because it is already one of the two above, keeps no
+  # client addresses, sends no client subnet from these two, and refuses
+  # known-malicious names, which is some of what AdGuard does at home.
+  encryptedResolvers = [
+    {
+      ip = "9.9.9.9";
+      name = "dns.quad9.net";
+    }
+    {
+      ip = "149.112.112.112";
+      name = "dns.quad9.net";
+    }
+  ];
+
   # The multicast group Govee lights listen on for the LAN API's scan. It is
   # SSDP's group, but gate lets only `ports.goveeScan` through to iot, not
   # SSDP's own port.

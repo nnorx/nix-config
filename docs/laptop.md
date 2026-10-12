@@ -179,7 +179,8 @@ lookups stop working at home, check for one with `nmcli connection show
 --active`.
 
 Behind a captive portal, log in first, then bring the tunnel up: the portal's
-page will not load through a tunnel it has not yet let out.
+page will not load through a tunnel it has not yet let out. Logging in needs
+`portal-dns` first ([below](#dns-away-from-home)).
 
 If a working tunnel goes quiet, the home address may have changed. The
 profile looked gate's name up when it came up, and cannot again while all DNS
@@ -262,6 +263,51 @@ override user settings, and `TelemetryLevel` is one of them, so
 `environment.etc."vscode/policy.json"` could set it from `hosts/forge/dev.nix`
 without touching `settings.json`. That would also cover a reinstall's first
 launch.
+
+## DNS away from home
+
+Away from home, with neither tunnel up, every lookup goes to Quad9 over
+DNS-over-TLS and never in plaintext; at home they all go to AdGuard, as before.
+forge tells the two apart by the resolvers DHCP hands it, each time a
+connection comes up. [`hosts/forge/dns.nix`](../hosts/forge/dns.nix) has the
+mechanism, and F11 in [privacy.md](privacy.md) the reasons.
+
+**Captive portals** refuse TLS until you log in, so nothing resolves and the
+login page cannot be found. Hand that network its own resolver back, in
+plaintext, log in, then reconnect to go back to TLS:
+
+```bash
+portal-dns                                   # the interface with the default route
+nmcli connection up "<the network's name>"   # after logging in
+```
+
+A network that blocks port 853 for good fails the same way. `portal-dns` works
+there too, with what that costs.
+
+**Checking it**, at home and on another network (a phone's hotspot, with the
+phone off home Wi-Fi). None of this prints an address, or any name but Quad9's:
+
+```bash
+iface=$(ip -4 route show default | awk '{ for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit } }')
+
+# What forge decided for this connection: "home" or "away".
+journalctl -b -u NetworkManager-dispatcher -o cat | grep -F "$iface:" | tail -n 1
+
+# Who answers. Home: "Current Scopes: DNS" and "DNS Domain: ~.", so the
+# network's resolvers, the fleet's, answer alone. Away: "Current Scopes: none",
+# so the network's resolvers are not asked, and the global server is.
+resolvectl status "$iface" | grep -E 'Current Scopes|Protocols|DNS Domain'
+
+# The global server: Quad9's certificate name, and +DNSOverTLS.
+resolvectl status | sed -n '/^Global/,/^$/p' | grep -oE '\+DNSOverTLS|#[^ ]+' | sort -u
+
+# How it leaves: a count of packets by destination port while you look a few
+# names up in another terminal (resolvectl query --cache=no example.org).
+# Home: only .53, to AdGuard. Away: only .853.
+tcpdump=$(nix build --no-link --print-out-paths nixpkgs#tcpdump)/bin/tcpdump
+sudo timeout 20 "$tcpdump" -nqi any -l '(port 53 or port 853) and not net 127.0.0.0/8' 2>/dev/null |
+  grep -oE '\.(53|853): ' | sort | uniq -c
+```
 
 ## Secure Boot
 
