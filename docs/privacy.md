@@ -394,14 +394,22 @@ over their LAN API with no cloud in the path. What remains:
 forge is a desktop and carries the most flows, most of them from software the
 repo installs but does not configure.
 
-**Firefox** (`programs.firefox.enable` in `hosts/forge/desktop.nix`). The only
-policy set is NixOS's own `DisableAppUpdate`. The nixpkgs build is an official
-one (`MOZILLA_OFFICIAL=1`) with the crash reporter built in, so telemetry and
-studies are on, and crash reports are offered, unless turned off. Firefox
-may also enable DNS-over-HTTPS to its default provider, which takes its
-lookups away from AdGuard altogether. **off** (F1): enterprise policies
-(`DisableTelemetry`, `DisableFirefoxStudies`, crash reports, and an explicit
-`DNSOverHTTPS` decision) make all of that declarative.
+**Firefox** (`programs.firefox` in `hosts/forge/desktop.nix`). The nixpkgs
+build is an official one (`MOZILLA_OFFICIAL=1`) with the crash reporter built
+in, so telemetry and studies are on, and crash reports are offered, unless
+turned off. **off** (F1), by enterprise policy: `DisableTelemetry` and
+`DisableFirefoxStudies`, and `DNSOverHTTPS` locked off. Firefox's automatic
+DoH would respect AdGuard, which answers its canary domain,
+`use-application-dns.net`, with NXDOMAIN, but that check never runs while any
+policy is set, so the only alternative to off is DoH everywhere, home
+included. Crash reports have no policy; three prefs, locked through the
+`Preferences` policy, stop backlogged reports being sent without asking
+(`browser.crashReports.unsubmittedCheck.autoSubmit2`), stop the bar offering
+them (`browser.crashReports.unsubmittedCheck.enabled`), and untick the
+crashed-tab page's box (`browser.tabs.crashReporting.sendReport`). A crash
+still writes a report locally, listed in `about:crashes`. If the whole browser
+crashes, Mozilla's crash reporter dialog still opens, with a send checkbox it
+remembers itself, so a report goes only if that box is ticked when it closes.
 
 **Brave** (`unstable.brave`, same file). No policy is set, so Brave's defaults
 apply, including its daily usage ping and its P3A product analytics, which

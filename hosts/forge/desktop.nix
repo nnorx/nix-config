@@ -50,7 +50,37 @@
   };
   programs.gamemode.enable = true;
 
-  programs.firefox.enable = true;
+  # Enterprise policies, which about:policies lists. docs/privacy.md, "forge",
+  # has what each one stops.
+  programs.firefox = {
+    enable = true;
+    policies = {
+      DisableTelemetry = true;
+      DisableFirefoxStudies = true;
+
+      # Off, so every lookup goes through the system resolver: AdGuard at home
+      # and over the tunnel. Firefox checks AdGuard's canary answer only in its
+      # automatic rollout, which never runs while any policy is set, so the
+      # alternative to off is DoH everywhere, home included. Encrypting DNS
+      # away from home is the system resolver's job, for every application.
+      DNSOverHTTPS = {
+        Enabled = false;
+        Locked = true;
+      };
+    };
+
+    # No policy covers crash reports. These become locked prefs through the
+    # Preferences policy. The dialog shown after the whole browser crashes
+    # keeps its own checkbox, which no pref reaches.
+    preferences = {
+      # Send pending reports without asking, after a tab crash or at startup.
+      "browser.crashReports.unsubmittedCheck.autoSubmit2" = false;
+      # The bar offering to send reports left from earlier crashes.
+      "browser.crashReports.unsubmittedCheck.enabled" = false;
+      # The crashed-tab page's "send a report" box, ticked by default.
+      "browser.tabs.crashReporting.sendReport" = false;
+    };
+  };
 
   # From unstable, where browser security releases land first.
   environment.systemPackages = [ unstable.brave ];
