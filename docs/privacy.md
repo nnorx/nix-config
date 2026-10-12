@@ -764,9 +764,10 @@ answered as before and its lookups keep reaching the log. Its connections out
 `wan` are dropped, not refused. A refusal tells it at once, and firmware that
 retries on failure then retries at once, in a loop; a drop makes it wait out
 its own timeout between attempts. A trial can switch to `reject` if a device
-hangs waiting. Connections it already had keep going until they close,
-since established traffic is accepted before `forward-allow` is consulted.
-To the vendor's app the device looks offline; to Home Assistant, a local
+hangs waiting. Connections it already had would keep going until they
+close, since established traffic is accepted before `forward-allow` is
+consulted, so cutting a device off also ends them with `conntrack -D`, as
+[the trial set, by hand](#the-trial-set-by-hand) does. To the vendor's app the device looks offline; to Home Assistant, a local
 device looks unchanged.
 
 **How Nick notices**, in the order the pieces arrive:
