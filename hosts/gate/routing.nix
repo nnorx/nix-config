@@ -247,6 +247,19 @@ let
   # missing" from inside a map.
   sshIfaces = net.hosts.gate.sshInterfaces;
   sshAddresses = map (i: seg.${segmentOn.${i}}.gateway) (lib.filter (i: segmentOn ? ${i}) sshIfaces);
+
+  # The fleet's own hosts on servers: every host lib/net.nix gives an `ip` on
+  # the segment the trunk carries untagged. These are the Pis, derived rather
+  # than listed, so a new Pi reaches the internet the day it is added there.
+  # UniFi's containers on core5 sit behind Docker's masquerade, so they leave
+  # core5 from its address and are covered by it.
+  #
+  # `segment` is read with a default because gate has neither attribute.
+  serversFleet = map (h: h.ip) (
+    builtins.attrValues (
+      lib.filterAttrs (_: h: h ? ip && (h.segment or null) == segmentOn.${trunk}) net.hosts
+    )
+  );
 in
 {
   # A segment declared in lib/net.nix but not carried by an interface here
@@ -310,6 +323,16 @@ in
         ${toString (builtins.attrValues redirectOn)}. An exemption naming
         anything else does nothing, so a misspelt one would leave the segment
         it meant still refused.
+      '';
+    }
+    {
+      assertion = serversFleet != [ ];
+      message = ''
+        hosts/gate/routing.nix finds no host in lib/net.nix with an `ip` on
+        ${segmentOn.${trunk}}, so `servers-egress` would refuse every host there
+        the internet, the Pis' nightly upgrades included. It would also render
+        as `ip saddr { }`, an nftables syntax error that says nothing about
+        why.
       '';
     }
     {
@@ -403,6 +426,31 @@ in
   # module's `ct status dnat accept` ahead of the jump, and one sent straight
   # to the Pis goes out the trunk, not `wan`.
   #
+  # servers' way out, by the same pattern: docs/privacy.md, "UniFi" under
+  # core5. Only `serversFleet` reaches the internet. Everything else there,
+  # which is the switch, the AP and anything on an untagged switch port, is
+  # dropped out `wan` and counted in `servers-wan-dropped`, except NTP. None of
+  # it touches managing them: the switch and the AP reach the controller on
+  # core5 within servers, without crossing gate.
+  #
+  # NTP is let out because the switch and the AP keep time from a public pool,
+  # or from whatever server the controller pushes them, and refusing it would
+  # leave their clocks to drift. An exception rather than gate serving time:
+  # it holds whatever the controller is set to, and needs no NTP server on
+  # gate and no controller setting this repo cannot see.
+  #
+  # Their DNS is unaffected: they ask the Pis, on servers itself. A public
+  # resolver set on one in the controller would be dropped, which the counter
+  # shows.
+  #
+  # Firmware is the cost. They download it from Ubiquiti themselves when told
+  # to upgrade, so an upgrade is now a deliberate step: flush this chain,
+  # upgrade from the controller, reload nftables. docs/unifi.md has it.
+  #
+  # IPv4 only, like iot's, since the house has no global IPv6. The drop is not:
+  # it fails closed, so if IPv6 ever arrives the Pis need an `ip6 saddr` return
+  # here before they can use it.
+  #
   # Appended to the firewall module's table as dns-redirect is to nat's, and
   # `family` declared here for the same reason given there.
   networking.nftables.tables."nixos-fw" = {
@@ -424,6 +472,16 @@ in
       chain iot-egress {
         counter name "iot-wan"
         ip saddr @iot-trial counter name "iot-trial-dropped" drop comment "on trial without the internet"
+      }
+
+      counter servers-wan-dropped {
+        comment "attempts out wan from servers, not by the fleet's hosts, dropped"
+      }
+
+      chain servers-egress {
+        ip saddr ${nftSet serversFleet} return comment "the fleet's own hosts"
+        udp dport 123 return comment "time, for the switch and the AP"
+        counter name "servers-wan-dropped" drop comment "only the fleet's hosts reach the internet"
       }
     '';
   };
@@ -496,7 +554,8 @@ in
       # it would under a drop, which is no worse.
       #
       # iot's jump to `iot-egress`, above, comes after both, so what it counts
-      # is what would otherwise reach nat's accept.
+      # is what would otherwise reach nat's accept. servers' jump to
+      # `servers-egress` follows it for the same reason.
       extraForwardRules = lib.mkBefore ''
         iifname ${nftSet (quoted deniedUpstream)} oifname "${wan}" ip daddr ${nftSet upstreamPrivate} drop comment "only trusted reaches upstream management"
         ${lib.optionalString (refuseDotIfaces != [ ]) ''
@@ -504,6 +563,7 @@ in
           iifname ${nftSet (quoted refuseDotIfaces)} oifname "${wan}" udp dport 853 counter reject comment "refuse DoQ, so clients fall back to port 53"
         ''}
         iifname "${tagged "iot"}" oifname "${wan}" jump iot-egress comment "iot's way out, counted, and refused for iot-trial"
+        iifname "${trunk}" oifname "${wan}" jump servers-egress comment "servers' way out, for the fleet's hosts only"
         iifname "${trustedBr}" oifname "${trunk}" accept comment "trusted reaches servers"
         iifname "${tagged "iot"}" oifname "${trunk}" meta l4proto { tcp, udp } th dport 53 accept comment "iot resolves via the Pis, nothing else"
         iifname "${tagged "work"}" oifname "${trunk}" meta l4proto { tcp, udp } th dport 53 accept comment "work resolves via the Pis, nothing else"

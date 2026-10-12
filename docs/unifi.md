@@ -193,6 +193,27 @@ That reboot is deferred, not avoided.
 Do it on its own evening, with a client pointed at a public resolver first, and
 expect every Pi to hard-reset.
 
+**The devices cannot reach the internet.** gate drops everything out `wan`
+from `servers` that is not one of the fleet's hosts, NTP aside
+([privacy.md](privacy.md#core5), "UniFi"). The controller still sees new
+firmware, from core5, but the device downloads the image from Ubiquiti
+itself, so an upgrade needs the chain flushed while it runs. On gate:
+
+```bash
+sudo nft flush chain inet nixos-fw servers-egress   # the switch and AP can reach the internet
+# upgrade the device from the controller, and wait for it to come back
+sudo systemctl reload nftables                      # back to fleet-only
+```
+
+Reload as soon as the device is back, since until then anything on `servers`
+reaches the internet. A gate deploy that changes the ruleset reloads it too,
+so the flush also ends there.
+
+Time is not affected. The devices keep NTP to the internet, from the pool
+their firmware defaults to or from the servers set under Settings > System >
+Advanced, so either works. Their DNS is the Pis, on `servers` itself; a
+public resolver set on a device here would be dropped.
+
 ## Re-adopting the Flex switch
 
 The switch became unadoptable on 2026-09-02 and stayed that way. Three

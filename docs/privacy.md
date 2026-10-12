@@ -375,11 +375,54 @@ newer images (`image-updates.yml`) runs on GitHub's runners, not here.
 **UniFi** (`modules/unifi.nix`, docs/unifi.md). The controller runs with a
 local admin, and docs/unifi.md has Remote Management and Analytics turned off
 in its settings, which live in its database rather than this repo. The
-controller still checks Ubiquiti for device firmware, and the switch and AP,
-on `servers`, can reach the internet like any host there; what their firmware
-sends is not visible from here. **narrow** (F10): confirm the two settings are
-still off, and decide whether gate should deny the switch and AP the
-internet, which turns on how they get firmware.
+controller still checks Ubiquiti for device firmware, which is core5's own
+traffic. **narrow** (F10): confirm the two settings are still off.
+
+The switch and the AP, on `servers`, no longer reach the internet (NNO-45).
+gate's `servers-egress` chain, in `hosts/gate/routing.nix`, lets out only
+the hosts `lib/net.nix` gives an address on `servers`, which are the Pis,
+derived so a new Pi is covered. The controller's containers leave core5 from
+its address, behind Docker's masquerade, so they are covered too. Anything
+else there, the switch, the AP and whatever is plugged into an untagged
+switch port, is dropped out `wan` and counted in `servers-wan-dropped`,
+except NTP. Managing them is untouched: they reach the controller on
+`servers` itself, without crossing gate.
+
+What [the device side](#results) found them contacting, and what each
+loses:
+
+- **Time servers.** Still reached. UniFi devices take NTP from a public pool
+  by default (`*.ubnt.pool.ntp.org` on the firmware users have published),
+  or from the servers the controller pushes them if its NTP setting is
+  manual. They are statically addressed, so DHCP's NTP option never reaches
+  them. A device with a wrong clock logs and reports at the wrong time and
+  fails to verify certificates when it fetches firmware, so gate lets UDP
+  123 out for every host on `servers`. That holds whatever the controller
+  is set to, where gate serving time would need an NTP server on gate and a
+  controller setting this repo cannot check.
+- **Ubiquiti.** Dropped, which is the point: whatever the firmware reports
+  home stops, and nothing the controller needs depends on it. Their DNS is
+  unaffected, since they ask the Pis on `servers`.
+- **Firmware.** When the controller is told to upgrade a device, the device
+  downloads the image from Ubiquiti's CDN itself, not through the
+  controller. So an upgrade becomes a deliberate step: flush the chain,
+  upgrade from the controller, reload. docs/unifi.md, "Device firmware", has
+  the commands. Automatic upgrades were already off.
+
+The commands, on gate:
+
+```
+sudo nft list counter inet nixos-fw servers-wan-dropped   # what is being refused
+sudo nft flush chain inet nixos-fw servers-egress         # everything on servers out, until a reload
+sudo systemctl reload nftables                            # and back
+```
+
+The counter rising slowly is the switch and the AP trying; it zeroes on
+every reload. Connections open when the chain first loads keep going until
+they close, since established traffic is accepted before `forward-allow`.
+IPv4 only, like iot's chains, but the drop fails closed: if the house gets
+IPv6, the Pis need an `ip6 saddr` return in the chain before they can use
+it. `tests/gate-servers-egress.nix` checks it in VMs.
 
 **Home Assistant** (`modules/home-assistant.nix`, docs/home-assistant.md).
 Onboarding was local, with analytics declined, and the Govee lights are driven
