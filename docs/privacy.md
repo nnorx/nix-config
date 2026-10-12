@@ -421,7 +421,10 @@ NixOS can write.
 settings and extensions from Settings Sync, so nothing about telemetry is
 visible in the repo. Its default is full telemetry. Settings Sync itself sends
 the settings to the account it signs in to, and extensions come from the
-marketplace. **off** (F4) for telemetry; the rest is needed.
+marketplace. **off** (F4) for telemetry; the rest is needed. The setting
+lives in Settings Sync rather than the repo, and
+[laptop.md](laptop.md#vs-code-telemetry) says how to set it, what it covers,
+and how Sync carries it to the other machines.
 
 **Claude Code** (`home/claude.nix`, `hosts/forge/claude.nix`), on forge, WSL
 and the Mac. Prompts and the files it reads go to Anthropic, which is the
