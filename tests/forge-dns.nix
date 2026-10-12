@@ -6,7 +6,7 @@
 # portal lookups fail until portal-dns hands the network its resolver back.
 #
 # `nix build .#checks.x86_64-linux.forge-dns`. It needs KVM, which forge's
-# daemon has; CI evaluates it without building.
+# daemon has; CI's vm-tests job runs it on pull requests.
 #
 # forge here is hosts/forge/dns.nix on three wired NICs: the house, a hotel,
 # and a stand-in for the split tunnel, which is an ethernet profile carrying

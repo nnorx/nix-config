@@ -6,7 +6,7 @@
 # and docs/unifi.md the flush that a firmware upgrade needs.
 #
 # `nix build .#checks.x86_64-linux.gate-servers-egress`. It needs KVM, which
-# forge's daemon has; CI evaluates it without building.
+# forge's daemon has; CI's vm-tests job runs it on pull requests.
 #
 # The topology is ./gate-iot-egress.nix's, with servers in place of iot: gate
 # is hosts/gate/routing.nix itself, and "the internet" is one VM holding the

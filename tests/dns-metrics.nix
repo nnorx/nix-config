@@ -4,7 +4,7 @@
 # and every client and name stay out of them.
 #
 # `nix build .#checks.x86_64-linux.dns-metrics`. It needs KVM, which forge's
-# daemon has; CI evaluates it without building.
+# daemon has; CI's vm-tests job runs it on pull requests.
 #
 # The resolver is core4's AdGuard and Unbound, from modules/adguardhome.nix and
 # modules/unbound.nix, with modules/node-exporter.nix. sops-nix is a stand-in
