@@ -168,7 +168,11 @@ rename it back.
 - It runs only while forge is awake and you are logged in. A closed lid pauses
   it, and the timer catches up after.
 - Comments come from your own key, so Linear does not notify you of them. The
-  push from ntfy is the notification.
+  push from ntfy is the notification. Titled "Night shift", it names the
+  issue by its identifier and what happened, "NNO-12: Handoff ready
+  (routine)" or "NNO-12: Needs you", and a tap opens the issue in Linear. It
+  never carries the issue's title: ntfy.sh is a third party, and a title can
+  describe the house.
 - A run that cannot reach Linear, or whose key Linear refuses, fails without
   touching any issue. When the third timer run in a row fails, 20 minutes
   after the first, ntfy pushes "Night shift is failing" once, and
