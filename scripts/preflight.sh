@@ -7,20 +7,26 @@
 #      tests/preflight-brief/ (scripts/test-preflight-brief.sh). A slip in a
 #      rule changes verdicts with no error, so this fails the run instead.
 #      First, since it takes milliseconds.
-#   2. `nix flake check --all-systems --no-build`. --all-systems, or nix skips
+#   2. The night-shift dispatcher, hosts/forge/night-shift.sh, against stubbed
+#      Linear, GitHub, ntfy and Claude (tests/night-shift/run.sh). It runs
+#      unattended, acts as Nick in Linear and deletes worktrees and branches,
+#      and nothing else checks its guards once a change lands. Second, since
+#      it needs no evaluation and takes seconds, so a broken guard shows
+#      before the minutes the steps below take.
+#   3. `nix flake check --all-systems --no-build`. --all-systems, or nix skips
 #      the aarch64 hosts on an x86 machine; --no-build, so this stays an
 #      evaluation and never a multi-hour Pi kernel build.
-#   3. Every host's toplevel and every Home Manager config, evaluated. flake
+#   4. Every host's toplevel and every Home Manager config, evaluated. flake
 #      check alone does neither: it passes a host whose toplevel cannot
 #      evaluate (a missing sops file did exactly that), and it skips
 #      homeConfigurations, so a broken WSL or macOS profile looked green.
-#   4. The brief: which of them the change actually touches, against a base,
+#   5. The brief: which of them the change actually touches, against a base,
 #      by default where this branch left origin/main, and for each host what
 #      kind of change it gets (scripts/preflight-brief.jq). That answers
 #      whether merging changes the Pis, which upgrade from main the same
 #      night, and whether that needs Nick at hand. It is advice and never
 #      fails the run.
-#   5. Formatting, as CI checks it. Last, so a formatting slip never hides an
+#   6. Formatting, as CI checks it. Last, so a formatting slip never hides an
 #      evaluation error or the brief above. Files that were not formatted get
 #      formatted, and the run fails so the change is looked at.
 #
@@ -102,6 +108,11 @@ step "brief rules"
 # with (PREFLIGHT_BRIEF), not the commit's, and those are what this tests.
 # $BASH, since writeShellApplication puts no bash on PATH.
 "$BASH" scripts/test-preflight-brief.sh
+
+step "night-shift dispatcher"
+# From the checkout under --head too: the working tree's dispatcher, not the
+# commit's.
+"$BASH" tests/night-shift/run.sh
 
 step "flake check"
 nix flake check --all-systems --no-build "$ref"

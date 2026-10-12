@@ -1,0 +1,27 @@
+{
+  "data": {
+    "viewer": { "displayName": "Test User" },
+    "teams": {
+      "nodes": [
+        {
+          "id": "team-1",
+          "key": "TST",
+          "states": {
+            "nodes": [
+              { "id": "state-queued", "name": "Queued", "type": "unstarted", "position": 1 },
+              { "id": "state-backlog", "name": "Backlog", "type": "backlog", "position": 0 },
+              { "id": "state-todo", "name": "Todo", "type": "unstarted", "position": 2 }
+            ]
+          },
+          "projects": { "nodes": [{ "id": "project-1", "name": "Night shift" }] }
+        }
+      ]
+    },
+    "repo": {
+      "nodes": [
+        { "id": "label-demo", "name": "demo", "team": null },
+        { "id": "label-other", "name": "other", "team": { "id": "team-2" } }
+      ]
+    }
+  }
+}

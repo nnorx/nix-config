@@ -1,0 +1,139 @@
+# shellcheck shell=bash disable=SC2016 # jq's variables, and the queries', not the shell's
+# curl, for tests/night-shift/run.sh. Answers the dispatcher's three kinds of
+# request from the case's directory, $NS_CASE, and appends each to its
+# log.jsonl, one JSON object a line, for the case to assert on:
+#
+#   Linear  https://api.linear.app/graphql, the query in --data-binary. The
+#           workspace is linear/issues/<id>.json, one issue each, in the shape
+#           ISSUE_FIELDS asks for. Queries are answered from those files and
+#           mutations change them, so a case reads an issue's state after a
+#           run from its file. `night-shift file`'s workspace query gets
+#           linear/workspace.json. {tool: "linear", op, variables}.
+#   GitHub  https://api.github.com/..., read with -w '\n%{http_code}'. The
+#           answer is the file github: the status code on its first line, the
+#           body after it; with no such file, 200 and []. {tool: "github", url}.
+#   ntfy    the URL in the -K config, as notify() passes it. Fails as curl -f
+#           does when the file ntfy-fail exists. {tool: "ntfy", url, title, body}.
+#
+# Anything else is logged as {tool: "unknown"} and fails as a refused
+# connection would: nothing here reaches the network.
+set -euo pipefail
+
+dir=$NS_CASE
+log=$dir/log.jsonl
+url="" data="" config="" title=""
+while (($#)); do
+  case $1 in
+    -K)
+      config=$(<"$2")
+      shift
+      ;;
+    --data-binary)
+      data=$2
+      shift
+      ;;
+    -H)
+      [[ $2 != "Title: "* ]] || title=${2#Title: }
+      shift
+      ;;
+    -w | -o | --max-time) shift ;;
+    -*) ;;
+    *) url=$1 ;;
+  esac
+  shift
+done
+[[ -n $url || $config != "url = "* ]] || url=${config#url = }
+
+record() {
+  jq -nc "$@" >>"$log"
+}
+
+if [[ $url == https://api.linear.app/graphql ]]; then
+  shopt -s nullglob
+  issues=("$dir"/linear/issues/*.json)
+  all=$(if ((${#issues[@]})); then jq -s . "${issues[@]}"; else echo '[]'; fi)
+  query=$(jq -r .query <<<"$data")
+  vars=$(jq -c .variables <<<"$data")
+  # The key reaches curl in -K, never on the command line.
+  if [[ $config != *'"Authorization: test-key"'* ]]; then
+    record '{tool: "linear", op: "no key"}'
+    echo '{"errors": [{"message": "Authentication required"}]}'
+    exit 0
+  fi
+  case $query in
+    *issueCreate*) op=issueCreate ;;
+    *issueUpdate*) op=issueUpdate ;;
+    *commentCreate*) op=commentCreate ;;
+    *'issue(id:'*) op=issue ;;
+    *includeArchived*) op=tidy ;;
+    *'after: $after'*) op=backlog ;;
+    *'state: {name: {eq: $s}}'*) op=queued ;;
+    *'teams {'*) op=workspace ;;
+    *'viewer { id }'*) op=viewer ;;
+    *) op=unknown ;;
+  esac
+  record --arg op "$op" --argjson v "$vars" '{tool: "linear", op: $op, variables: $v}'
+  issue_file() { echo "$dir/linear/issues/$(jq -r .id <<<"$vars").json"; }
+  case $op in
+    viewer) echo '{"data": {"viewer": {"id": "user-nick"}}}' ;;
+    issue)
+      f=$(issue_file)
+      if [[ -f $f ]]; then
+        jq -c '{data: {issue: .}}' "$f"
+      else
+        echo '{"errors": [{"message": "Entity not found: Issue"}]}'
+      fi
+      ;;
+    issueUpdate)
+      f=$(issue_file)
+      jq --arg s "$(jq -r .s <<<"$vars")" \
+        '.state = (.team.states.nodes[] | select(.id == $s) | {name, type})' "$f" >"$f.tmp"
+      mv "$f.tmp" "$f"
+      echo '{"data": {"issueUpdate": {"success": true}}}'
+      ;;
+    commentCreate)
+      f=$(issue_file)
+      jq --arg b "$(jq -r .b <<<"$vars")" \
+        '.comments.nodes += [{body: $b, createdAt: (now | todate), user: {id: "user-nick"}}]' "$f" >"$f.tmp"
+      mv "$f.tmp" "$f"
+      echo '{"data": {"commentCreate": {"success": true}}}'
+      ;;
+    queued)
+      jq -c --arg s "$(jq -r .s <<<"$vars")" \
+        '{data: {issues: {nodes: [.[] | select(.state.name == $s) | {id, priority, createdAt}]}}}' <<<"$all"
+      ;;
+    tidy)
+      jq -c --argjson ids "$(jq -c .ids <<<"$vars")" \
+        '{data: {issues: {nodes: [.[] | select(.id | IN($ids[])) | {id, state}]}}}' <<<"$all"
+      ;;
+    backlog)
+      jq -c '{data: {issues: {pageInfo: {hasNextPage: false, endCursor: null},
+        nodes: [.[] | select(.state.type | IN("completed", "canceled") | not)
+          | {identifier, title, description, priority, priorityLabel, updatedAt,
+             state, project, labels}]}}}' <<<"$all"
+      ;;
+    workspace) cat "$dir/linear/workspace.json" ;;
+    issueCreate) echo '{"data": {"issueCreate": {"success": true, "issue": {"identifier": "TST-99", "url": "https://linear.app/test/issue/TST-99"}}}}' ;;
+    *) echo '{"errors": [{"message": "the curl stub does not know this query"}]}' ;;
+  esac
+elif [[ $url == https://api.github.com/* ]]; then
+  record --arg url "$url" '{tool: "github", url: $url}'
+  if [[ -f $dir/github ]]; then
+    code=$(head -n 1 "$dir/github")
+    tail -n +2 "$dir/github"
+  else
+    code=200
+    echo '[]'
+  fi
+  printf '\n%s' "$code"
+elif [[ $config == "url = "* ]]; then
+  record --arg url "$url" --arg t "$title" --arg b "$data" '{tool: "ntfy", url: $url, title: $t, body: $b}'
+  if [[ -f $dir/ntfy-fail ]]; then
+    echo "curl: (22) The requested URL returned error: 500" >&2
+    exit 22
+  fi
+else
+  record --arg url "$url" '{tool: "unknown", url: $url}'
+  echo "curl: (7) the test stub refuses $url" >&2
+  exit 7
+fi
