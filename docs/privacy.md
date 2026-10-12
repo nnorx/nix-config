@@ -411,11 +411,19 @@ still writes a report locally, listed in `about:crashes`. If the whole browser
 crashes, Mozilla's crash reporter dialog still opens, with a send checkbox it
 remembers itself, so a report goes only if that box is ticked when it closes.
 
-**Brave** (`unstable.brave`, same file). No policy is set, so Brave's defaults
-apply, including its daily usage ping and its P3A product analytics, which
-Brave describes as private but which leave the house all the same. **off**
-(F2): Brave reads managed policies from `/etc/brave/policies/managed`, which
-NixOS can write.
+**Brave** (`unstable.brave`, same file). Brave's defaults send a daily usage
+ping, which counts active installs, and P3A, its product analytics, which
+Brave describes as private but which leave the house all the same. Web
+Discovery, which contributes browsing data to Brave's search index, is off by
+default, but the welcome page and settings both offer it. **off** (F2), by
+managed policy: `BraveStatsPingEnabled`, `BraveP3AEnabled` and
+`BraveWebDiscoveryEnabled`, all false, in
+`/etc/brave/policies/managed/nixos.json`, which Brave reads on Linux. Each
+also locks its setting, and `brave://policy` lists them. Crash reports, to
+`cr.brave.com`, are off by default on the stable channel, but the welcome
+page's box for them is ticked, and Brave asks again after a crash. Chromium's
+`MetricsReportingEnabled` policy, which Brave reads as the crash report
+switch, would settle both, and is not set.
 
 **VS Code** (`unstable.vscode`, `hosts/forge/dev.nix`). Microsoft's build, with
 settings and extensions from Settings Sync, so nothing about telemetry is
