@@ -111,8 +111,19 @@ on forge, which the night shift rewrites after every run.
 
 Read-only diagnostics on a host go through `fleet-ssh <host> <command>`, the
 one command that runs outside the sandbox (`home/ssh.nix`); plain `ssh` has no
-route out of it. Keep each call to that single command: a pipe, a redirect or
-`&&` keeps the whole call inside the sandbox, so filter on the remote side.
+route out of it. Keep each call to that single command: a pipe, a redirect,
+`&&`, or a `$(...)` anywhere, even inside the quoted remote command, keeps the
+whole call inside the sandbox. Filter on the remote side, inside the quotes,
+and print values with `printf` and `cat` rather than substitution:
+
+```
+fleet-ssh gate 'printf "accept_ra="; cat /proc/sys/net/ipv6/conf/wan/accept_ra; ip -6 -o addr show dev wan | wc -l'
+```
+
+A call kept in the sandbox fails with ssh's "Network is unreachable". That
+means the command's shape, not that forge is away from home: check
+`/sys/class/net/wg-home` and the shape before concluding a host is
+unreachable, and never write "unreachable" into a handoff on that alone.
 After a reboot the agent is empty until Nick runs `ssh-add`, and hosts refuse
 the key until then. `fleet-ssh <host> host-status` is the first question to
 ask a host: its running revision, root device, last upgrade and failed units
