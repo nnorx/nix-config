@@ -82,6 +82,10 @@ read_handoff() {
   tail -n +2 "$1" | sed '/./,$!d' >"$body"
 }
 
+# What looks like an IP or MAC address. lib/net.nix's own addresses are
+# public and match too, so a hit is a reason to look, not to refuse.
+address='\b([0-9]{1,3}\.){3}[0-9]{1,3}\b|\b([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}\b'
+
 # What the review below is for: the PR is public, and this runs as Nick.
 show() {
   echo "--- title"
@@ -90,10 +94,23 @@ show() {
   cat "$body"
   echo "---"
   local hits
-  hits=$({ echo "$head"; cat "$body"; } |
-    grep -nE '\b([0-9]{1,3}\.){3}[0-9]{1,3}\b|\b([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}\b' || true)
+  hits=$({ echo "$head"; cat "$body"; } | grep -nE "$address" || true)
   if [[ -n $hits ]]; then
     echo "!! These lines look like an IP or MAC address:"
+    echo "$hits"
+  fi
+}
+
+# show_commits <range>: the same check over each commit message in <range>.
+# A branch's commits stay listed on its PR after the squash merge, so their
+# messages are published with it. Each hit is <commit>:<line>:<text>.
+show_commits() {
+  local hits
+  hits=$(git rev-list --reverse "$1" | while read -r c; do
+    git show -s --format=%B "$c" | grep -nE "$address" | sed "s/^/${c:0:7}:/" || true
+  done)
+  if [[ -n $hits ]]; then
+    echo "!! These commit message lines look like an IP or MAC address:"
     echo "$hits"
   fi
 }
@@ -146,6 +163,7 @@ publish() {
     echo "!! Uncommitted changes, which will not be pushed."
   fi
   show
+  show_commits "origin/$base..HEAD"
   confirm "Push $branch and $action?" "$base" HEAD \
     git diff --color=always "origin/$base...HEAD" ||
     die "nothing published"
@@ -161,7 +179,7 @@ publish() {
 
 merge() {
   [[ $# -eq 1 && $1 =~ ^[0-9]+$ ]] || usage
-  local n=$1 info state branch base tip
+  local n=$1 info state branch base tip now
   info=$(gh pr view "$n" --json state,headRefName,baseRefName,headRefOid \
     -q '"\(.state) \(.headRefName) \(.baseRefName) \(.headRefOid)"')
   read -r state branch base tip <<<"$info"
@@ -177,7 +195,16 @@ merge() {
     gh pr diff "$n" --color=always ||
     die "nothing merged"
 
-  gh pr merge "$n" --squash --delete-branch --subject "$head" --body-file "$body"
+  # Only the head read above, which the review was of. Merging deploys the
+  # Pis that night, so a push to the branch since then must not ride along.
+  if ! gh pr merge "$n" --squash --delete-branch --match-head-commit "$tip" \
+    --subject "$head" --body-file "$body"; then
+    now=$(gh pr view "$n" --json headRefOid -q .headRefOid) || now=$tip
+    [[ $now == "$tip" ]] ||
+      die "nothing merged: $branch moved from ${tip:0:7} to ${now:0:7} during the review." \
+        "Run pr-handoff merge $n again to review the new head."
+    die "nothing merged"
+  fi
   rm -f "$dir/$branch.md" "$dir/$branch.squash.md"
 }
 
