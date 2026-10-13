@@ -1,0 +1,84 @@
+name: Cache VM tests
+
+# Builds, and so runs, every NixOS VM test on main and pushes the results to
+# Cachix. A test is an ordinary derivation: a pull request that leaves its
+# inputs alone (the modules it imports, lib/net.nix, the test file) evaluates
+# to the derivation main built, and check.yml's vm-tests job, whose read-only
+# Cachix step already adds this cache, substitutes the result instead of
+# booting the VMs again. A pull request that changes a test's inputs still
+# runs that test.
+#
+# Beside cache.yml rather than in it. cache.yml serialises whole runs, so a
+# job there would wait out a Pi 4 kernel compile of up to five hours before
+# the tests ran. And cache.yml's result is what says the Pis can substitute
+# tonight's upgrade, which a timing-bound test failing on a busy runner
+# should not turn red.
+#
+# The outputs are empty directories, but useDaemon pushes everything the job
+# builds, which includes each test's VM systems and driver, and the cache is
+# public. That is safe because the tests use stand-ins for secrets
+# (dns-metrics renders test values) and the sops files are never decrypted in
+# CI. A test must keep using stand-ins.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# The token only checks out the repo. Pushing to Cachix uses its own secret,
+# as in cache.yml.
+permissions:
+  contents: read
+
+# Never cancel a run in flight, as in cache.yml: a superseded run's results
+# are still main's, and the tests a later commit leaves alone are the same
+# derivations, so they are worth pushing.
+concurrency:
+  group: cache-vm-tests-${{ github.ref }}
+  cancel-in-progress: false
+
+# See cache.yml: this job holds the Cachix push token too.
+env:
+  OTEL_SDK_DISABLED: "true"
+
+jobs:
+  vm-tests:
+    runs-on: ubuntu-latest
+    # As check.yml's vm-tests job.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # main @ 2026-09-09
+        with:
+          diagnostic-endpoint: ""
+          # See check.yml's vm-tests job: the tests need the `kvm` system
+          # feature, and this opens /dev/kvm to the runner user.
+          kvm: true
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: nnorx-nix-config
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          # Push only what this job builds, as cache.yml does, not the VM
+          # closures substituted from cache.nixos.org.
+          useDaemon: true
+      - run: |
+          ls -l /dev/kvm
+          nix config show system-features
+      # The same build as check.yml's vm-tests job, which says why it is
+      # listed by evaluation, one test at a time, and with --keep-going. Here
+      # --keep-going also means one failing test does not stop the others
+      # being pushed. A test that fails pushes nothing for itself, so pull
+      # requests run it until main passes it again.
+      - run: |
+          names=$(nix eval --json --accept-flake-config .#checks.x86_64-linux --apply builtins.attrNames)
+          mapfile -t tests < <(jq -r '.[]' <<<"$names")
+          if [ ${#tests[@]} -eq 0 ]; then
+            echo "no tests in checks.x86_64-linux" >&2
+            exit 1
+          fi
+          echo "VM tests: ${tests[*]}"
+          args=()
+          for t in "${tests[@]}"; do
+            args+=(".#checks.x86_64-linux.$t")
+          done
+          nix build --no-link --print-build-logs --keep-going --max-jobs 1 --accept-flake-config "${args[@]}"

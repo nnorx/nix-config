@@ -121,7 +121,9 @@ jobs:
   # the wrong reason.
   #
   # PR-only, cancel-in-progress and read-only Cachix for the same reasons as
-  # build-etc.
+  # build-etc. cache-vm-tests.yml builds the tests on main and pushes them,
+  # so a test whose inputs this pull request leaves alone is copied from the
+  # cache rather than run, and only the tests it touches boot VMs here.
   vm-tests:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest

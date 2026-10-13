@@ -26,8 +26,11 @@ before changing it.
   --no-link`; most of the closure comes from caches.
 - The NixOS VM tests are `checks.x86_64-linux` in `flake.nix`. Preflight only
   evaluates them, and check.yml's `vm-tests` job runs them on pull requests.
-  A change to gate's firewall or DNS, to the resolvers' AdGuard Home or
-  Unbound, or to forge's DNS, should run the matching test locally first, with
+  `cache-vm-tests.yml` builds them on main and pushes them to Cachix, so a pull
+  request runs only the tests whose inputs it changes and copies the rest. A
+  test pushed from main is public, so it uses stand-ins for secrets. A change
+  to gate's firewall or DNS, to the resolvers' AdGuard Home or Unbound, or to
+  forge's DNS, should run the matching test locally first, with
   `nix build --no-link .#checks.x86_64-linux.<name>`. On forge the nix daemon
   has KVM, so this works from the sandbox, which shows no `/dev/kvm`.
 - The flake only sees files git tracks. `git add` a new file before evaluating.
