@@ -1,0 +1,7 @@
+# shellcheck shell=bash
+# systemctl, for tests/night-shift/run.sh: logs the call to $NS_CASE/log.jsonl
+# as {tool: "systemctl", args} and succeeds, so a case can see what the
+# dispatcher asked of the user manager without one.
+set -euo pipefail
+
+printf '%s\0' "$@" | jq -Rsc '{tool: "systemctl", args: (split("\u0000") | .[:-1])}' >>"$NS_CASE/log.jsonl"

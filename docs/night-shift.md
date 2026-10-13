@@ -87,8 +87,12 @@ the repo's `.git/night-shift/`. If one of them fails, the issue lands in
   comment, `cd <worktree> && pr-handoff`.
 - **Needs you:** the agent's questions are in the comment. Answer in a comment
   and move the issue back to `Queued`; the same session resumes with your
-  answer. `claude attach <name>` is the other way in. An agent with no result
-  after 4 hours lands here too.
+  answer. `claude attach <name>` is the other way in: what the agent reports
+  after you answer there is posted by the next run, as is a handed-off
+  agent's when you ask it for more. An agent lands here too when its session
+  ends or waits on a prompt without writing a result, seen on two runs, or
+  has no result after 4 hours of work. Only time forge is awake counts toward
+  the 4 hours.
 - **Re-queue while it runs:** to add something mid-task, comment and move the
   issue to `Queued`. It stays there, and once the agent's result is in, the
   result is posted and the session resumed with your comment.
@@ -165,8 +169,12 @@ rename it back.
 
 ## Limits
 
-- It runs only while forge is awake and you are logged in. A closed lid pauses
-  it, and the timer catches up after.
+- It runs only while forge is awake and you are logged in. While an agent
+  works on AC, the night shift keeps forge from idle sleep (Plasma's 15
+  minutes), so locking the screen and walking away is enough; the screen
+  still turns off. A closed lid still suspends it, and on battery forge idles
+  to sleep as usual. Either way the agents pause, and the timer catches up
+  after.
 - Comments come from your own key, so Linear does not notify you of them. The
   push from ntfy is the notification. Titled "Night shift", it names the
   issue by its identifier and what happened, "NNO-12: Handoff ready
