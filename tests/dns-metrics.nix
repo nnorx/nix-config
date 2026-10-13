@@ -97,16 +97,13 @@ in
 
   nodes = {
     resolver =
-      { pkgs, ... }:
+      { lib, pkgs, ... }:
       {
         imports = [
           sopsStub
-          # As hosts/core4 imports them, but for the fallback.
-          (import ../modules/adguardhome.nix {
-            adminUser = "core4";
-            upstreamDns = [ "127.0.0.1:${toString net.ports.unbound}" ];
-            fallbackDns = [ fallback.ip ];
-          })
+          # As hosts/common/resolver.nix imports them, but for the fallback
+          # below.
+          (import ../modules/adguardhome.nix { adminUser = "core4"; })
           (import ../modules/unbound.nix { })
           ../modules/node-exporter.nix
         ];
@@ -129,7 +126,7 @@ in
               }
             ];
           };
-          # As hosts/core4 opens it.
+          # As hosts/common/resolver.nix opens it.
           firewall.interfaces.end0 = {
             allowedTCPPorts = [ 53 ];
             allowedUDPPorts = [ 53 ];
@@ -137,6 +134,9 @@ in
         };
 
         services.adguardhome.settings.user_rules = [ "||blocked.test^" ];
+        # The public resolvers are out of reach here. Forced, since AdGuard's
+        # settings would otherwise join the two lists.
+        services.adguardhome.settings.dns.fallback_dns = lib.mkForce [ fallback.ip ];
 
         # modules/ssh.nix sets it on every host, and the exporters' binds rely
         # on it at boot.

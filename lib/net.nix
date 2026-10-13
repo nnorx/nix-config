@@ -197,11 +197,11 @@
     # adding an `ip` here would silently configure a LAN address and a LAN
     # default gateway on the interface facing the internet.
     #
-    # Nothing may assume gate has an `ip`: hosts/core5's pimon firewall and
-    # modules/unbound's `allowFrom` both dereference `net.hosts.<h>.ip`
-    # unguarded, so naming gate in either fails *that* host's evaluation rather
-    # than gate's. modules/net-assertions.nix catches the `pimonAgents` half
-    # with a message that names the cause; `allowFrom` is still bare.
+    # Nothing may assume gate has an `ip`: hosts/core5's pimon firewall
+    # dereferences `net.hosts.<h>.ip` unguarded, so naming gate in
+    # `pimonAgents` fails core5's evaluation rather than gate's.
+    # modules/net-assertions.nix catches it with a message that names the
+    # cause.
     #
     # Metrics did not force one either. What the scraper needs is narrower:
     # the address gate is reached at from the collector's segment, which is

@@ -1,7 +1,8 @@
 # Shared NixOS configuration for every host.
 #
 # Boot and storage live in pi.nix (Pis) or the host's own directory (x86), since
-# those genuinely differ per platform. Everything here applies fleet-wide.
+# those genuinely differ per platform. Everything here applies fleet-wide, but
+# for resolver.nix, which the hosts in net.resolvers get.
 {
   config,
   pkgs,
@@ -23,7 +24,10 @@ in
     ../../modules/host-status.nix
     ../../modules/node-exporter.nix
     ../../modules/alerts.nix
-  ];
+  ]
+  # The one role chosen here, by lib/net.nix rather than by each host: see
+  # resolver.nix.
+  ++ lib.optional (lib.elem hostname net.resolvers) ./resolver.nix;
 
   # mkDefault so a host installed from a later release can keep its own. This
   # pins backward-compatible defaults for stateful data, not the release in

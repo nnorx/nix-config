@@ -1,20 +1,14 @@
 # AdGuard Home — DNS filtering, ad blocking, and web UI
-# Parameterized for use by multiple hosts with different DNS backends
+# In front of the host's own Unbound (modules/unbound.nix), which recurses,
+# caches and validates. hosts/common/resolver.nix imports both, on each of the
+# fleet's resolvers.
 #
 # The admin password hash is bcrypt, so publishing it exposes it to offline
 # cracking. It lives in secrets/<hostname>.yaml (sops/age) and is spliced into
 # the config at activation, reaching neither git nor the Nix store. So are the
 # password and hash of the second login, which reads AdGuard's statistics for
 # the metrics store (below).
-{
-  adminUser,
-  upstreamDns,
-  fallbackDns ? [ ],
-  cacheEnabled ? false,
-  cacheOptimistic ? cacheEnabled,
-  dnssecEnabled ? false,
-  upstreamTimeout ? "2s",
-}:
+{ adminUser }:
 {
   config,
   lib,
@@ -71,11 +65,13 @@ let
 
   # AdGuard names an upstream by address and port, adding DNS's port when the
   # configured one has none. Each is reported as the role it has here rather
-  # than by address, so a query reads `upstream="fallback"`.
+  # than by address, so a query reads `upstream="fallback"`. Read from the
+  # settings, so the roles follow an override: tests/dns-metrics.nix gives
+  # AdGuard a fallback inside the test network.
   withPort = u: if lib.hasInfix ":" u then u else "${u}:53";
   roles = builtins.toJSON {
-    primary = map withPort upstreamDns;
-    fallback = map withPort fallbackDns;
+    primary = map withPort cfg.settings.dns.upstream_dns;
+    fallback = map withPort cfg.settings.dns.fallback_dns;
   };
 
   # The current hour's statistics, which AdGuard keeps as running totals that
@@ -264,8 +260,8 @@ in
         bind_hosts = [ "0.0.0.0" ];
         port = 53;
 
-        upstream_dns = upstreamDns;
-        fallback_dns = fallbackDns;
+        upstream_dns = [ "127.0.0.1:${toString net.ports.unbound}" ]; # This host's Unbound
+        fallback_dns = net.publicResolvers; # Used only if local Unbound is unreachable
         # Used only to resolve the *names* of DoH/DoT upstreams, before any
         # resolver is available.
         bootstrap_dns = net.publicResolvers;
@@ -277,10 +273,10 @@ in
         # survives. It also anonymises before it looks the client up, so the
         # work segment's rule, which matches that segment's subnet, would stop
         # matching and work's queries would be logged. What remained would be
-        # the domains, which are the
-        # sensitive half, with the one thing that makes them useful for
-        # debugging, and for checking that gate's dns-redirect catches a
-        # device, removed. Short retention is the privacy control instead.
+        # the domains, which are the sensitive half, with the one thing that
+        # makes them useful for debugging, and for checking that gate's
+        # dns-redirect catches a device, removed. Short retention is the
+        # privacy control instead.
         anonymize_client_ip = false;
 
         # No client subnet is added to what AdGuard sends upstream. The
@@ -291,18 +287,19 @@ in
           use_custom = false;
         };
 
-        cache_enabled = cacheEnabled;
-        # Answer from cache immediately and refresh behind it, so an upstream
+        cache_enabled = false; # Unbound handles caching
+        # Off with the cache. Unbound does this instead: serve-expired answers
+        # from its cache immediately and refreshes behind it, so an upstream
         # outage is invisible for anything already looked up once.
-        cache_optimistic = cacheOptimistic;
-        enable_dnssec = dnssecEnabled;
+        cache_optimistic = false;
+        enable_dnssec = false; # Unbound handles DNSSEC
 
         # Default is 10s. That is how long AdGuard sits on a dead upstream
         # before it will try fallback_dns, which turns a working failover into
         # a 10-20s stall on every cache miss. Only reached when an upstream
         # stops answering without refusing the connection: a powered-off host
         # or a hung resolver, both of which drop packets rather than reset.
-        upstream_timeout = upstreamTimeout;
+        upstream_timeout = "2s";
 
         # Queries/sec ceiling, and it is per *segment*: AdGuard buckets clients
         # by subnet (ratelimit_subnet_len_ipv4 defaults to 24, and every segment

@@ -39,8 +39,8 @@ in
     # recursive rather than forwarding somewhere: nothing to be down.
     #
     # Port 53 rather than the fleet's 5335, because resolv.conf cannot express
-    # a port and there is no AdGuard on this host competing for it. allowFrom
-    # is empty, so it binds 127.0.0.1 alone.
+    # a port and there is no AdGuard on this host competing for it. The module
+    # binds 127.0.0.1 alone.
     (import ../../modules/unbound.nix {
       port = 53;
       resolveLocalQueries = true;

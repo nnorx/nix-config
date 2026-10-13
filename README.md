@@ -54,7 +54,8 @@ secrets/               Per-host encrypted secrets
 hosts/
   common/              Fleet-wide: locale, users, addressing, deploy aliases
     pi.nix             Pi-only boot and SD-card layout
-  core4/ lifeline/     AdGuard + Unbound
+    resolver.nix       AdGuard + Unbound, on each host in net.resolvers
+  core4/ lifeline/     The resolvers
   core5/               Home Assistant, UniFi, pimon collector, metrics, NVMe root
   gate/                The router
     routing.nix        VLANs, NAT, firewall policy, Kea
@@ -65,7 +66,7 @@ hosts/
                        the night shift
 
 modules/
-  adguardhome.nix      Parameterised AGH: upstreams, caching, DNSSEC, blocklists,
+  adguardhome.nix      AGH in front of Unbound: privacy settings, blocklists,
                        its counts for the metrics store
   unbound.nix          Recursive resolver, DNSSEC, cache persistence, exporter
   unifi.nix            Controller as two pinned containers
