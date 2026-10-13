@@ -298,6 +298,9 @@
       checks.x86_64-linux.forge-dns = pkgsFor.x86_64-linux.testers.runNixOSTest (
         import ./tests/forge-dns.nix { inherit net; }
       );
+      checks.x86_64-linux.unbound-root-zone = pkgsFor.x86_64-linux.testers.runNixOSTest (
+        import ./tests/unbound-root-zone.nix { inherit net; }
+      );
 
       # Formatter for `nix fmt`
       formatter = forAllSystems ({ pkgs, ... }: pkgs.nixfmt-tree);

@@ -156,10 +156,8 @@ in
         # a local name.
         #
         # Single-label names (`printer.`) cannot be listed this way, since a
-        # local-zone is a suffix and every TLD is one label too. They still
-        # reach the root, though aggressive-nsec answers most repeats from
-        # root NSEC records already validated. docs/privacy.md has the option
-        # that would close it.
+        # local-zone is a suffix and every TLD is one label too. The local
+        # copy of the root zone below answers those.
         local-zone = map (zone: ''"${zone}." static'') [
           "lan"
           "local"
@@ -201,6 +199,55 @@ in
         edns-buffer-size = 1232;
       };
       # No forward-zone = true recursive resolution from root servers
+
+      # A local copy of the root zone (RFC 8806), so a name under a TLD that
+      # does not exist, a single-label one like a bare `printer` above all, is
+      # answered NXDOMAIN from here rather than asked of the root. The root
+      # servers see a SOA query every half hour, the zone's refresh time, and
+      # a transfer when its serial moves, rather than the house's lookups.
+      #
+      # for-upstream without for-downstream: the copy stands in for the root
+      # servers during recursion, and what it answers goes through the
+      # validator as theirs would. fallback-enabled covers every way the copy
+      # can be missing or wrong: no file yet on a first start, every source
+      # unreachable until the zone's week-long expiry runs out, a transfer
+      # refused by the check below, or an answer that fails validation. Each
+      # falls back to asking the root servers, which is how this resolved
+      # before.
+      #
+      # zonemd-check verifies the zone's ZONEMD digest after every load and
+      # transfer, and its signature against the trust anchor, so a truncated
+      # or altered zone is refused rather than served or written: Unbound
+      # drops its copy as expired and falls back, and the file keeps the last
+      # good zone. The root zone has carried a ZONEMD since December 2023, so
+      # one without is refused too: it would be a zone with the record
+      # stripped.
+      #
+      # The file is in Unbound's StateDirectory, so a restart or a reboot
+      # starts from the last copy rather than without one. It is about 2 MB,
+      # rewritten whole on each transfer, and the root's serial moves about
+      # twice a day: under 2 GB a year on core4's and lifeline's SD cards.
+      #
+      # Transfers are TCP 53 out, to the addresses in net.rootZoneSources.
+      # Nothing filters a resolver's own outbound DNS: the Pis' firewall is
+      # inbound only, gate's servers-egress passes the fleet's hosts, and its
+      # DNS redirect leaves the resolvers' segment and gate's own traffic
+      # alone.
+      #
+      # tests/unbound-root-zone.nix has the start without a file, the
+      # transfer, a tampered zone refused, and a restart from the file.
+      auth-zone = [
+        {
+          name = ''"."'';
+          primary = net.rootZoneSources;
+          zonefile = "${config.services.unbound.stateDir}/root.zone";
+          for-downstream = false;
+          for-upstream = true;
+          fallback-enabled = true;
+          zonemd-check = true;
+          zonemd-reject-absence = true;
+        }
+      ];
     };
   };
 
