@@ -52,6 +52,12 @@ max=${NIGHT_SHIFT_MAX:-2}
 stall_hours=${NIGHT_SHIFT_STALL_HOURS:-4}
 failed_runs=${NIGHT_SHIFT_FAILED_RUNS:-3}
 state_dir=${XDG_STATE_HOME:-$HOME/.local/state}/night-shift
+power_dir=${NIGHT_SHIFT_POWER:-/sys/class/power_supply}
+# The most one run adds to an agent's working time (quiet), twice the timer's
+# 10 minutes, and how far apart two looks must be before an ended session
+# counts as quiet.
+tick=$((20 * 60))
+settle=$((5 * 60))
 shopt -s nullglob
 
 now() { date -u +%FT%TZ; }
@@ -293,14 +299,94 @@ closed() {
   [[ $(jq -r .state.type <<<"$1") == completed || $(jq -r .state.type <<<"$1") == canceled ]]
 }
 
-# agent <name> <worktree>: "<id> <sessionId>" of the background agent with
-# that name in that worktree, or nothing. The session id is what --resume
+# agent <name> <worktree>: "<id> <sessionId> <state>" of the background agent
+# with that name in that worktree, or nothing. The session id is what --resume
 # takes, the short id what `claude stop` takes. `claude --bg` picks both itself
 # and ignores --session-id, so this asks its roster rather than choosing one.
 agent() {
   cl agents --json --all </dev/null 2>/dev/null |
     jq -r --arg n "$1" --arg wt "$2" \
-      'map(select(.name == $n and .cwd == $wt)) | last | select(.) | "\(.id) \(.sessionId)"' || true
+      'map(select(.name == $n and .cwd == $wt)) | last | select(.) | "\(.id) \(.sessionId) \(.state)"' || true
+}
+
+# The roster's states for a session no longer at work: finished, stopped, or
+# waiting on a prompt. Anything else counts as working. quiet, a resume and
+# land_one all go by this one list.
+ENDED="done blocked stopped failed"
+
+at_work() {
+  [[ " $ENDED " != *" $1 "* ]]
+}
+
+# quiet <state file> <name> <worktree>: why a running agent with no result
+# counts as quiet, or nothing, and status 1, while it is still at work. Either:
+#
+# - Its session has ended without writing a result, or waits on a prompt,
+#   on two looks `settle` apart. One look is not enough to be sure the agent
+#   will not carry on.
+# - It has worked `stall_hours` with forge awake. Each run adds the time since
+#   the last, but at most `tick`, so hours forge spent asleep, when no run
+#   came, count as one tick. On a wall clock, a night asleep reads as a night
+#   of silence, and agents still at work were flagged as soon as forge woke.
+quiet() {
+  local f=$1 t last worked st="" ended=""
+  t=$(date +%s)
+  last=$(date -d "$(jq -r '.ticked // .started' "$f")" +%s)
+  worked=$(($(jq -r '.worked // 0' "$f") + (t - last < tick ? (t > last ? t - last : 0) : tick)))
+  read -r _ _ st <<<"$(agent "$2" "$3")" || true
+  # A roster that does not list the session, or could not be read, says
+  # nothing either way, so an end already seen stands.
+  if [[ -z $st ]]; then
+    ended=$(jq -r '.ended // ""' "$f")
+    st=$(jq -r '.ended_as // ""' "$f")
+  elif ! at_work "$st"; then
+    ended=$(jq -r --arg now "$(now)" '.ended // $now' "$f")
+  fi
+  # shellcheck disable=SC2016 # jq's variables, not the shell's
+  update "$f" '.worked = $w | .ticked = $now
+    | if $e == "" then del(.ended, .ended_as) else .ended = $e | .ended_as = $s end' \
+    --argjson w "$worked" --arg now "$(now)" --arg e "$ended" --arg s "$st"
+  if [[ -n $ended ]] && ((t - $(date -d "$ended" +%s) >= settle)); then
+    if [[ $st == blocked ]]; then
+      echo "The agent is waiting on a prompt, with no result."
+    else
+      echo "The agent's session ended ($st) without writing a result."
+    fi
+  elif ((worked >= stall_hours * 3600)); then
+    echo "No result after $stall_hours hours of work."
+  else
+    return 1
+  fi
+}
+
+# on_ac: whether forge runs on mains power. A machine with no battery counts.
+on_ac() {
+  local s battery=""
+  for s in "$power_dir"/*; do
+    case $(cat "$s/type" 2>/dev/null) in
+      Mains) [[ $(cat "$s/online" 2>/dev/null) != 1 ]] || return 0 ;;
+      Battery) battery=1 ;;
+    esac
+  done
+  [[ -z $battery ]]
+}
+
+# awake: keeps forge from idle sleep while an agent works on AC, and only then.
+# Called as a run exits, whether it got through or not. Plasma suspends after
+# 15 idle minutes whatever runs, and a suspended forge freezes every agent
+# until someone wakes it, so work queued for the night waits for the morning.
+# This starts night-shift-awake.service, a power inhibition held by
+# kde-inhibit (night-shift.nix), and stops it once nothing runs or forge is on
+# battery, where it sleeps as before and the agents wait. Only idle sleep is
+# blocked: the screen still locks and turns off, and a closed lid still
+# suspends.
+awake() {
+  local verb=stop
+  if (($(running) > 0)) && on_ac; then
+    verb=start
+  fi
+  systemctl --user "$verb" night-shift-awake.service ||
+    echo "night-shift: could not $verb night-shift-awake.service" >&2
 }
 
 prompt_new() {
@@ -415,22 +501,28 @@ report() {
 }
 
 # One running issue: take its result back to Linear, or flag it as quiet.
+#
+# A waiting issue's result is taken too. Results are archived once read, so
+# one there now is new: Nick answered a flagged agent through `claude attach`,
+# or asked a handed-off one for more, and it reported again.
 finish_one() {
-  local f=$1 id ident repo wt branch name started result kind body i rc=0 verdict="" level session=""
-  [[ $(jq -r .phase "$f") == running ]] || return 0
+  local f=$1 id ident repo wt branch name result kind body i rc=0 verdict="" level session="" why=""
   id=$(jq -r .id "$f")
   ident=$(jq -r .ident "$f")
   repo=$(jq -r .repo "$f")
+  result=$(result_path "$repo" "$ident")
+  case $(jq -r .phase "$f") in
+    running) ;;
+    waiting) [[ -f $result ]] || return 0 ;;
+    *) return 0 ;;
+  esac
   wt=$(jq -r .worktree "$f")
   branch=$(jq -r .branch "$f")
   name=$(jq -r .name "$f")
-  started=$(jq -r .started "$f")
-  result=$(result_path "$repo" "$ident")
 
-  if [[ ! -f $result ]] && (($(date +%s) - $(date -d "$started" +%s) <= stall_hours * 3600)); then
-    return 0
-  fi
-  if [[ -f $result ]]; then
+  if [[ ! -f $result ]]; then
+    why=$(quiet "$f" "$name" "$wt") || return 0
+  else
     kind=$(head -n 1 "$result" | tr -d '[:space:]')
     body=$(tail -n +2 "$result")
     # Preflight first: it takes minutes, and the issue's state is read after
@@ -438,7 +530,7 @@ finish_one() {
     [[ $kind != handoff ]] || verdict=$(brief "$repo" "$branch")
     # The agent has just reported, so the roster surely lists it: keep its id
     # for a resume after the roster forgets.
-    read -r _ session <<<"$(agent "$name" "$wt")" || true
+    read -r _ session _ <<<"$(agent "$name" "$wt")" || true
     # shellcheck disable=SC2016 # jq's variables, not the shell's
     [[ -z ${session:-} ]] || update "$f" '.session = $s' --arg s "$session"
   fi
@@ -450,8 +542,8 @@ finish_one() {
   fi
   ((rc == 0)) || return "$rc"
 
-  if [[ ! -f $result ]]; then
-    report "$i" "$NEEDS" "No result after $stall_hours hours. \`claude attach $name\` shows where it is; move this back to $QUEUED to nudge it." \
+  if [[ -n $why ]]; then
+    report "$i" "$NEEDS" "$why \`claude attach $name\` shows where it is; move this back to $QUEUED to nudge it." \
       "Went quiet"
   else
     if [[ $kind == handoff ]]; then
@@ -480,7 +572,7 @@ Answer in a comment and move this back to $QUEUED to resume it, or \`claude atta
 
 # One queued issue: start an agent on it, or resume the one it had.
 start_one() {
-  local id=$1 i ident queuer f label repo base name wt branch session="" job="" result out copy
+  local id=$1 i ident queuer f label repo base name wt branch session="" job="" st="" result out copy
   i=$(issue "$id")
   [[ $(jq -r .state.name <<<"$i") == "$QUEUED" ]] || return 0
   ident=$(jq -r .identifier <<<"$i")
@@ -518,21 +610,35 @@ start_one() {
     name=$(jq -r .name "$f")
     # The roster first; the id saved earlier covers a roster that has
     # forgotten the session.
-    read -r job session <<<"$(agent "$name" "$wt")" || true
+    read -r job session _ <<<"$(agent "$name" "$wt")" || true
     [[ -n ${session:-} ]] || session=$(jq -r '.session // empty' "$f")
     if [[ -z $session ]]; then
       stop_issue "$i" "$NEEDS" "Could not find the agent's session to resume in \`$wt\`." "Did not resume"
       return 0
     fi
     result=$(result_path "$repo" "$ident")
-    # A result written after the agent was marked quiet is stale now.
+    # finish_one took any result written before this run; one written since
+    # is moot, as the resume asks for a new one.
     archive "$result"
     write_issue "$i" "$result"
     # --resume continues the session under the same id only if it is stopped
     # and given no flags; otherwise it starts a copy under a new id. A finished
     # session keeps its process, so stop it first. Its name and permission
     # mode are saved with it, and passing them again counts as new flags.
-    [[ -z ${job:-} ]] || cl stop "$job" </dev/null >/dev/null 2>&1 || true
+    if [[ -n ${job:-} ]]; then
+      cl stop "$job" </dev/null >/dev/null 2>&1 || true
+      # The roster can still call a session busy just after it stops, and a
+      # resume then starts a copy, as NNO-65's did just after its session
+      # exited. So wait, up to a minute, for the roster to say it has ended,
+      # or to forget it.
+      for _ in {1..30}; do
+        read -r _ _ st <<<"$(agent "$name" "$wt")" || true
+        if [[ -z $st ]] || ! at_work "$st"; then
+          break
+        fi
+        sleep 2
+      done
+    fi
     if ! out=$(cd "$wt" && cl --bg --resume "$session" </dev/null \
       "$(prompt_resume "$i" "$(jq -r .since "$f")" "$result")" 2>&1 >/dev/null); then
       stop_issue "$i" "$NEEDS" "Could not resume the session in \`$wt\`." "Did not resume"
@@ -547,8 +653,9 @@ start_one() {
       stop_issue "$i" "$NEEDS" "Not resumed: claude started a copy ($copy) instead of continuing the session, and the copy was stopped. \`claude attach ${job:-$session}\` opens the original." "Did not resume"
       return 0
     fi
+    # quiet's clock starts over.
     # shellcheck disable=SC2016 # jq's variables, not the shell's
-    update "$f" '.phase = "running" | .started = $now | .since = $now | .session = $s' \
+    update "$f" '.phase = "running" | .started = $now | .since = $now | .session = $s | del(.worked, .ticked, .ended)' \
       --arg now "$(now)" --arg s "$session"
   else
     label=$(jq -r '[.labels.nodes[] | select(.parent.name == "repo") | .name] | first // ""' <<<"$i")
@@ -579,7 +686,7 @@ start_one() {
       return 0
     fi
     # May be empty if the roster lags; finish_one and a resume ask again.
-    read -r _ session <<<"$(agent "$name" "$wt")" || true
+    read -r _ session _ <<<"$(agent "$name" "$wt")" || true
     # since: when the agent last heard from Nick, so a resume passes on
     # every comment made after it, including those made while it worked.
     jq -n --arg id "$id" --arg ident "$ident" --arg repo "$repo" --arg worktree "$wt" \
@@ -660,7 +767,7 @@ land_one() {
     keep="Claude's sessions could not be listed."
   elif [[ -n $tip && $tip != "$sha" ]]; then
     keep="\`$branch\` is at ${tip:0:12}, and the PR merged ${sha:0:12}."
-  elif busy=$(jq -r 'map(select(.state | IN("done", "blocked", "stopped", "failed") | not)
+  elif busy=$(jq -r --arg ended "$ENDED" 'map(select(.state | IN($ended | split(" ")[]) | not)
     | "\(.id) is \(.state)") | join(", ")' <<<"$sessions") && [[ -n $busy ]]; then
     keep="a session there is still at work: $busy."
   elif [[ -d $wt ]]; then
@@ -1059,6 +1166,9 @@ case ${1-} in
       echo "night-shift: a run is already going" >&2
       exit 0
     }
+    # However the run ends. One that cannot reach Linear ends early, and
+    # forge taken off AC and offline must still be let sleep.
+    trap awake EXIT
     load_key
     viewer=$(gql 'query { viewer { id } }' | jq -r .viewer.id)
     run

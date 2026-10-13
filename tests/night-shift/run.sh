@@ -10,8 +10,8 @@
 # re-runs itself in child(), `$BASH -euo pipefail night-shift.sh <command>`,
 # with an environment of the case's own (env -i): HOME, XDG_STATE_HOME,
 # GIT_CONFIG_GLOBAL and NIGHT_SHIFT_PROJECTS all point inside it. The stubs
-# under stubs/ come first on PATH, as curl, claude, systemd-run and bwrap, and
-# say how they answer; everything else is real, git included. Nothing reaches
+# under stubs/ come first on PATH, as curl, claude, systemd-run, bwrap and
+# systemctl, and say how they answer; everything else is real, git included. Nothing reaches
 # the network, the real claude, or Nick's own state directory.
 #
 # A case on tidy or land_one gives its repository a literal GitHub origin, for
@@ -51,8 +51,9 @@ stub curl curl
 stub claude claude
 stub systemd-run scope 'export NS_STUB=systemd-run; '
 stub bwrap scope 'export NS_STUB=bwrap; '
+stub systemctl systemctl
 path=$bin:$PATH
-for tool in curl claude systemd-run bwrap; do
+for tool in curl claude systemd-run bwrap systemctl; do
   [[ $(PATH=$path command -v "$tool") == "$bin/$tool" ]] || {
     echo "night-shift tests: $tool on PATH is not the stub" >&2
     exit 1
@@ -65,10 +66,14 @@ done
 c="" status=0
 
 # begin <dir>: the case's directory, with its own home, state directory,
-# projects, Linear key and ntfy topic, and a git config of its own.
+# projects, Linear key and ntfy topic, a git config of its own, and power
+# supplies that say it is on AC (battery to say otherwise).
 begin() {
   c=$1
-  mkdir -p "$c"/{home,state/night-shift,tmp,projects,remote,linear/issues}
+  mkdir -p "$c"/{home,state/night-shift,tmp,projects,remote,linear/issues,power/AC,power/BAT}
+  echo Mains >"$c/power/AC/type"
+  echo 1 >"$c/power/AC/online"
+  echo Battery >"$c/power/BAT/type"
   cd "$c"
   : >"$c/log.jsonl"
   echo test-key >"$c/key"
@@ -95,7 +100,7 @@ ns() {
   local cmd=(env -i PATH="$path" HOME="$c/home" TMPDIR="$c/tmp" XDG_STATE_HOME="$c/state"
     GIT_CONFIG_GLOBAL="$c/gitconfig" GIT_CONFIG_NOSYSTEM=1 NS_CASE="$c"
     NIGHT_SHIFT_KEY_FILE="$c/key" NIGHT_SHIFT_NTFY_FILE="$c/ntfy"
-    NIGHT_SHIFT_PROJECTS="$c/projects" NIGHT_SHIFT_MAX=2
+    NIGHT_SHIFT_PROJECTS="$c/projects" NIGHT_SHIFT_POWER="$c/power" NIGHT_SHIFT_MAX=2
     NIGHT_SHIFT_STALL_HOURS=4 NIGHT_SHIFT_FAILED_RUNS=3)
   while [[ ${1-} == *=* ]]; do
     cmd+=("$1")
@@ -310,14 +315,30 @@ case_start() {
   expect "moved to Running" is "$(state issue-1)" Running
   expect "a state file, phase running" is "$(jq -r .phase "$f" 2>&1)" running
   expect "with the session from the roster" is "$(jq -r .session "$f" 2>&1)" session-1
+  expect "forge kept awake, on AC" one '.tool == "systemctl" and .args == ["--user", "start", "night-shift-awake.service"]'
+  expect "and not let sleep" none '.tool == "systemctl" and .args[1] == "stop"'
+}
+
+case_start_battery() {
+  repo demo
+  issue issue-1
+  echo 0 >"$c/power/AC/online"
+  ns run
+  expect "exit 0" is "$status" 0
+  expect "started anyway" is "$(state issue-1)" Running
+  expect "forge let sleep, on battery" one '.tool == "systemctl" and .args == ["--user", "stop", "night-shift-awake.service"]'
+  expect "and not kept awake" none '.tool == "systemctl" and .args[1] == "start"'
 }
 
 # --- 4. finish_one ---------------------------------------------------------------
 
 # A running agent on TST-1, started <started>, that wrote <result>, if given.
+# The roster says its session is at work.
 running_agent() {
   repo demo
   agent_worktree running "${1:-$(date -u +%FT%TZ)}"
+  jq 'map(.state = "running")' "$c/roster.json" >"$c/roster.tmp"
+  mv "$c/roster.tmp" "$c/roster.json"
   issue issue-1 '.state = {name: "Running", type: "started"}'
   RESULT=$c/projects/demo/.git/night-shift/TST-1.md
   if [[ -n ${2-} ]]; then
@@ -342,6 +363,7 @@ case_finish_handoff() {
   expect "phase waiting" is "$(jq -r .phase "$c/state/night-shift/TST-1.json")" waiting
   expect "a push" one '.tool == "ntfy" and .body == "TST-1: Handoff ready" and .title == "Night shift"'
   expect "no preflight, with no rules in the repo" none '.tool == "bwrap"'
+  expect "forge let sleep, with nothing running" one '.tool == "systemctl" and .args == ["--user", "stop", "night-shift-awake.service"]'
 }
 
 case_finish_blocked() {
@@ -355,12 +377,22 @@ case_finish_blocked() {
   expect "a push" one '.tool == "ntfy" and .body == "TST-1: Needs you"'
 }
 
+# set_state <jq filter> [jq args...]: TST-1's state file, changed.
+set_state() {
+  local f=$c/state/night-shift/TST-1.json filter=$1
+  shift
+  jq "$@" "$filter" "$f" >"$f.tmp"
+  mv "$f.tmp" "$f"
+}
+
 case_finish_quiet() {
   running_agent "$(date -u -d '5 hours ago' +%FT%TZ)"
+  # A minute short of 4 hours of work as of the last run, 5 minutes ago.
+  set_state '.worked = 4 * 3600 - 60 | .ticked = $t' --arg t "$(date -u -d '5 minutes ago' +%FT%TZ)"
   ns run
   expect "exit 0" is "$status" 0
   expect "moved to Needs you" is "$(state issue-1)" "Needs you"
-  expect "a comment saying so" has "$(comments issue-1)" "No result after 4 hours."
+  expect "a comment saying so" has "$(comments issue-1)" "No result after 4 hours of work."
   expect "a push" one '.tool == "ntfy" and .body == "TST-1: Went quiet"'
   expect "phase waiting" is "$(jq -r .phase "$c/state/night-shift/TST-1.json")" waiting
 }
@@ -372,6 +404,98 @@ case_finish_working() {
   expect "left in Running" is "$(state issue-1)" Running
   expect "not asked about in Linear" none '.tool == "linear" and .op == "issue"'
   expect "phase still running" is "$(jq -r .phase "$c/state/night-shift/TST-1.json")" running
+}
+
+# Started 17 hours ago, at work, and no run since: forge was asleep, and the
+# gap counts as one tick, not as 17 hours of silence.
+case_finish_asleep() {
+  running_agent "$(date -u -d '17 hours ago' +%FT%TZ)"
+  ns run
+  expect "exit 0" is "$status" 0
+  expect "left in Running" is "$(state issue-1)" Running
+  expect "not asked about in Linear" none '.tool == "linear" and .op == "issue"'
+  expect "20 minutes of work counted" is "$(jq -r .worked "$c/state/night-shift/TST-1.json")" 1200
+  expect "forge kept awake" one '.tool == "systemctl" and .args[1] == "start"'
+}
+
+# The session ended without a result: left alone on the first look, flagged
+# on one 5 minutes or more later.
+case_finish_ended() {
+  running_agent
+  jq 'map(.state = "done")' "$c/roster.json" >"$c/roster.tmp"
+  mv "$c/roster.tmp" "$c/roster.json"
+  ns run
+  expect "exit 0" is "$status" 0
+  expect "left in Running at first" is "$(state issue-1)" Running
+  expect "the end noted" test -n "$(jq -r '.ended // empty' "$c/state/night-shift/TST-1.json")"
+  set_state '.ended = $t' --arg t "$(date -u -d '10 minutes ago' +%FT%TZ)"
+  ns run
+  expect "exit 0, again" is "$status" 0
+  expect "then moved to Needs you" is "$(state issue-1)" "Needs you"
+  expect "a comment saying so" has "$(comments issue-1)" "The agent's session ended (done) without writing a result. \`claude attach $NAME\`"
+  expect "a push" one '.tool == "ntfy" and .body == "TST-1: Went quiet"'
+}
+
+# Waiting on a prompt: the same two looks, and says so.
+case_finish_prompt() {
+  running_agent
+  jq 'map(.state = "blocked")' "$c/roster.json" >"$c/roster.tmp"
+  mv "$c/roster.tmp" "$c/roster.json"
+  set_state '.ended = $t' --arg t "$(date -u -d '10 minutes ago' +%FT%TZ)"
+  ns run
+  expect "exit 0" is "$status" 0
+  expect "moved to Needs you" is "$(state issue-1)" "Needs you"
+  expect "a comment saying so" has "$(comments issue-1)" "The agent is waiting on a prompt, with no result."
+}
+
+# Seen ended, then missing from the roster: the end seen stands.
+case_finish_roster_gap() {
+  running_agent
+  echo '[]' >"$c/roster.json"
+  set_state '.ended = $t | .ended_as = "done"' --arg t "$(date -u -d '10 minutes ago' +%FT%TZ)"
+  ns run
+  expect "exit 0" is "$status" 0
+  expect "moved to Needs you" is "$(state issue-1)" "Needs you"
+  expect "a comment naming the state seen" has "$(comments issue-1)" "The agent's session ended (done) without writing a result."
+}
+
+# A result after the issue was flagged, as when Nick answers the agent with
+# claude attach: taken like any other.
+case_finish_late() {
+  running_agent "" $'handoff\nFixed the widget after all.'
+  set_state '.phase = "waiting"'
+  issue issue-1 '.state = {name: "Needs you", type: "started"}'
+  ns run
+  expect "exit 0" is "$status" 0
+  expect "moved to Handoff ready" is "$(state issue-1)" "Handoff ready"
+  expect "a comment with the result" has "$(comments issue-1)" "Fixed the widget after all."
+  expect "the result archived" archived
+  expect "phase waiting" is "$(jq -r .phase "$c/state/night-shift/TST-1.json")" waiting
+}
+
+# A waiting issue with no result is left alone, though its session has ended
+# as one that went quiet does.
+case_finish_waiting() {
+  running_agent
+  jq 'map(.state = "done")' "$c/roster.json" >"$c/roster.tmp"
+  mv "$c/roster.tmp" "$c/roster.json"
+  set_state '.phase = "waiting" | .ended = $t' --arg t "$(date -u -d '10 minutes ago' +%FT%TZ)"
+  issue issue-1 '.state = {name: "Needs you", type: "started"}'
+  ns run
+  expect "exit 0" is "$status" 0
+  expect "left in Needs you" is "$(state issue-1)" "Needs you"
+  expect "not asked about in Linear" none '.tool == "linear" and .op == "issue"'
+}
+
+# Linear unreachable, forge taken off AC with an agent running: the run
+# fails, and still lets forge sleep.
+case_awake_offline() {
+  running_agent
+  touch "$c/linear-down"
+  echo 0 >"$c/power/AC/online"
+  ns run
+  expect "the run fails" is "$status" 1
+  expect "forge let sleep anyway" one '.tool == "systemctl" and .args == ["--user", "stop", "night-shift-awake.service"]'
 }
 
 # _finish alone, since run would go on to resume it (the next case).
@@ -398,6 +522,20 @@ case_finish_requeued_resumes() {
   expect "given Nick's comment" one '.tool == "claude" and .args[0] == "--bg" and (.args[3] | contains("Use the blue one."))'
   expect "moved to Running" is "$(state issue-1)" Running
   expect "phase running" is "$(jq -r .phase "$c/state/night-shift/TST-1.json")" running
+}
+
+# The roster still calls the session running for two looks after the stop:
+# the resume waits for it to say stopped.
+case_finish_requeued_slow_stop() {
+  running_agent "" $'handoff\nFixed the widget.'
+  issue issue-1 '.comments.nodes = [{body: "Use the blue one.", createdAt: "2030-01-01T00:00:00.000Z", user: {id: "user-nick"}}]'
+  touch "$c/stop-slow"
+  ns run
+  expect "exit 0" is "$status" 0
+  expect "resumed once" one '.tool == "claude" and .args[0:2] == ["--bg", "--resume"]'
+  expect "three looks between the stop and the resume" is "$(jq -s '
+    map(select(.tool == "claude")) | (map(.args[0]) | index("stop")) as $s
+    | (map(.args[1]) | index("--resume")) as $r | .[$s:$r] | map(select(.args[0] == "agents")) | length' "$c/log.jsonl")" 3
 }
 
 # --- 5. night-shift file's refusals -----------------------------------------------
@@ -533,13 +671,22 @@ cases=(
   "start_not_queuer  start: queued last by someone else: Needs you"
   "start_long_history start: history with another page: Needs you"
   "start_no_repo_label start: no repo label: Needs you"
-  "start             start: worktree with no upstream, issue text, claude --bg, Running"
-  "finish_handoff    finish: handoff: Handoff ready, archived, waiting"
+  "start             start: worktree with no upstream, issue text, claude --bg, Running, kept awake"
+  "start_battery     start: on battery: started, forge let sleep"
+  "finish_handoff    finish: handoff: Handoff ready, archived, waiting, forge let sleep"
   "finish_blocked    finish: blocked: Needs you"
-  "finish_quiet      finish: no result past the stall hours: Needs you"
+  "finish_quiet      finish: no result past the stall hours of work: Needs you"
   "finish_working    finish: no result within the stall hours: left alone"
+  "finish_asleep     finish: hours asleep count as one tick: left alone"
+  "finish_ended      finish: session ended with no result: Needs you on the second look"
+  "finish_prompt     finish: session waiting on a prompt: Needs you, saying so"
+  "finish_roster_gap finish: ended, then gone from the roster: the end seen stands"
+  "finish_late       finish: a result after it was flagged: taken"
+  "finish_waiting    finish: waiting with no result: left alone"
+  "awake_offline     run: Linear down, on battery: fails, forge let sleep"
   "finish_requeued   finish: re-queued meanwhile: a comment, left in Queued"
   "finish_requeued_resumes finish: re-queued meanwhile: run resumes it"
+  "finish_requeued_slow_stop finish: re-queued, the roster slow to see the stop: resume waits"
   "file_unknown_key  file: an unknown key: nothing filed"
   "file_control      file: a control character: nothing filed"
   "file_no_title     file: no title: nothing filed"

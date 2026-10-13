@@ -8,7 +8,8 @@
 #           ISSUE_FIELDS asks for. Queries are answered from those files and
 #           mutations change them, so a case reads an issue's state after a
 #           run from its file. `night-shift file`'s workspace query gets
-#           linear/workspace.json. {tool: "linear", op, variables}.
+#           linear/workspace.json. {tool: "linear", op, variables}. With the
+#           file linear-down, every request fails as an unresolved host does.
 #   GitHub  https://api.github.com/..., read with -w '\n%{http_code}'. The
 #           answer is the file github: the status code on its first line, the
 #           body after it; with no such file, 200 and []. {tool: "github", url}.
@@ -49,6 +50,11 @@ record() {
 }
 
 if [[ $url == https://api.linear.app/graphql ]]; then
+  if [[ -f $dir/linear-down ]]; then
+    record '{tool: "linear", op: "down"}'
+    echo "curl: (6) Could not resolve host: api.linear.app" >&2
+    exit 6
+  fi
   shopt -s nullglob
   issues=("$dir"/linear/issues/*.json)
   all=$(if ((${#issues[@]})); then jq -s . "${issues[@]}"; else echo '[]'; fi)

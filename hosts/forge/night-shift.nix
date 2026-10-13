@@ -5,7 +5,8 @@
 #
 # A user timer, so it runs only while forge is awake and Nick is logged in,
 # with Persistent catching up after sleep. Each run takes finished work back to
-# Linear and starts what is queued, at most `max` agents at a time.
+# Linear and starts what is queued, at most `max` agents at a time, and keeps
+# forge from idle sleep while any agent works on AC (night-shift-awake below).
 #
 # The agents are the same as any `claude --bg` session: Nick's settings, his
 # sandbox, his auto mode, and `claude agents` or `claude attach` to look in on
@@ -142,5 +143,16 @@ in
       OnCalendar = "*:0/10";
       Persistent = true;
     };
+  };
+
+  # Plasma's power inhibition, the one a video player takes, held while an
+  # agent works on AC: each run starts or stops this (awake in night-shift.sh),
+  # and nothing else does. It blocks idle sleep only, so the screen still locks
+  # and turns off, and a closed lid still suspends. Holding it is a D-Bus
+  # connection to PowerDevil, released when kde-inhibit exits.
+  systemd.user.services.night-shift-awake = {
+    description = "Keep forge from idle sleep while night-shift agents work";
+    unitConfig.ConditionUser = user;
+    serviceConfig.ExecStart = "${pkgs.kdePackages.kde-cli-tools}/bin/kde-inhibit --power ${pkgs.coreutils}/bin/sleep infinity";
   };
 }
