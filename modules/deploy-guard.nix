@@ -23,6 +23,17 @@ let
   # sitting, so a marker older than this was abandoned, not waiting.
   maxAgeHours = 6;
 
+  # The countdown an arm gets when it names none, and what the boot falls back
+  # to when a marker's minutes cannot be read.
+  defaultMinutes = 15;
+
+  # The longest countdown an arm accepts. The countdown is how long the house
+  # goes without a router when the deploy did break gate, and getting back in
+  # after a reboot takes minutes, so an hour is ample. Anything longer is
+  # almost certainly a typo, and would roll back a good deploy long after
+  # anyone was there to confirm it.
+  maxMinutes = 60;
+
   deploy-guard = pkgs.writeShellApplication {
     name = "deploy-guard";
     runtimeInputs = with pkgs; [
@@ -35,6 +46,8 @@ let
       armed=${armedFile}
       profile=/nix/var/nix/profiles/system
       max_age=$((${toString maxAgeHours} * 3600))
+      default_minutes=${toString defaultMinutes}
+      max_minutes=${toString maxMinutes}
 
       # The generation currently *running*, which is not the same as the one
       # the profile points at: `nixos-rebuild boot` advances the profile while
@@ -74,10 +87,30 @@ let
         esac
       }
 
+      # A countdown the boot can act on: a whole number of minutes from 1 to
+      # the maximum. Zero would roll back as soon as the new generation boots,
+      # undoing a deploy that was fine, and a leading zero is octal to bash's
+      # arithmetic. The length check keeps a long run of digits from
+      # overflowing the comparison.
+      valid_minutes() {
+        [[ ''${1:-} =~ ^[1-9][0-9]*$ ]] &&
+          [ "''${#1}" -le "''${#max_minutes}" ] &&
+          [ "$1" -le "$max_minutes" ]
+      }
+
+      usage() {
+        echo "usage: sudo deploy-guard arm [minutes] | confirm | disarm; deploy-guard status" >&2
+        exit 64
+      }
+
       case "''${1:-}" in
         arm)
+          minutes=''${2:-$default_minutes}
+          if ! valid_minutes "$minutes"; then
+            echo "deploy-guard: minutes must be a whole number from 1 to $max_minutes, not '$minutes'" >&2
+            usage
+          fi
           require_root arm
-          minutes=''${2:-15}
           gen=$(running_generation)
           mkdir -p "$state"
           printf '%s %s %s\n' "$minutes" "$gen" "$(date +%s)" > "$armed"
@@ -99,8 +132,13 @@ let
           ;;
         status)
           if [ -e "$armed" ]; then
-            read -r minutes gen armed_at < "$armed"
-            echo "armed for next boot: generation $gen, $minutes minutes"
+            read -r minutes gen armed_at < "$armed" || true
+            if valid_minutes "$minutes"; then
+              echo "armed for next boot: generation $gen, $minutes minutes"
+            else
+              echo "armed for next boot: generation $gen, $default_minutes minutes"
+              echo "the marker's minutes, '$minutes', are not a whole number from 1 to $max_minutes, so the boot counts down the default"
+            fi
             armed_at=$(armed_time "''${armed_at:-}")
             if [ -z "$armed_at" ]; then
               echo "arm time not recorded, so it does not expire"
@@ -121,7 +159,10 @@ let
         run)
           # Called by the unit at boot, not by hand.
           [ -e "$armed" ] || exit 0
-          read -r minutes gen armed_at < "$armed"
+
+          # `read` fails on a marker with no final newline, as one written by
+          # hand may be, though it has read the fields all the same.
+          read -r minutes gen armed_at < "$armed" || true
 
           # Consume the marker up front. Arming applies to exactly one boot, so
           # a later unrelated reboot must not inherit a countdown, and neither
@@ -145,6 +186,15 @@ let
             exit 0
           fi
 
+          # A minutes field the countdown cannot use, from a marker edited by
+          # hand or written before arm checked it, must not end the run: the
+          # marker is gone, so failing here would leave the boot unguarded
+          # while the journal said otherwise. The default keeps the protection.
+          if ! valid_minutes "$minutes"; then
+            echo "deploy-guard: the arm's minutes, '$minutes', are not a whole number from 1 to $max_minutes; counting down the default $default_minutes"
+            minutes=$default_minutes
+          fi
+
           echo "deploy-guard: rolling back to generation $gen in $minutes minutes unless confirmed"
           sleep "$((minutes * 60))"
 
@@ -154,8 +204,7 @@ let
           systemctl reboot
           ;;
         *)
-          echo "usage: sudo deploy-guard arm [minutes] | confirm | disarm; deploy-guard status" >&2
-          exit 64
+          usage
           ;;
       esac
     '';
