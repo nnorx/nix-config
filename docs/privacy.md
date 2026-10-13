@@ -1045,7 +1045,7 @@ Each is one issue, titled the way a PR for it would be.
 | F12 | `gate: stop sending its hostname in DHCP requests on wan` | narrow | filed, NNO-46 |
 | F13 | `forge: turn geoclue off` | off | done, #165 |
 | F14 | `forge: night-shift pushes carry the identifier, not the title` | narrow | done, #161 |
-| F15 | `unbound: serve the root zone locally, so single-label names stay home` | narrow | done, NNO-33 |
+| F15 | `unbound: serve the root zone locally, so single-label names stay home` | narrow | done, #182 |
 | F16 | `adguardhome: maintained telemetry lists for windows and the house's tvs` | narrow | done, #152 |
 
 F10 changes gate's firewall, so it goes behind deploy-guard. F5 changes gate
