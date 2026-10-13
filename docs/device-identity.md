@@ -75,9 +75,9 @@ What each consumer would need:
   anyone can read. A MAC that reached a Pi's closure would be published there,
   credential or not. So a private input could never serve core5 at all: its
   rule would have to stay segment-wide.
-- **CI.** check.yml's flake check and preflight evaluate gate on every push
-  and pull request, so the job would need a token, and a pull request from a
-  fork, which gets no secrets, would fail. build-etc builds gate's /etc on
+- **CI.** check.yml's flake check and preflight evaluate gate on every pull
+  request and every push to main, so the job would need a token, and a pull
+  request from a fork, which gets no secrets, would fail. build-etc builds gate's /etc on
   pull requests, which would then hold Kea's config with every MAC in it, on a
   runner whose logs are public: one failing build that prints its input
   publishes the table.
