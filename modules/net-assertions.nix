@@ -309,6 +309,57 @@ let
     '';
   }) (lib.filterAttrs (_: h: h ? metricsSegment) hosts);
 
+  # Unbound reads each root zone source as an address only if it parses as one,
+  # and otherwise as a host name, which it would have to resolve before it
+  # could fetch the zone that resolves it. An address on the LAN, or anywhere
+  # private, is a typo, since no root server sits there. ZONEMD would refuse a
+  # zone from such a host, so the failure would be a quiet one: a source that
+  # never works, and a timeout on every transfer that tries it.
+  isOctet = o: builtins.match "0|[1-9][0-9]{0,2}" o != null && lib.toInt o <= 255;
+  isIPv4 = addr: builtins.length (octets addr) == 4 && lib.all isOctet (octets addr);
+  pow2 = n: lib.foldl (acc: _: acc * 2) 1 (lib.range 1 n);
+  inCidr =
+    cidr: addr:
+    let
+      base = addressValue (builtins.elemAt (lib.splitString "/" cidr) 0);
+      size = pow2 (32 - lib.toInt (builtins.elemAt (lib.splitString "/" cidr) 1));
+    in
+    base <= addressValue addr && addressValue addr < base + size;
+  notPublic = [
+    "0.0.0.0/8"
+    "10.0.0.0/8"
+    "100.64.0.0/10"
+    "127.0.0.0/8"
+    "169.254.0.0/16"
+    "172.16.0.0/12"
+    "192.168.0.0/16"
+    "224.0.0.0/3" # multicast, reserved and broadcast
+  ];
+  isPublic =
+    addr:
+    !(lib.any (cidr: inCidr cidr addr) notPublic)
+    && !(lib.any (seg: within seg addr) (builtins.attrValues segments));
+
+  rootZoneChecks = [
+    {
+      assertion = net.rootZoneSources != [ ] && lib.unique net.rootZoneSources == net.rootZoneSources;
+      message = ''
+        net.rootZoneSources is empty or names an address twice. Each Unbound
+        fetches its copy of the root zone from these, in turn.
+      '';
+    }
+  ]
+  ++ map (addr: {
+    assertion = isIPv4 addr && isPublic addr;
+    message = ''
+      net.rootZoneSources lists "${addr}", which is not a public IPv4 address.
+      Unbound would take anything that does not parse as an address for a
+      host name, and no root server sits on a private network. Unbound
+      recurses over IPv4 only (modules/unbound.nix), so IPv6 sources would
+      never be reached.
+    '';
+  }) net.rootZoneSources;
+
   # One number, one name. Two names for a port read as two services, and a
   # firewall rule written for one opens the other: gate's tunnel grants and the
   # hosts' interface rules match on the number alone. Across TCP and UDP too,
@@ -331,5 +382,6 @@ in
     ++ goveeChecks
     ++ agentChecks
     ++ metricsChecks
+    ++ rootZoneChecks
     ++ portChecks;
 }

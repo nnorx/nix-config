@@ -364,6 +364,24 @@
     }
   ];
 
+  # Where each Unbound fetches its copy of the root zone (RFC 8806,
+  # modules/unbound.nix): the root servers that allow zone transfers, and
+  # ICANN's two transfer hosts. The list Unbound's own example configuration
+  # carries, in the version this flake pins. IPv4 alone, since Unbound
+  # recurses over IPv4 alone. Unbound tries them in turn, so one going away
+  # costs a timeout, and all of them going away costs the local copy, not
+  # resolution: the resolvers fall back to asking the root.
+  rootZoneSources = [
+    "170.247.170.2" # b.root-servers.net
+    "192.33.4.12" # c.root-servers.net
+    "199.7.91.13" # d.root-servers.net
+    "192.5.5.241" # f.root-servers.net
+    "192.112.36.4" # g.root-servers.net
+    "193.0.14.129" # k.root-servers.net
+    "192.0.47.132" # xfr.cjr.dns.icann.org
+    "192.0.32.132" # xfr.lax.dns.icann.org
+  ];
+
   # The multicast group Govee lights listen on for the LAN API's scan. It is
   # SSDP's group, but gate lets only `ports.goveeScan` through to iot, not
   # SSDP's own port.

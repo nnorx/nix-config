@@ -253,16 +253,54 @@ device names in them. It now answers `lan`, `local`, `localdomain`,
 `internal`, `home` and `corp` with NXDOMAIN, on core4, lifeline and gate: the
 same list `scripts/dns-top-domains.jq` counts as local names.
 
-Single-label names, such as a bare `printer`, still reach the root. A
-local-zone is a suffix, and every TLD is a single label too, so Unbound has
-no way to list them. `aggressive-nsec` answers most repeats from the root's
-signed NSEC records once it has them, so the root sees such a name now and
-then rather than on every lookup, but not never. What would close it is a
-local copy of the root zone (RFC 8806, Unbound's `auth-zone` for `.`), from
-which every nonexistent TLD is answered locally and the root sees zone
-transfers rather than queries. That changes how all three resolvers start and
-recurse, and adds the root servers' transfer addresses to `lib/net.nix`, so
-it is a follow-up (F15) rather than part of this review.
+**So are single-label names, from a copy of the root zone.** A bare
+`printer` cannot be a local-zone: a local-zone is a suffix, and every TLD is
+a single label too. Instead each Unbound keeps a local copy of the root zone
+(RFC 8806, an `auth-zone` for `.`, F15), and a name under a TLD that does not
+exist is answered NXDOMAIN from it without asking anyone. The root servers
+see a SOA query every half hour and a zone transfer when the zone changes,
+about twice a day, and none of the house's lookups. Before, they saw such a
+name now and then: `aggressive-nsec` answered repeats from the root's signed
+NSEC records, but only once it had them.
+
+- **Sources.** The root servers that allow transfers, and ICANN's two
+  transfer hosts, as `rootZoneSources` in `lib/net.nix`: the list in the
+  example configuration of the Unbound version the flake pins, IPv4 only,
+  since Unbound recurses over IPv4 alone. Unbound tries them in turn.
+  net-assertions checks each is a public IPv4 address, since Unbound takes
+  anything that does not parse as one for a host name.
+- **Integrity.** `zonemd-check` verifies the zone's ZONEMD digest on every
+  load and transfer, and on the hosts its DNSSEC signature against the trust
+  anchor too. A zone without one is refused as well
+  (`zonemd-reject-absence`), since the root has carried one since December
+  2023. A refused transfer is not served and not written: Unbound drops its
+  copy as expired, falls back as below, and the file keeps the last good
+  zone.
+- **Fallback.** `fallback-enabled`, and `for-upstream` without
+  `for-downstream`: the copy stands in for the root servers during
+  recursion, and what comes from it is validated like their answers. With no
+  copy (a first start, until the first transfer), an expired one (every
+  source unreachable for the zone's week-long expiry, or a refused transfer),
+  or an answer from it that fails validation, Unbound asks the root servers
+  as it did before.
+- **Storage.** `/var/lib/unbound/root.zone`, about 2 MB, rewritten whole on
+  each transfer: under 2 GB a year on core4's and lifeline's SD cards, which
+  is nothing to them. It survives restarts, so a resolver starts from its
+  last copy and refreshes it from there.
+- **Network.** Transfers are TCP 53 out from each resolver and from gate, and
+  nothing needed changing for them. The Pis' firewall filters inbound only,
+  gate's `servers-egress` passes the fleet's hosts, and the DNS redirect
+  leaves the resolvers' segment and gate's own traffic alone. No
+  deploy-guard either: gate's firewall and interfaces do not change, only
+  its Unbound restarts.
+
+`tests/unbound-root-zone.nix` runs the module against a BIND standing in for
+the root, with a zone and ZONEMD of its own: with no copy the resolver asks
+the root; after the transfer, names under no TLD are answered NXDOMAIN with
+the root stopped; a transfer whose digest does not match is refused and the
+root asked instead; and a restart starts from the last good copy. The real
+zone's signatures cannot be checked in a VM, so the test checks the digest
+alone.
 
 ### Telemetry coverage
 
@@ -663,9 +701,9 @@ traffic.
 - **trusted.** Not summarised here, since it is the household's own
   browsing. Its most-blocked entries are app and OS analytics and push
   services, which is the blocklists working. Devices also ask for a few
-  thousand names that exist only inside the house. Those under a local
-  suffix are now answered by Unbound; single-label ones still reach the
-  root ([What goes upstream](#what-goes-upstream)).
+  thousand names that exist only inside the house. Unbound now answers
+  those itself, under a local suffix or a single label alike
+  ([What goes upstream](#what-goes-upstream)).
 - **guest** is absent, as it should be: it resolves through public
   resolvers.
 - **work** is absent by design.
@@ -1007,7 +1045,7 @@ Each is one issue, titled the way a PR for it would be.
 | F12 | `gate: stop sending its hostname in DHCP requests on wan` | narrow | done, #171 |
 | F13 | `forge: turn geoclue off` | off | done, #165 |
 | F14 | `forge: night-shift pushes carry the identifier, not the title` | narrow | done, #161 |
-| F15 | `unbound: serve the root zone locally, so single-label names stay home` | narrow | filed, NNO-33 |
+| F15 | `unbound: serve the root zone locally, so single-label names stay home` | narrow | done, #182 |
 | F16 | `adguardhome: maintained telemetry lists for windows and the house's tvs` | narrow | done, #152 |
 
 F10 changes gate's firewall, so it goes behind deploy-guard. F5 changes gate
