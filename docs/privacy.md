@@ -397,7 +397,7 @@ in its settings, which live in its database rather than this repo. The
 controller still checks Ubiquiti for device firmware, which is core5's own
 traffic. **narrow** (F10): confirm the two settings are still off.
 
-The switch and the AP, on `servers`, no longer reach the internet (NNO-45).
+The switch and the AP, on `servers`, no longer reach the internet (#174).
 gate's `servers-egress` chain, in `hosts/gate/routing.nix`, lets out only
 the hosts `lib/net.nix` gives an address on `servers`, which are the Pis,
 derived so a new Pi is covered. The controller's containers leave core5 from
@@ -1002,9 +1002,9 @@ Each is one issue, titled the way a PR for it would be.
 | F7 | `adguardhome: fewer blocklist operators for the same coverage` | narrow | |
 | F8 | `docs/home-assistant.md: give met.no a coarse location` | narrow | |
 | F9 | `home-assistant: list default_config's integrations, without cloud and alerts` | off | |
-| F10 | `gate: keep the switch and AP off the internet` | narrow | filed, NNO-45, as only the fleet's hosts on servers reaching it |
+| F10 | `gate: keep the switch and AP off the internet` | narrow | done, #174, as only the fleet's hosts on servers reaching it |
 | F11 | `forge: encrypted DNS away from home` | narrow | done, #162 |
-| F12 | `gate: stop sending its hostname in DHCP requests on wan` | narrow | filed, NNO-46 |
+| F12 | `gate: stop sending its hostname in DHCP requests on wan` | narrow | done, #171 |
 | F13 | `forge: turn geoclue off` | off | done, #165 |
 | F14 | `forge: night-shift pushes carry the identifier, not the title` | narrow | done, #161 |
 | F15 | `unbound: serve the root zone locally, so single-label names stay home` | narrow | filed, NNO-33 |
