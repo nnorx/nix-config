@@ -15,6 +15,13 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# The token only checks out the repo. Pushing to Cachix uses its own secret,
+# so a hostile action or flake input in a job that holds that secret does not
+# also find a token that can write to this repo, whatever the repository's
+# default.
+permissions:
+  contents: read
+
 # Serialise runs but never cancel one in flight. Cancelling is the right default
 # for test suites, where a superseded result is worthless — here it is the
 # opposite: nix does not checkpoint partial builds, so killing a run discards

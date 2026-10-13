@@ -1,5 +1,21 @@
 name: Check
-on: [push, pull_request]
+
+# Pull requests, and main once they merge. A push trigger on every branch ran
+# preflight twice for each pull request from a branch in this repo, the weekly
+# flake.lock bump's included, to the same verdict. pr-handoff pushes a branch
+# and opens its pull request in one run, so no branch waits on a push run to
+# be checked.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# The token checks out the repo and nothing else: preflight's summary is a
+# file the runner reads, not an API call, and the Cachix steps below are
+# read-only with no token. So an action or flake input that turned hostile
+# here finds a token that can only read, whatever the repository's default.
+permissions:
+  contents: read
 
 # The DeterminateSystems actions export OpenTelemetry traces and logs to their
 # vendor by default, debug lines included. GitHub masks secrets only in the
@@ -33,8 +49,9 @@ jobs:
       #
       # On a pull request HEAD is the merge commit, and the base is the tip of
       # the branch it targets, which for a stacked PR is not main, so the
-      # summary says what merging this PR would change. On a push there is no
-      # base branch, and preflight compares with where the branch left main.
+      # summary says what merging this PR would change. A push is only ever to
+      # main, where there is no base branch, and preflight compares main with
+      # its previous commit: what the squash-merged PR changed.
       - run: nix run .#preflight -- ${GITHUB_BASE_REF:+--base "origin/$GITHUB_BASE_REF"}
 
   # Builds each fleet host's /etc on pull requests. `check` only evaluates,
@@ -49,8 +66,7 @@ jobs:
   # kernel, so this costs minutes rather than the hours of a Pi 4 kernel
   # compile. On the arm runner for the Pis, natively, as cache.yml does.
   #
-  # Pull requests only: a same-repo branch also fires `push`, which would
-  # build it twice, and on main cache.yml builds the whole toplevels. Unlike
+  # Pull requests only: on main, cache.yml builds the whole toplevels. Unlike
   # cache.yml, a superseded run is worth nothing here, since nothing is
   # pushed, so a new commit cancels it.
   build-etc:
