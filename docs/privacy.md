@@ -122,15 +122,15 @@ keeps guest isolated.
 
 ## core4 and lifeline
 
-Both run AdGuard Home in front of their own Unbound (`hosts/core4`,
-`hosts/lifeline`, `modules/adguardhome.nix`).
+Both run AdGuard Home in front of their own Unbound
+(`hosts/common/resolver.nix`, `modules/adguardhome.nix`).
 
 **Recursive DNS.** As on gate, for every name the house looks up that neither
 AdGuard nor Unbound has cached. **needed**.
 
 **AdGuard's fallback.** `fallback_dns` is `net.publicResolvers`, Cloudflare and
 Quad9, used only when the local Unbound does not answer within
-`upstreamTimeout`. dnsproxy, AdGuard's resolver library, takes the fallback
+`upstream_timeout`. dnsproxy, AdGuard's resolver library, takes the fallback
 path only on a transport error: a timeout or a refused connection. A SERVFAIL
 from Unbound is an answer and goes back to the client, and lookups for
 private reverse zones never fall back. When it does fall back it asks both

@@ -1,13 +1,9 @@
 # Unbound — recursive DNS resolver with DNSSEC.
 #
-# Binds loopback only, which is what every current caller gets: `allowFrom` is
-# empty on core4, lifeline and gate alike, so the resolver is absent from the
-# network rather than merely refusing it. Passing `allowFrom` adds the host's
-# LAN address and the matching access-control entries, for a host that resolves
-# on another's behalf. Nothing does today; core3 was the last.
+# Binds loopback only, on core4, lifeline and gate alike, so the resolver is
+# absent from the network rather than merely refusing it. Nothing queries it
+# from another host: core3, which forwarded to core4's, was the last.
 {
-  allowFrom ? [ ], # Host names (from lib/net.nix) permitted to query over the LAN
-
   # Listening port. Defaults to net.ports.unbound (5335), which is where the
   # AdGuard hosts forward and deliberately not 53, since AdGuard owns that.
   # gate has no AdGuard and has to be its own resolver, and resolv.conf cannot
@@ -85,13 +81,9 @@ in
 
     settings = {
       server = {
-        # Bind the LAN address only when another host actually forwards here,
-        # so an unused resolver does not depend on the firewall or on
-        # access-control to stay unreachable.
-        interface = [
-          "127.0.0.1"
-        ]
-        ++ lib.optional (allowFrom != [ ]) net.hosts.${hostname}.ip;
+        # Loopback alone, so no other host can reach it whatever the firewall
+        # or access-control say.
+        interface = [ "127.0.0.1" ];
         port = listenPort;
 
         # Recurse over IPv4 only. The LAN has no global IPv6: gate asks for no
@@ -102,10 +94,7 @@ in
         # what would give this network a prefix in the first place.
         do-ip6 = false;
 
-        access-control = [
-          "127.0.0.1/32 allow"
-        ]
-        ++ map (h: "${net.hosts.${h}.ip}/32 allow") allowFrom;
+        access-control = [ "127.0.0.1/32 allow" ];
 
         # Use current root server addresses
         root-hints = "${pkgs.dns-root-data}/root.hints";
@@ -269,10 +258,11 @@ in
   };
 
   systemd.services.unbound = {
-    # Only load-bearing when `allowFrom` is set, which binds the host's LAN
-    # address alongside loopback: starting before that interface is up leaves a
-    # half-bound socket. Inert on the loopback-only hosts, and kept so the
-    # ordering is already right if one of them ever gains a consumer.
+    # Not load-bearing: loopback is up before any of this, and the root zone's
+    # first transfer and the first recursions retry or fall back when the
+    # network is not there yet. It once kept Unbound from binding a LAN
+    # address before the interface had it. Kept: dropping it would change the
+    # unit, and so restart Unbound on gate and both resolvers, to gain nothing.
     after = [ "network-online.target" ];
     wants = [ "network-online.target" ];
 
