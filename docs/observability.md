@@ -614,5 +614,4 @@ Later, if wanted: **Grafana over the tunnel**, the `grafana` grant for forge
 described under Access. gate alone, behind `deploy-guard`, since it changes
 gate's firewall.
 
-This file changes no host itself. Each step above names the issue that
-built it, and the modules carry the details.
+This file changes no host itself. The modules it links carry the details.
