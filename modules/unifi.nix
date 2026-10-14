@@ -30,6 +30,7 @@ let
   docker = "${config.virtualisation.docker.package}/bin/docker";
 
   user = config.users.users.${hostname};
+  ip = net.hosts.${hostname}.ip;
 
   # The address devices are told to report to.
   #
@@ -51,7 +52,7 @@ let
     ];
     text = ''
       props=${stateDir}/config/data/system.properties
-      want="system_ip=${net.hosts.${hostname}.ip}"
+      want="system_ip=${ip}"
 
       mkdir -p "$(dirname "$props")"
       touch "$props"
@@ -163,11 +164,32 @@ in
         };
         environmentFiles = [ config.sops.templates."unifi-db.env".path ];
         volumes = [ "${stateDir}/config:/config" ];
+        # Published on core5's own address, because nothing else scopes them.
+        # Docker DNATs a published port in PREROUTING and forwards it to the
+        # container, so the packet never reaches INPUT, where the interface
+        # rules in hosts/core5 live. Published with no address, these listened
+        # on every address core5 holds, IPv6 included, and a second interface
+        # would have exposed them without a word.
+        #
+        # STUN binds like the TCP ports. The controller hands devices a STUN
+        # address from the same system_ip as the inform host above, so they
+        # already send to this address, and replies leave from it through the
+        # same DNAT.
+        #
+        # Discovery cannot. A device waiting for adoption beacons to UDP 10001
+        # by broadcast (docs/unifi.md), and Linux delivers a broadcast only to
+        # sockets bound to the wildcard address. Docker's DNAT does not take
+        # broadcasts either, since it matches destinations of type LOCAL, so a
+        # beacon goes through INPUT to docker-proxy's socket. Bound to this
+        # address, that socket would never see one. 0.0.0.0 keeps discovery
+        # and still drops the [::] listener, which matters once the house has
+        # IPv6 (docs/ipv6.md). The cost is that a unicast to 10001, on any IPv4
+        # address core5 holds, still reaches the controller.
         ports = [
-          "${toString net.ports.unifiUi}:8443"
-          "${toString net.ports.unifiInform}:8080"
-          "${toString net.ports.unifiStun}:3478/udp"
-          "${toString net.ports.unifiDiscovery}:10001/udp"
+          "${ip}:${toString net.ports.unifiUi}:8443"
+          "${ip}:${toString net.ports.unifiInform}:8080"
+          "${ip}:${toString net.ports.unifiStun}:3478/udp"
+          "0.0.0.0:${toString net.ports.unifiDiscovery}:10001/udp"
         ];
         extraOptions = [ "--network=${dockerNet}" ];
       };
