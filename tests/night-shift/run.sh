@@ -692,7 +692,7 @@ cases=(
   "start_no_repo_label start: no repo label: Needs you"
   "start             start: worktree with no upstream, issue text, claude --bg, Running, kept awake"
   "start_created_queued start: created into Queued by you: started"
-  "start_battery    start: on battery: started, forge let sleep"
+  "start_battery     start: on battery: started, forge let sleep"
   "finish_handoff    finish: handoff: Handoff ready, archived, waiting, forge let sleep"
   "finish_blocked    finish: blocked: Needs you"
   "finish_quiet      finish: no result past the stall hours of work: Needs you"
