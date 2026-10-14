@@ -64,11 +64,14 @@ jobs:
       - run: |
           ls -l /dev/kvm
           nix config show system-features
-      # The same build as check.yml's vm-tests job, which says why it is
-      # listed by evaluation, one test at a time, and with --keep-going. Here
-      # --keep-going also means one failing test does not stop the others
-      # being pushed. A test that fails pushes nothing for itself, so pull
-      # requests run it until main passes it again.
+      # Listed by evaluation, as check.yml's vm-tests-list job does, so a new
+      # test is cached without editing this file. One test at a time on one
+      # runner, where check.yml gives each test a runner of its own: either
+      # way no two tests share CPUs, which check.yml's vm-tests job says why
+      # the timing-bound tests need, and on main nobody waits on the result.
+      # --keep-going, so one failing test neither hides another nor stops
+      # the others being pushed. A test that fails pushes nothing for itself,
+      # so pull requests run it until main passes it again.
       - run: |
           names=$(nix eval --json --accept-flake-config .#checks.x86_64-linux --apply builtins.attrNames)
           mapfile -t tests < <(jq -r '.[]' <<<"$names")
