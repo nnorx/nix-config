@@ -20,6 +20,11 @@
 #      check alone does neither: it passes a host whose toplevel cannot
 #      evaluate (a missing sops file did exactly that), and it skips
 #      homeConfigurations, so a broken WSL or macOS profile looked green.
+#      The change and its base are evaluated at once, as two nix processes,
+#      since each is single-threaded and neither needs the other. flake check
+#      runs before them, not beside them: it alone peaks near 12 GB, and all
+#      three at once passed 18 GB on forge, more than a 16 GB GitHub runner
+#      has. Each evaluation's time and peak memory follow its output.
 #   5. The brief: which of them the change actually touches, against a base,
 #      by default where this branch left origin/main, and for each host what
 #      kind of change it gets (scripts/preflight-brief.jq). That answers
@@ -114,25 +119,68 @@ step "night-shift dispatcher"
 # commit's.
 "$BASH" tests/night-shift/run.sh
 
-step "flake check"
-nix flake check --all-systems --no-build "$ref"
-
 work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT
+# The evaluations below run in the background, each in a process group of its
+# own (set -m), so one kill stops nix along with the time wrapping it, and no
+# nix outlives a run that fails or is stopped: the night shift's bwrap and
+# CI's step both expect that. INT and TERM become exits, so the trap runs for
+# them too.
+bg=()
+cleanup() {
+  for pid in "${bg[@]}"; do kill -- "-$pid" 2>/dev/null || true; done
+  rm -rf "$work"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+# Wall time and peak memory of a nix process, from GNU time (in runtimeInputs,
+# since a runner need not have it), so the log says how close a run came to
+# the runner's memory.
+timed() {
+  local name=$1
+  shift
+  command time --quiet -f '%e %M' -o "$work/$name.time" "$@"
+}
+peak() {
+  local label=${2:-$1}
+  [[ -s $work/$1.time ]] || return 0
+  awk -v name="$label" '{ printf "   %s: %.0f s, peak %.1f GB\n", name, $1, $2 / 1048576 }' "$work/$1.time"
+}
+
+step "flake check"
+timed flake-check nix flake check --all-systems --no-build "$ref"
+peak flake-check "flake check"
 
 evaluate() {
-  nix eval --impure --json --expr "import $PREFLIGHT_EVAL { ref = \"$1\"; }"
+  timed "$2" nix eval --impure --json --expr "import $PREFLIGHT_EVAL { ref = \"$1\"; }" \
+    </dev/null >"$work/$2.json" 2>"$work/$2.err"
 }
 
 step "evaluate every host and home config, and compare with ${base:0:12}"
-evaluate "$ref" >"$work/head.json"
+set -m
+evaluate "$ref" head &
+bg+=("$!")
+evaluate "git+file://$root?rev=$base" base &
+bg+=("$!")
+set +m
+
+# The change failing to evaluate fails the run with nix's error, as it did in
+# the foreground. Each status comes from `wait <pid>`; a bare wait drops them.
+status=0
+wait "${bg[0]}" || status=$?
+cat "$work/head.err" >&2
+((status == 0)) || exit "$status"
+peak head
 
 # The base failing to evaluate is not this change's fault, and says nothing
 # about it, so the run goes on. But the comparison is then unknown, not "new",
 # and the brief says so rather than flagging every host.
 base_ok=true
-if ! evaluate "git+file://$root?rev=$base" >"$work/base.json" 2>"$work/base.err"; then
-  base_ok=false
+wait "${bg[1]}" || base_ok=false
+bg=()
+peak base
+if ! $base_ok; then
   echo '{"hosts": {}, "homes": {}}' >"$work/base.json"
   echo "!! The base did not evaluate, so what this changes is unknown. Its error ends:"
   tail -n 15 "$work/base.err" | sed 's/^/   /'
