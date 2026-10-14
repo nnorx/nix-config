@@ -278,7 +278,9 @@
       # NixOS VM tests. `nix flake check --no-build`, in preflight, only
       # evaluates these. check.yml's `vm-tests` job builds, and so runs, every
       # attribute here on pull requests, so a new test needs no workflow edit.
-      # To run one locally, on a machine with KVM:
+      # cache-vm-tests.yml builds them on main and pushes them to Cachix, so a
+      # pull request copies each test whose inputs it leaves alone instead of
+      # running it. To run one locally, on a machine with KVM:
       # `nix build --no-link .#checks.x86_64-linux.<name>`.
       checks.x86_64-linux.gate-dns = pkgsFor.x86_64-linux.testers.runNixOSTest (
         import ./tests/gate-dns.nix { inherit net; }

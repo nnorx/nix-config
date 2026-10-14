@@ -644,9 +644,10 @@ GitHub, and `vulnix` downloads the NVD feed. All on use, none on a timer.
 it is listed because the repo causes it. `check.yml` and `cache.yml` fetch
 inputs and substitute from the same caches as the hosts, and `cache.yml`
 pushes the Pis' closures to the public Cachix cache, built from this public
-repo with secrets kept in sops. `update-flake.yml` opens lock bumps,
-`image-updates.yml` reads registry manifests, and Dependabot watches the
-pinned actions. The DeterminateSystems actions would export OpenTelemetry
+repo with secrets kept in sops. `cache-vm-tests.yml` pushes what the VM tests
+build there too, whose secrets are test stand-ins. `update-flake.yml` opens
+lock bumps, `image-updates.yml` reads registry manifests, and Dependabot
+watches the pinned actions. The DeterminateSystems actions would export OpenTelemetry
 traces and an installer diagnostic report to their vendor by default; every
 workflow sets `OTEL_SDK_DISABLED` and `diagnostic-endpoint: ""`, with the
 reasoning at the top of `check.yml`. **needed**, and already narrowed.
