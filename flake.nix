@@ -303,6 +303,14 @@
       checks.x86_64-linux.unbound-root-zone = pkgsFor.x86_64-linux.testers.runNixOSTest (
         import ./tests/unbound-root-zone.nix { inherit net; }
       );
+      checks.x86_64-linux.alerting = pkgsFor.x86_64-linux.testers.runNixOSTest (
+        import ./tests/alerting.nix { inherit net; }
+      );
+      # Not a VM: vmalert-tool, in the build.
+      checks.x86_64-linux.alert-rules = import ./tests/alert-rules.nix {
+        pkgs = pkgsFor.x86_64-linux;
+        inherit net;
+      };
 
       # Formatter for `nix fmt`
       formatter = forAllSystems ({ pkgs, ... }: pkgs.nixfmt-tree);

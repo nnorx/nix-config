@@ -323,6 +323,13 @@ the last one. Point the project's notifications at the same
 ntfy topic so both kinds of alert arrive in one place. To cover another unit,
 add it to `fleetAlerts.failure` or `fleetAlerts.heartbeat` in its host.
 
+The metrics have alerts of their own, on core5 (`modules/alerting.nix`, rules
+in `modules/alert-rules.nix`): vmalert and Alertmanager, pushing to the same
+topic, once per incident. A `Watchdog` alert pings healthchecks.io every 5
+minutes as `core5-metrics-watchdog`, so the stack going quiet alerts from
+outside. Its check appears at the first ping with the one-day default; set its
+period to 15 minutes and its grace to 5 when it appears.
+
 ## Metrics
 
 core5 scrapes node_exporter on every host in `metricsTargets` (`lib/net.nix`)
@@ -330,7 +337,7 @@ every 30 seconds, into VictoriaMetrics, which keeps 12 months. Grafana is at
 core5's address on `ports.grafana`, http://192.168.20.49:3030, reachable from
 trusted and servers. Its Fleet dashboard shows whether each host is up and
 what it runs. [docs/observability.md](docs/observability.md) has the design,
-and the alert rules still to come.
+and the alert rules over it ("Alerts" above).
 
 Each host also exports host-status's two facts: `fleet_revision_info`, whose
 `revision` label is the commit it is running, and `fleet_root_device_info`,
