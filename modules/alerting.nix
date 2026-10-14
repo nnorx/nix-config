@@ -75,18 +75,19 @@ let
     ];
   };
 
-  # main's head, for RevisionBehind. Unauthenticated, as anyone may read a
-  # public repository: two requests an hour, of the 60 GitHub allows an
-  # address. A failed read leaves the last one in place, with its time.
+  # main's head, for RevisionBehind. Read with git rather than GitHub's API:
+  # unauthenticated, the API allows an address 60 requests an hour, and the
+  # whole house shares that address with the night shift's own reads. A
+  # failed read leaves the last one in place, with its time.
   mainRevision = pkgs.writeShellApplication {
     name = "fleet-main-revision";
     runtimeInputs = with pkgs; [
       coreutils
-      curl
+      gitMinimal
     ];
     text = ''
-      head=$(curl -fsS --max-time 30 --retry 3 -H 'Accept: application/vnd.github.sha' \
-        https://api.github.com/repos/${repo}/commits/HEAD)
+      line=$(timeout 60 git ls-remote https://github.com/${repo} HEAD)
+      head=''${line%%[[:space:]]*}
       if ! [[ $head =~ ^[0-9a-f]{40}$ ]]; then
         echo "GitHub's answer is not a commit hash" >&2
         exit 1
