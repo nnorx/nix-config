@@ -99,10 +99,16 @@ in
   # make monitoring depend on the thing it monitors.
   networking.nameservers = net.publicResolvers;
 
-  # LAN interface only. The switch and AP need all four UniFi ports: the UI for
-  # us, inform for device state, STUN to stay reachable, and discovery for
-  # adoption. The MongoDB port is deliberately absent, since it is published to
-  # nothing and lives on the container network.
+  # The switch and AP need all four UniFi ports: the UI for us, inform for
+  # device state, STUN to stay reachable, and discovery for adoption. The
+  # MongoDB port is deliberately absent, since it is published to nothing and
+  # lives on the container network.
+  #
+  # The UniFi ports are listed here for clarity, not for scoping. Docker DNATs
+  # them to the container before INPUT, so these rules never see that traffic;
+  # the address modules/unifi.nix publishes them on is what scopes them. The
+  # one exception is a discovery broadcast, which Docker does not DNAT, so it
+  # does pass through here, and the rule for it is what admits it.
   #
   # Home Assistant is opened here rather than with the module's `openFirewall`,
   # which opens the port on every interface.
