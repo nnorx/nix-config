@@ -1958,7 +1958,15 @@ case ${1-} in
     f=$state_dir/${2^^}.json
     [[ -f $f && $(jq -r .phase "$f") == waiting ]] || die "${2^^} has no agent waiting; night-shift status lists them"
     printf '%s\n' "$3" >"$state_dir/${2^^}.answer"
-    echo "night-shift: ${2^^} resumes on the next run; \`night-shift run\` starts one now"
+    # launchd's run now rather than at the next tick, when there is a job to
+    # start (home/night-shift.nix). Without -k, a run already going is left
+    # be, and the answer waits for whichever run next reaches the queue.
+    if [[ -n ${NIGHT_SHIFT_LAUNCHD_LABEL:-} ]] &&
+      launchctl kickstart "gui/$(id -u)/$NIGHT_SHIFT_LAUNCHD_LABEL" </dev/null >/dev/null 2>&1; then
+      echo "night-shift: ${2^^} resumes in the run starting now, or the next if one is already going"
+    else
+      echo "night-shift: ${2^^} resumes on the next run; \`night-shift run\` starts one now"
+    fi
     ;;
   *) usage ;;
 esac

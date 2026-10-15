@@ -214,8 +214,8 @@ and issues are shared, so it changes as little in Linear as it can:
   questions and refusals go to a desktop notification and
   `~/.local/state/night-shift/<ID>.report.md`, which `night-shift status`
   shows.
-- **Answering.** `night-shift resume <ID> "<answer>"` resumes the agent on
-  the next run, or add the label again.
+- **Answering.** `night-shift resume <ID> "<answer>"` starts a run that
+  resumes the agent, or add the label again.
 - **Done.** Once Linear completes the issue and gh finds the merged PR from
   its branch, the worktree, branch and sessions are removed as on forge.
 

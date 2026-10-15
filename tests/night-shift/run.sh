@@ -11,9 +11,9 @@
 # with an environment of the case's own (env -i): HOME, XDG_STATE_HOME,
 # GIT_CONFIG_GLOBAL and NIGHT_SHIFT_PROJECTS all point inside it. The stubs
 # under stubs/ come first on PATH, as curl, claude, systemd-run, bwrap and
-# systemctl, and for work mode osascript, gh and caffeinate, and say how they
-# answer; everything else is real, git included. Nothing reaches the network,
-# the real claude, or Nick's own state directory.
+# systemctl, and for work mode osascript, gh, caffeinate and launchctl, and
+# say how they answer; everything else is real, git included. Nothing
+# reaches the network, the real claude, or Nick's own state directory.
 #
 # A case on tidy or land_one gives its repository a literal GitHub origin, for
 # github_repo(). One that starts an agent needs a fetch to work, so its origin
@@ -56,8 +56,9 @@ stub systemctl systemctl
 stub osascript osascript
 stub gh gh
 stub caffeinate caffeinate
+stub launchctl launchctl
 path=$bin:$PATH
-for tool in curl claude systemd-run bwrap systemctl osascript gh caffeinate; do
+for tool in curl claude systemd-run bwrap systemctl osascript gh caffeinate launchctl; do
   [[ $(PATH=$path command -v "$tool") == "$bin/$tool" ]] || {
     echo "night-shift tests: $tool on PATH is not the stub" >&2
     exit 1
@@ -927,6 +928,33 @@ case_work_resume() {
   expect "already In Progress, so not moved" none '.op == "issueUpdate"'
 }
 
+# resume starts launchd's run at once, when given its job.
+case_work_resume_now() {
+  work '.state = {name: "In Progress", type: "started"}'
+  work_agent waiting
+  nsw NIGHT_SHIFT_LAUNCHD_LABEL=org.example.night-shift resume TST-1 "Use the blue one."
+  expect "exit 0" is "$status" 0
+  expect "the answer kept for the run" test -f "$c/state/night-shift/TST-1.answer"
+  expect "launchd's job started" one ".tool == \"launchctl\" and .args == [\"kickstart\", \"gui/$(id -u)/org.example.night-shift\"]"
+  expect "says the run is starting" has "$(<"$c/out")" "TST-1 resumes in the run starting now"
+}
+
+# No job to start, or one launchctl cannot find: the answer waits for the
+# next run, as before.
+case_work_resume_no_job() {
+  work '.state = {name: "In Progress", type: "started"}'
+  work_agent waiting
+  nsw resume TST-1 "Use the blue one."
+  expect "exit 0" is "$status" 0
+  expect "nothing started without a job" none '.tool == "launchctl"'
+  touch "$c/launchctl-fail"
+  nsw NIGHT_SHIFT_LAUNCHD_LABEL=org.example.night-shift resume TST-1 "Use the red one."
+  expect "exit 0 when launchctl fails" is "$status" 0
+  expect "the newer answer kept" is "$(cat "$c/state/night-shift/TST-1.answer" 2>&1)" "Use the red one."
+  expect "says it waits for the next run" has "$(<"$c/out")" "TST-1 resumes on the next run"
+  expect "never that a run started" lacks "$(<"$c/out")" "run starting now"
+}
+
 case_work_resume_relabelled() {
   work '.state = {name: "In Progress", type: "started"} | .updatedAt = "2030-01-01T00:00:00.000Z"
     | .history.nodes += [{createdAt: "2030-01-01T00:00:00.000Z", actorId: "user-nick", botActor: null,
@@ -1224,6 +1252,8 @@ cases=(
   "work_finish_blocked work: blocked: report says how to answer"
   "work_resume       work: night-shift resume: resumed with the answer"
   "work_resume_relabelled work: labelled again while waiting: resumed once"
+  "work_resume_now   work: resume starts launchd's run at once"
+  "work_resume_no_job work: resume with no job, or one launchctl cannot find: next run"
   "work_land         work: completed and merged per gh: all removed, nothing in Linear"
   "work_land_gh_fails work: gh fails: all kept"
   "work_canceled     work: canceled: forgotten, worktree kept"
