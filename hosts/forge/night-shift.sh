@@ -580,13 +580,19 @@ start_one() {
 
   # Whoever last moved it into Queued, or created it there. Anything synced
   # in from elsewhere, a public repo's issues say, can reach the state; only
-  # Nick's own hand starts an agent.
+  # Nick's own hand starts an agent. The creator stands in only when no move
+  # into Queued is recorded at all: a move with no actor, as an automation or
+  # integration makes, is nobody's, not the creator's.
   if [[ $(jq -r .history.pageInfo.hasNextPage <<<"$i") == true ]]; then
     stop_issue "$i" "$NEEDS" "Not started: its history is too long to tell who queued it. Start it with \`claude\` instead." "Not started"
     return 0
   fi
-  queuer=$(jq -r --arg q "$QUEUED" \
-    '([.history.nodes[] | select(.toState.name == $q)] | max_by(.createdAt) | .actorId) // .creator.id' <<<"$i")
+  queuer=$(jq -r --arg q "$QUEUED" '. as $i | [.history.nodes[] | select(.toState.name == $q)]
+    | if . == [] then $i.creator.id // "" else max_by(.createdAt).actorId // "" end' <<<"$i")
+  if [[ -z $queuer ]]; then
+    stop_issue "$i" "$NEEDS" "Not started: Linear recorded no person moving it to $QUEUED, as for an automation's move. Only issues you move to $QUEUED yourself are taken." "Not queued by you"
+    return 0
+  fi
   if [[ $queuer != "$viewer" ]]; then
     stop_issue "$i" "$NEEDS" "Not started: only issues you move to $QUEUED yourself are taken." "Not queued by you"
     return 0
@@ -1124,8 +1130,9 @@ check() {
 # reach Linear fails without touching any issue, so without this a revoked key
 # or a long outage is silence. One push once `failed_runs` runs in a row have
 # failed, 20 minutes after the first at the timer's pace, so a Wi-Fi drop
-# passes quietly, and no more until a run succeeds. A push that does not go out is tried again
-# after the next failure. Runs started from a shell count neither way.
+# passes quietly, and no more until a run succeeds. A push that does not go
+# out is tried again after the next failure. Runs started from a shell count
+# neither way.
 after_run() {
   local f=$state_dir/failed-runs n="" why
   mkdir -p "$state_dir"

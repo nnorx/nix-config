@@ -279,6 +279,14 @@ case_start_not_queuer() {
   refused "Not started: only issues you move to Queued yourself are taken." "Not queued by you"
 }
 
+# An automation's move: recorded, with no actor. Nick created the issue, but
+# the move is not his.
+case_start_no_actor() {
+  repo demo
+  issue issue-1 '.history.nodes[1].actorId = null'
+  refused "Not started: Linear recorded no person moving it to Queued" "Not queued by you"
+}
+
 case_start_long_history() {
   repo demo
   issue issue-1 '.history.pageInfo.hasNextPage = true'
@@ -317,6 +325,16 @@ case_start() {
   expect "with the session from the roster" is "$(jq -r .session "$f" 2>&1)" session-1
   expect "forge kept awake, on AC" one '.tool == "systemctl" and .args == ["--user", "start", "night-shift-awake.service"]'
   expect "and not let sleep" none '.tool == "systemctl" and .args[1] == "stop"'
+}
+
+# Created straight into Queued: no move recorded, so the creator queued it.
+case_start_created_queued() {
+  repo demo
+  issue issue-1 '.history.nodes = []'
+  ns run
+  expect "exit 0" is "$status" 0
+  expect "claude --bg called once" one '.tool == "claude" and .args[0] == "--bg"'
+  expect "moved to Running" is "$(state issue-1)" Running
 }
 
 case_start_battery() {
@@ -669,9 +687,11 @@ cases=(
   "land_busy         land: a session still running: all kept"
   "start_not_creator start: created by someone else: Needs you"
   "start_not_queuer  start: queued last by someone else: Needs you"
+  "start_no_actor    start: queued last with no actor recorded: Needs you"
   "start_long_history start: history with another page: Needs you"
   "start_no_repo_label start: no repo label: Needs you"
   "start             start: worktree with no upstream, issue text, claude --bg, Running, kept awake"
+  "start_created_queued start: created into Queued by you: started"
   "start_battery     start: on battery: started, forge let sleep"
   "finish_handoff    finish: handoff: Handoff ready, archived, waiting, forge let sleep"
   "finish_blocked    finish: blocked: Needs you"

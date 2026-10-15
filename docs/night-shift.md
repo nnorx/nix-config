@@ -98,7 +98,10 @@ the repo's `.git/night-shift/`. If one of them fails, the issue lands in
   result is posted and the session resumed with your comment.
 - **Only your issues, only by you.** An issue someone else created or moved
   to `Queued`, or one synced in from a public repo, is sent to `Needs you`
-  untouched: the agent is given its description as your task.
+  untouched: the agent is given its description as your task. So is one
+  whose last move to `Queued` Linear records with no person, as for an
+  automation's, even on an issue you created. Only an issue created straight
+  into `Queued` counts as queued by its creator.
 - **Reviewing a branch:** each time an agent is started or resumed, the
   issue as it was handed over, with its title, URL, state, description and
   your comments, is written to `.git/night-shift/<ID>.issue.md` in the repo,
