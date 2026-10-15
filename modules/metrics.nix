@@ -1,7 +1,8 @@
 # The fleet's metrics store and dashboards, on the collector: VictoriaMetrics
 # scraping node_exporter on every host in net.metricsTargets, Unbound's exporter
 # on each resolver, Kea's on gate and the probes in ./blackbox.nix, and Grafana
-# in front of it, with the dashboards in ./dashboards.nix.
+# in front of it, with the dashboards in ./dashboards.nix. The alerts over it
+# are in ./alerting.nix.
 # docs/observability.md has the decisions and their reasons; this file has only
 # what implementing them needed.
 #
@@ -40,8 +41,12 @@ let
   dashboards = import ./dashboards.nix { inherit lib pkgs; };
 in
 {
-  # The probes, whose jobs join the scrape configuration below.
-  imports = [ ./blackbox.nix ];
+  # The probes, whose jobs join the scrape configuration below, and the alert
+  # rules over all of it.
+  imports = [
+    ./blackbox.nix
+    ./alerting.nix
+  ];
 
   assertions = [
     {

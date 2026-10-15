@@ -1,10 +1,11 @@
 # Observability
 
-A decision record. Nothing here is deployed yet: this is the design the
-follow-up issues build, one piece each, so that none of them re-argues it.
-What runs today is pimon, for liveness, and
-[`modules/alerts.nix`](../modules/alerts.nix), for failed and missed jobs (README,
-"Alerts"). The second stays; the first is retired by the end of this.
+A decision record: the design the follow-up issues built, one piece each, so
+that none of them re-argued it. The store, the dashboards, the metrics from
+every host and the alerts over them are built (steps 1 to 4 under "Order of
+the follow-up issues"). pimon still runs beside them, for liveness, until it
+is retired, and [`modules/alerts.nix`](../modules/alerts.nix), for failed and
+missed jobs (README, "Alerts"), stays.
 
 ## The questions
 
@@ -255,7 +256,9 @@ The questions, as queries. The DNS dashboard on core5 draws each of them, with
   `sum by (instance) (rate(unbound_queries_total[5m]))`.
 - **SERVFAIL ratio**, of Unbound's answers. A recursion that timed out
   upstream and an answer that failed validation both end here:
-  `sum by (instance) (rate(unbound_answer_rcodes_total{rcode="SERVFAIL"}[5m])) / sum by (instance) (rate(unbound_answer_rcodes_total[5m]))`.
+  `sum by (instance) (rate(unbound_answer_rcodes_total{rcode="SERVFAIL"}[5m])) / sum by (instance) (rate(unbound_answer_rcodes_total{rcode!="nodata"}[5m]))`.
+  `nodata` is left out of the whole: it counts NOERROR answers with nothing
+  in them, which NOERROR has already counted.
 - **Timeout ratio**, in two places. AdGuard asks its fallback only when Unbound
   errs or takes longer than `upstream_timeout`, so the fallback's share of
   AdGuard's upstream answers is Unbound timing out as AdGuard sees it:
@@ -375,20 +378,38 @@ exporters ──scrape──► VictoriaMetrics ◄──query── vmalert ─
             hc-ping.com   ◄── Watchdog, every 5 minutes ──────────┘
 ```
 
+Built in NNO-24: [`modules/alerting.nix`](../modules/alerting.nix) runs the
+two services, and [`modules/alert-rules.nix`](../modules/alert-rules.nix)
+holds the rules, each with its reasons beside it.
+
 - **Delivery.** Alertmanager's webhook posts to the ntfy topic with
   `?template=alertmanager`, which ntfy.sh formats itself (its built-in
   Alertmanager template), so no bridge runs on core5. The URL is assembled by a
   sops template from the `ntfy-url` secret core5 already holds and read through
-  the webhook's `url_file`, so it never reaches the store. Two receivers by
-  severity: `critical` adds `&priority=high`, `warning` uses the default, the
-  same split alerts.nix makes between a failed backup and a failed upgrade.
+  the webhook's `url_file`, so it never reaches the store. One receiver per
+  severity: `critical` adds `&priority=high` and `warning` uses the default,
+  the same split alerts.nix makes between a failed backup and a failed
+  upgrade, and `info` adds `&priority=low`, for reminders.
+- **One push per incident.** Alertmanager groups by alert name, so one fault
+  on several hosts at once is one push, and waits 30 seconds for the rest of a
+  group to arrive. A host joining a group already pushed is a new push, at the
+  group's next 5-minute flush. Nothing else is sent: no resolution, and no
+  repeat until the same alerts have fired for 30 days, with the log of what
+  was sent kept for 31 days so that it outlasts the repeat. vmalert writes its
+  alerts' state to the store and reads it back at start, and Alertmanager
+  keeps its log on disk, so a restart of either sends nothing again.
+  `tests/alerting.nix` checks this, restarts included.
 - **What leaves the house.** alerts.nix sends only a host's and a unit's names.
   The ntfy template sends every alert's labels, so the labels are kept to the
   same standard: scrape relabelling sets `instance` to the host's name rather
-  than its address, rules carry `alertname`, `host` and `severity` and
-  summaries that name things rather than quote values, and the `address`
-  label (a MAC address) is dropped from `node_network_info` at scrape, so it
-  is never stored either.
+  than its address, rules carry `alertname`, `instance` (the template's
+  "Instance") and `severity`, a name from `lib/net.nix` where one is needed (a
+  segment, a peer, a mountpoint), and summaries that name things rather than
+  quote values. The `address` label (a MAC address) is dropped from
+  `node_network_info` at scrape, so it is never stored either. Kea labels its
+  pools by address range and its subnets in CIDR form; `DhcpPoolLow` names the
+  segment instead. The links in the body, back to vmalert and Alertmanager,
+  are loopback addresses, set so that they do not default to the host's name.
 - **The stack's own silence.** An always-firing `Watchdog` alert routes to
   healthchecks.io every 5 minutes, as a check named `core5-metrics-watchdog`.
   If core5 is off, booted from its SD card, out of disk, or the pipeline is
@@ -399,26 +420,70 @@ exporters ──scrape──► VictoriaMetrics ◄──query── vmalert ─
 - **WAN down** is the case the hosted half exists for. An alert that gate's
   uplink is down cannot leave the house until it is back, and arrives as
   history. The watchdog's missed pings arrive on time, over the phone's own
-  connection.
+  connection. While `WanDown` fires it holds back `ResolverFailing`, since
+  every recursion fails with it, and `HostDown` holds back every other alert
+  about the same host.
 - **fleetAlerts** keeps unit failures and missed jobs: upgrades, backups, and
   now `victoriametrics`, `vmalert`, `alertmanager` and `grafana` in core5's
   `fleetAlerts.failure`, so the stack failing to start says so through the
   path that does not depend on it.
 
-The first rule set, in the alert-rules issue, with thresholds to tune against
-what the graphs show by then:
+The rule set. Every threshold below was checked against core5's store on
+2026-10-13, and none fired; `tests/alert-rules.nix` checks each rule against
+series of its own, firing and not.
 
 | Alert | Fires when | Severity |
 |---|---|---|
-| `HostDown` | A target's `up` is 0 for 5 minutes | critical |
-| `WanDown` | gate's `wan` has no carrier, or both public resolvers fail ICMP probes from core5, for 2 minutes | critical |
-| `ResolverFailing` | A resolver fails its DNS probe for 5 minutes, or more than 5% of its answers are SERVFAIL over 15 | critical |
+| `HostDown` | A host's node_exporter scrape (`up`) is 0 for 5 minutes | critical |
+| `WanDown` | gate's `wan` has no carrier, no lease or no default route, or both public resolvers fail ICMP probes from core5, for 2 minutes | critical |
+| `ResolverFailing` | A resolver fails its DNS probe, or more than 5% of its answers over 15 minutes are SERVFAIL, of at least 100, for 5 minutes | critical |
 | `ConntrackPressure` | gate's conntrack table is over 80% of its limit for 10 minutes | warning |
-| `DhcpPoolLow` | A Kea subnet has under 10% of its pool free | warning |
-| `DiskFilling` | A filesystem is over 85% full, or predicted full within 3 days | warning |
-| `HostHot` | A thermal zone stays above its threshold for 15 minutes | warning |
-| `RevisionBehind` | See below | warning |
+| `DhcpPoolLow` | A segment's pool is over 90% leased for 15 minutes | warning |
+| `DiskFilling` | A filesystem is over 85% full, or predicted full within 3 days at its last 6 hours' rate, for an hour | warning |
+| `HostHot` | A thermal zone stays above 75°C for 15 minutes | warning |
+| `RevisionBehind` | See "The wrong boot" below | warning |
+| `WireGuardPeerSilent` | A WireGuard peer has not completed a handshake in 90 days | info |
 | `Watchdog` | Always | none: routed to healthchecks.io only |
+
+Where the table needed a decision:
+
+- **`ResolverFailing`'s floor.** In the quiet hours a resolver answers 30 to
+  80 queries every 15 minutes, 30 of them core5's own probes, and lifeline,
+  the second resolver, little beyond the probes all day. 5% of that is two or
+  three SERVFAILs, which one device retrying a broken name makes on its own.
+  100 answers is above every quiet hour and below core4's busy ones, so for
+  lifeline this alert is mostly its probe. Both halves leave out Unbound's
+  `nodata`, which NOERROR already counts.
+- **`DhcpPoolLow`** reads Kea's per-pool series, not the per-subnet ones, so a
+  pool is counted once. Each segment has one pool, and a pool's count leaves
+  out the reservations below it, which the subnet's includes.
+- **`DiskFilling`** predicts every filesystem but tmpfs, whose few megabytes
+  written to `/run` read as a steep rate; it still counts for fullness.
+  `/nix/store` is the root mounted again, and is left out.
+- **`HostHot`** has one figure, since node_exporter exports no trip points:
+  75°C, under the Pis' 80°C throttle. gate's CPU throttles at 105°C, but the
+  same figure stands there: its case is fanless and shares the heat with an
+  NVMe drive whose own limit is 80°C, and its package peaked at 47°C in the
+  week to 2026-10-13. Its other zone, `acpitz`, reads a constant 27.8°C.
+- **`WireGuardPeerSilent`**, which the issue asked for beside this table. A
+  peer's handshake reads 0 until it connects after gate boots, so the rule
+  reads the largest value over 90 days rather than the current one: a 0
+  never raises it, and any handshake in the window does. It waits until the
+  store has held the peer for the whole window. Hourly, as a reminder to review
+  or revoke the peer.
+- **No root-device alert.** core4 and lifeline have one SD card and nothing
+  to fall back to, and core5 booted wrong runs none of this. The
+  running-generation half is `RevisionBehind`. It compares each host with
+  main's head, read from GitHub every 30 minutes, and judges only while that
+  read is under 6 hours old: a stale head would flag every host that upgraded
+  past it.
+
+**What none of this watches.** With core5 down, nothing here runs, and the
+watchdog's silence is the one signal, from healthchecks.io, without a reason.
+fleetAlerts still covers the other Pis' upgrades. Away from core5, nothing
+alerts on gate's own Unbound (no exporter yet), on AdGuard's own counts, on a
+failed read of main's head (`RevisionBehind` goes quiet instead), or on
+interface errors and throughput, which the dashboards show and no rule reads.
 
 ## pimon
 
@@ -539,10 +604,14 @@ both are in.
 4. **Alert rules.** vmalert and Alertmanager on core5, the ntfy receivers, the
    watchdog check in healthchecks.io, the rule set above, the GitHub timer for
    `RevisionBehind`, and the stack's units in `fleetAlerts.failure`.
+   Landed as one PR (NNO-24), with `WireGuardPeerSilent` added to the rule
+   set, an `info` receiver for it, and no root-device alert ("Alerts" above
+   has why). The watchdog's check appears in healthchecks.io at its first
+   ping, and its period is set by hand.
 5. **Retire pimon**, two weeks after 4.
 
 Later, if wanted: **Grafana over the tunnel**, the `grafana` grant for forge
 described under Access. gate alone, behind `deploy-guard`, since it changes
 gate's firewall.
 
-Nothing in this file changes a host. The first that does is issue 1.
+This file changes no host itself. The modules it links carry the details.

@@ -453,6 +453,12 @@
     victoriaMetrics = 8428;
     grafana = 3030;
 
+    # The alerting on the collector, on its loopback (modules/alerting.nix).
+    # vmalert's own default, 8880, is the UniFi controller's guest portal on
+    # the same host, though nothing publishes that.
+    vmalert = 8881;
+    alertmanager = 9093;
+
     # Kea's statistics, on gate's metricsSegment address beside node_exporter.
     # Kea keeps pool usage itself but serves it only as JSON over its control
     # socket, which this exporter translates.

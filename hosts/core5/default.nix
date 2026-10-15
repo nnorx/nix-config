@@ -31,6 +31,15 @@ in
     })
   ];
 
+  # The metrics stack failing to start says so through the hosted path, which
+  # does not depend on it (modules/alerts.nix, docs/observability.md).
+  fleetAlerts.failure = [
+    "victoriametrics"
+    "vmalert"
+    "alertmanager"
+    "grafana"
+  ];
+
   # Docker access for this host's user.
   #
   # The uid is pinned because the UniFi container needs a numeric PUID at

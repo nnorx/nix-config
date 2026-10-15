@@ -262,10 +262,11 @@ let
           title = "SERVFAIL";
           unit = "percentunit";
           # Of Unbound's answers. A recursion that timed out upstream, and an
-          # answer that failed DNSSEC validation, both end here.
+          # answer that failed DNSSEC validation, both end here. `nodata` is
+          # left out of the whole: those are NOERROR answers, counted again.
           targets = [
             {
-              expr = ratio ''unbound_answer_rcodes_total{rcode="SERVFAIL"}'' "unbound_answer_rcodes_total";
+              expr = ratio ''unbound_answer_rcodes_total{rcode="SERVFAIL"}'' ''unbound_answer_rcodes_total{rcode!="nodata"}'';
             }
           ];
         })
