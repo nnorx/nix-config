@@ -46,6 +46,7 @@ fails the build if that file stops agreeing with itself.
 flake.nix              Inputs, hosts, installer images
 lib/net.nix            Network topology: segments, addresses, NICs, ports
 lib/ssh-keys.nix       Admin machines' SSH public keys, one per machine
+lib/deploy-keys.nix    Their keys for the Pis' deploy login, one per machine
 lib/wireguard-keys.nix WireGuard public keys: gate and each remote peer
 lib/claude-sandbox.nix Claude Code's sandbox policy, in user and managed settings
 .sops.yaml             Which age keys can decrypt which secrets
@@ -165,8 +166,15 @@ Two consequences follow:
 - **A change to addressing or interfaces reaches the Pis unattended**, as a
   `switch`, and possibly before gate has been deployed to match. That is the
   case the `nrb` rule above exists for. Merge it when you will deploy gate the
-  same evening, or first run `sudo systemctl stop nixos-upgrade.timer` on each
-  Pi.
+  same evening, or first hold each Pi's upgrades through its deploy login, and
+  release them once gate is deployed:
+
+  ```bash
+  ssh -i ~/.ssh/id_ed25519_deploy deploy@lifeline hold    # and `release`
+  ```
+
+  A hold lasts until it is released, across deploys and reboots. A held night
+  skips the upgrade, so healthchecks.io reports it the next day.
 - **A broken `main` is re-applied every night**, including on top of a host
   just recovered by hand. See [recovery.md](docs/recovery.md).
 
@@ -191,6 +199,18 @@ ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_pis -C nick@<machine>
 Add the `.pub` line to `lib/ssh-keys.nix` and merge. The Pis pick it up that
 night, and gate needs `nrs`. Revoking a machine is deleting its line the same
 way.
+
+A machine that deploys the Pis by day also gets a key for their deploy login
+(`modules/deploy-agent.nix`), which can start the nightly upgrade, reboot, or
+hold the nightly upgrade, and nothing more. Give it the same passphrase, and
+name both keys when loading them after a boot, which then asks once:
+
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_deploy -C nick@<machine>-deploy
+ssh-add ~/.ssh/id_ed25519_pis ~/.ssh/id_ed25519_deploy
+```
+
+Its `.pub` line goes in `lib/deploy-keys.nix`, and is revoked the same way.
 
 **Images keep the list they were built with.** A rescue USB or SD image made
 before a change still trusts the old keys: after revoking one, rebuild and

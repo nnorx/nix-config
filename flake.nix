@@ -111,6 +111,9 @@
       # SSH public keys for fleet access, one per admin machine (lib/ssh-keys.nix)
       sshPubKeys = builtins.attrValues (import ./lib/ssh-keys.nix);
 
+      # The Pis' deploy login's keys, one per admin machine (lib/deploy-keys.nix)
+      deployPubKeys = builtins.attrValues (import ./lib/deploy-keys.nix);
+
       # LAN topology — single source of truth for addressing (see lib/net.nix)
       net = import ./lib/net.nix;
 
@@ -168,7 +171,12 @@
       fleetSpecialArgs =
         { hostname, system }:
         {
-          inherit hostname sshPubKeys net;
+          inherit
+            hostname
+            sshPubKeys
+            deployPubKeys
+            net
+            ;
           unstable = unstableFor.${system};
           pimonPkg = pimon.packages.${system}.default;
         };
@@ -293,6 +301,9 @@
       );
       checks.x86_64-linux.gate-servers-egress = pkgsFor.x86_64-linux.testers.runNixOSTest (
         import ./tests/gate-servers-egress.nix { inherit net; }
+      );
+      checks.x86_64-linux.deploy-agent = pkgsFor.x86_64-linux.testers.runNixOSTest (
+        import ./tests/deploy-agent.nix { }
       );
       checks.x86_64-linux.dns-metrics = pkgsFor.x86_64-linux.testers.runNixOSTest (
         import ./tests/dns-metrics.nix { inherit net; }

@@ -28,6 +28,10 @@ let
   };
 in
 {
+  # Starting the upgrade by day, for forge's fleet-deploy. Here for the same
+  # reason the upgrade is: gate is deployed by hand, with its sudo password.
+  imports = [ ../../modules/deploy-agent.nix ];
+
   # mkDefault, like everything else in this file, so a Pi can stay manual
   # during a migration with a plain `enable = false` rather than mkForce.
   #
