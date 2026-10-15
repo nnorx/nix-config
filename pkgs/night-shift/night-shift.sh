@@ -1923,6 +1923,15 @@ case ${1-} in
       *) SERVICE_RESULT=exit-code ;;
     esac
     EXIT_STATUS=$rc after_run
+    # Sleep would pause an agent at work until Nick is back, so while one is,
+    # the Mac stays awake until a minute past the next tick, which asks
+    # again. On AC power only (-s): on battery it sleeps and pauses them, as
+    # before. An agent that goes quiet stops counting after stall_hours
+    # (finish_one), so this cannot keep the Mac awake for good. Left to
+    # outlive the tick, as AbandonProcessGroup allows (home/night-shift.nix).
+    if [[ $platform == darwin ]] && (($(running) > 0)); then
+      caffeinate -s -t $((${NIGHT_SHIFT_INTERVAL:-600} + 60)) </dev/null >/dev/null 2>&1 &
+    fi
     ;;
   file)
     [[ $mode == forge ]] || die "file is forge's: in work mode, issues are filed in Linear by hand"

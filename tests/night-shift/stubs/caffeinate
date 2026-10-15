@@ -1,0 +1,7 @@
+# shellcheck shell=bash
+# caffeinate, for tests/night-shift/run.sh: what _tick runs on a Mac while an
+# agent works. Logs {tool: "caffeinate", args} to $NS_CASE/log.jsonl and
+# returns at once, rather than holding anything awake.
+set -euo pipefail
+
+printf '%s\0' "$@" | jq -Rsc '{tool: "caffeinate", args: (split("\u0000") | .[:-1])}' >>"$NS_CASE/log.jsonl"

@@ -32,6 +32,9 @@ let
   # reasoning as the nix cache in home/claude.nix).
   cache = "${home}/.cache/night-shift";
   log = "${home}/Library/Logs/night-shift.log";
+  # Seconds between runs: launchd's schedule, and how long each run keeps
+  # the Mac awake while an agent works (_tick in night-shift.sh).
+  interval = 600;
 
   # The age key, Nick's credentials, the keychain and the rest of ~/Library
   # (lib/claude-sandbox.nix), and the night shift's own config, which lists
@@ -135,6 +138,7 @@ let
       NIGHT_SHIFT_KEY_CMD = "/usr/bin/security find-generic-password -s night-shift-linear -w";
       NIGHT_SHIFT_PROJECTS = "${home}/projects";
       NIGHT_SHIFT_LOG = log;
+      NIGHT_SHIFT_INTERVAL = toString interval;
       NIGHT_SHIFT_MAX = "2";
       NIGHT_SHIFT_STALL_HOURS = "4";
       NIGHT_SHIFT_FAILED_RUNS = "3";
@@ -176,7 +180,7 @@ in
         (lib.getExe night-shift)
         "_tick"
       ];
-      StartInterval = 600;
+      StartInterval = interval;
       RunAtLoad = true;
       ProcessType = "Background";
       AbandonProcessGroup = true;

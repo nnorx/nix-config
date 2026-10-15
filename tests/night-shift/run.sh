@@ -11,9 +11,9 @@
 # with an environment of the case's own (env -i): HOME, XDG_STATE_HOME,
 # GIT_CONFIG_GLOBAL and NIGHT_SHIFT_PROJECTS all point inside it. The stubs
 # under stubs/ come first on PATH, as curl, claude, systemd-run, bwrap and
-# systemctl, and for work mode osascript and gh, and say how they answer;
-# everything else is real, git included. Nothing reaches the network, the
-# real claude, or Nick's own state directory.
+# systemctl, and for work mode osascript, gh and caffeinate, and say how they
+# answer; everything else is real, git included. Nothing reaches the network,
+# the real claude, or Nick's own state directory.
 #
 # A case on tidy or land_one gives its repository a literal GitHub origin, for
 # github_repo(). One that starts an agent needs a fetch to work, so its origin
@@ -55,8 +55,9 @@ stub bwrap scope 'export NS_STUB=bwrap; '
 stub systemctl systemctl
 stub osascript osascript
 stub gh gh
+stub caffeinate caffeinate
 path=$bin:$PATH
-for tool in curl claude systemd-run bwrap systemctl osascript gh; do
+for tool in curl claude systemd-run bwrap systemctl osascript gh caffeinate; do
   [[ $(PATH=$path command -v "$tool") == "$bin/$tool" ]] || {
     echo "night-shift tests: $tool on PATH is not the stub" >&2
     exit 1
@@ -1130,6 +1131,34 @@ case_work_tick() {
   expect "pointing at the log" has "$(jq -rs 'map(select(.tool == "notify")) | first | .body' "$c/log.jsonl")" "$c/night-shift.log says why."
 }
 
+# _tick leaves caffeinate running in the background, so its log line may
+# lag the tick's own return.
+caffeinated() {
+  local n
+  for n in {1..50}; do
+    (($(requests '.tool == "caffeinate"') == 0)) || break
+    sleep 0.1
+  done
+  one '.tool == "caffeinate" and .args == ["-s", "-t", "660"]'
+}
+
+case_work_tick_awake() {
+  work '.state = {name: "In Progress", type: "started"}'
+  work_agent running
+  nsw NIGHT_SHIFT_INTERVAL=600 _tick
+  expect "exit 0" is "$status" 0
+  expect "kept awake on AC power until a minute past the next tick" caffeinated
+}
+
+case_work_tick_waiting() {
+  work '.state = {name: "In Progress", type: "started"}'
+  work_agent waiting
+  nsw NIGHT_SHIFT_INTERVAL=600 _tick
+  expect "exit 0" is "$status" 0
+  sleep 0.5
+  expect "left to sleep" none '.tool == "caffeinate"'
+}
+
 case_work_tick_unconfigured() {
   nsw _tick
   expect "exit 0" is "$status" 0
@@ -1200,6 +1229,8 @@ cases=(
   "work_canceled     work: canceled: forgotten, worktree kept"
   "work_tick         work: _tick: three failed runs, one notification"
   "work_tick_unconfigured work: _tick with no config: nothing, no failure"
+  "work_tick_awake   work: _tick with an agent at work: the Mac kept awake"
+  "work_tick_waiting work: _tick with an agent waiting on Nick: left to sleep"
   "work_file         work: file is refused"
   "start_poisoned_head start: origin/HEAD pointed at an agent's branch: made from origin's"
   "work_start_poisoned_head work: origin/HEAD pointed at an agent's branch: made from origin's"
