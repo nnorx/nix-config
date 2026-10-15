@@ -224,7 +224,8 @@ and issues are shared, so it changes as little in Linear as it can:
 The Mac's own Claude sessions have no sandbox. The night shift's agents run
 in one, from settings Nix writes, passed with `--settings` and copied into
 the worktree's `.claude/settings.local.json`. `cld-safe` starts an
-interactive session in the same sandbox.
+interactive session in the same sandbox, with the repository's additions
+from the config.
 
 - Commands cannot read your credentials or most of `~/Library`.
   `~/Library/Keychains` must stay hidden: with it readable, `security` finds
@@ -289,5 +290,4 @@ or `phg` before opening the worktree in an editor or running git in it.
 - Agents cannot run docker or anything that needs running services.
 - The log is `~/Library/Logs/night-shift.log`. The third failed run in a row
   sends one notification.
-- `cld-safe` turns hooks off but not a repository's plugins.
 - `night-shift file` and the backlog snapshot are forge's.

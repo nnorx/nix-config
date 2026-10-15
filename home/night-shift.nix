@@ -157,10 +157,10 @@ in
     nss = "night-shift status";
     nsres = "night-shift resume";
     # An interactive session in the night shift's sandbox, for a task worth
-    # the containment. Plain claude keeps the Mac's usual unsandboxed one,
-    # which docker and the dev stack need. Hooks are off here too, but not a
-    # repository's plugins, which only the dispatcher turns off.
-    cld-safe = "claude --settings ${settingsFile} --strict-mcp-config";
+    # the containment, built for the directory it starts in as an agent's
+    # is (work_safe in night-shift.sh). Plain claude keeps the Mac's usual
+    # unsandboxed one, which docker and the dev stack need.
+    cld-safe = "night-shift safe";
   };
 
   # The dispatcher also writes the sandbox into each agent's worktree, as

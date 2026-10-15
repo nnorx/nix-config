@@ -1187,6 +1187,58 @@ case_work_tick_waiting() {
   expect "left to sleep" none '.tool == "caffeinate"'
 }
 
+# safe: claude here, in the agents' sandbox, with the repository's additions
+# from the config, and nothing written in the checkout.
+case_work_safe() {
+  work
+  local r=$c/projects/demo call file
+  mkdir -p "$c/home/.claude" "$r/.claude"
+  echo '{"enabledPlugins": {"lsp@x": true}}' >"$r/.claude/settings.local.json"
+  # Each case runs in a subshell of its own, so its cd stays there.
+  cd "$r"
+  nsw safe --model test
+  expect "exit 0" is "$status" 0
+  call=$(jq -sc 'map(select(.tool == "claude")) | first' "$c/log.jsonl")
+  file=$(jq -r '.args[1]' <<<"$call")
+  expect "claude in the checkout" is "$(realpath "$(jq -r .cwd <<<"$call")")" "$(realpath "$r")"
+  expect "with its settings, no MCP servers, and the arguments given" is "$(jq -c '.args[2:]' <<<"$call")" \
+    '["--strict-mcp-config","--model","test"]'
+  expect "the settings under the state directory" has "$file" "$c/state/night-shift/safe."
+  expect "and gone once the session ended" test ! -e "$file"
+  expect "hooks off" is "$(jq -r .disableAllHooks "$c/settings-given.json" 2>&1)" true
+  expect "the checkout's plugin off" is "$(jq -r '.enabledPlugins."lsp@x"' "$c/settings-given.json" 2>&1)" false
+  expect "the repository's host added" is "$(jq -c .sandbox.network.allowedDomains "$c/settings-given.json" 2>&1)" '["github.com","pypi.org"]'
+  expect "the checkout's own settings left as they were" is "$(cat "$r/.claude/settings.local.json")" '{"enabledPlugins": {"lsp@x": true}}'
+  no_linear_writes
+}
+
+# Outside any repository the config names, and with no config at all: the
+# base alone.
+case_work_safe_elsewhere() {
+  mkdir -p "$c/tmp/plain"
+  cd "$c/tmp/plain"
+  nsw safe
+  expect "exit 0" is "$status" 0
+  expect "claude started" one '.tool == "claude"'
+  expect "the base's hosts only" is "$(jq -c .sandbox.network.allowedDomains "$c/settings-given.json" 2>&1)" '["github.com"]'
+}
+
+# Refused as an agent's start is, and forge's sessions are sandboxed anyway.
+case_work_safe_refused() {
+  work
+  local r=$c/projects/demo
+  mkdir -p "$r/.claude"
+  echo '{"sandbox": {"excludedCommands": ["docker *"]}}' >"$r/.claude/settings.local.json"
+  cd "$r"
+  nsw safe
+  expect "exit 1" is "$status" 1
+  expect "says why" has "$(<"$c/out")" "would change the sandbox or run a command outside it: $(realpath "$r")/.claude/settings.local.json"
+  expect "no claude" none '.tool == "claude"'
+  ns safe
+  expect "forge: exit 1" is "$status" 1
+  expect "forge: says why" has "$(<"$c/out")" "safe is work mode's"
+}
+
 case_work_tick_unconfigured() {
   nsw _tick
   expect "exit 0" is "$status" 0
@@ -1261,6 +1313,9 @@ cases=(
   "work_tick_unconfigured work: _tick with no config: nothing, no failure"
   "work_tick_awake   work: _tick with an agent at work: the Mac kept awake"
   "work_tick_waiting work: _tick with an agent waiting on Nick: left to sleep"
+  "work_safe         work: safe: claude here, sandboxed, the checkout untouched"
+  "work_safe_elsewhere work: safe outside a configured repository: the base alone"
+  "work_safe_refused work: safe refused for settings that change the sandbox, and on forge"
   "work_file         work: file is refused"
   "start_poisoned_head start: origin/HEAD pointed at an agent's branch: made from origin's"
   "work_start_poisoned_head work: origin/HEAD pointed at an agent's branch: made from origin's"

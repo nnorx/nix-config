@@ -38,6 +38,8 @@ usage: night-shift run      take finished work back to Linear, then start queued
        night-shift status   what each issue's agent is doing
        night-shift resume <ID> <answer>
                             work mode: resume an agent that stopped, with your answer
+       night-shift safe [claude args]
+                            work mode: claude here, in the agents' sandbox
 EOF
   exit 64
 }
@@ -1248,26 +1250,23 @@ work_bootstrap() {
   done < <(jq -r '(.bootstrap // [])[]' <<<"$1")
 }
 
-# work_settings <repo conf> <out> <worktree> <repo>: the agent's settings,
-# Nix's base plus the repo's additions from the config, which can only add:
-# hosts to reach, paths to write or to hide, binding to localhost (a test
-# server), environment, though not over a variable the base sets. Written
-# outside the worktree, where the agent cannot change it, and given with
-# --settings. The sandbox, environment, deny rules and what turns hooks and
-# plugins off also go to the worktree's .claude/settings.local.json, which
-# commands in the sandbox cannot write, so a session claude starts there
-# without the flag, a copy from a resume say, is contained all the same.
+# work_settings <repo conf> <out> <dir> <repo>: a session's settings in
+# <dir>, a checkout or worktree of <repo>: Nix's base plus the repo's
+# additions from the config, which can only add: hosts to reach, paths to
+# write or to hide, binding to localhost (a test server), environment,
+# though not over a variable the base sets. Written outside the checkout,
+# where commands in the sandbox cannot change it, and given with --settings.
 #
 # Every plugin a scope enables is turned off, except those the base enables:
-# a plugin's LSP servers and monitors run outside the sandbox, in a worktree
-# the agent writes, and a language server loads code from it (a workspace's
-# own TypeScript, say). Enabled plugins merge per plugin, the highest scope
-# that names one deciding, so each needs naming here.
+# a plugin's LSP servers and monitors run outside the sandbox, in a checkout
+# the session writes, and a language server loads code from it (a
+# workspace's own TypeScript, say). Enabled plugins merge per plugin, the
+# highest scope that names one deciding, so each needs naming here.
 work_settings() {
   local s files=() plugins
   [[ -r ${NIGHT_SHIFT_SETTINGS:-} ]] || return 1
   for s in "$HOME/.claude/settings.json" "$4/.claude/settings.json" "$4/.claude/settings.local.json" \
-    "$3/.claude/settings.json"; do
+    "$3/.claude/settings.json" "$3/.claude/settings.local.json"; do
     [[ ! -f $s ]] || files+=("$s")
   done
   plugins=$(jq -nc '[inputs | (.enabledPlugins // {}) | keys[]] | unique' /dev/null "${files[@]}") || return 1
@@ -1278,10 +1277,57 @@ work_settings() {
     | if $x.allowLocalBinding == true then .sandbox.network.allowLocalBinding = true else . end
     | .env = ($x.env // {}) + .env
     | .enabledPlugins = (reduce $p[] as $n ({}; .[$n] = false)) + (.enabledPlugins // {})' \
-    "$NIGHT_SHIFT_SETTINGS" >"$2" || return 1
-  mkdir -p "$3/.claude"
-  jq '{sandbox, env, disableAllHooks, enabledPlugins, permissions: {deny: .permissions.deny}}' "$2" \
-    >"$3/.claude/settings.local.json"
+    "$NIGHT_SHIFT_SETTINGS" >"$2"
+}
+
+# work_local_settings <settings> <worktree>: the sandbox, environment, deny
+# rules and what turns hooks and plugins off, from an agent's settings, in
+# its worktree's .claude/settings.local.json, which commands in the sandbox
+# cannot write. A session claude starts there without --settings, a copy
+# from a resume say, is contained all the same.
+work_local_settings() {
+  mkdir -p "$2/.claude"
+  jq '{sandbox, env, disableAllHooks, enabledPlugins, permissions: {deny: .permissions.deny}}' "$1" \
+    >"$2/.claude/settings.local.json"
+}
+
+# work_safe [claude args...]: an interactive Claude session here, in the
+# agents' sandbox (`cld-safe`), with the repository's additions from the
+# config when this is in a repository it names. Refused, as an agent's
+# start is, when the repository's settings would change the sandbox or run
+# a command outside it. Nothing is written in the checkout, whose
+# settings.local.json is Nick's, and the settings go when the session ends.
+work_safe() {
+  local top repo common k dir conf="{}" overrides settings rc=0
+  top=$(git rev-parse --show-toplevel 2>/dev/null) || top=$PWD
+  repo=$top
+  # A worktree's main checkout, whose settings its sessions read too.
+  if common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) && [[ $common == */.git ]]; then
+    repo=${common%/.git}
+  fi
+  if [[ -r ${NIGHT_SHIFT_CONFIG:-} ]]; then
+    load_config
+    while IFS= read -r k; do
+      dir=$(jq -r --arg k "$k" --arg h "$HOME" '.repos[$k].dir // "" | sub("^~"; $h)' <<<"$config")
+      if [[ -n $dir && $(realpath -m -- "$dir") == "$(realpath -m -- "$repo")" ]]; then
+        conf=$(jq -c --arg k "$k" '.repos[$k]' <<<"$config")
+        break
+      fi
+    done < <(jq -r '.repos // {} | keys[]' <<<"$config")
+  fi
+  overrides=$(work_overrides "$repo" "$top")
+  [[ -z $overrides ]] ||
+    die "these settings would change the sandbox or run a command outside it: $(paste -sd ' ' <<<"$overrides")"
+  mkdir -p "$state_dir"
+  # Not *.json or *.settings, the state files' and kept sessions' globs.
+  settings=$(mktemp "$state_dir/safe.XXXXXX")
+  # Expanded now: the local is gone by the time the trap runs.
+  # shellcheck disable=SC2064
+  trap "rm -f $(printf '%q' "$settings")" EXIT
+  work_settings "$conf" "$settings" "$top" "$repo" ||
+    die "the settings could not be written: '${NIGHT_SHIFT_SETTINGS:-}' is missing, or a Claude settings file here is not JSON"
+  claude --settings "$settings" --strict-mcp-config "$@" || rc=$?
+  return "$rc"
 }
 
 work_prompt_new() {
@@ -1450,7 +1496,7 @@ work_start_one() {
     work_refuse "$i" "$l" "setting up the worktree failed, and it is removed. \`$state_dir/$ident.bootstrap.log\` says why"
     return 0
   fi
-  if ! work_settings "$conf" "$settings" "$wt" "$repo"; then
+  if ! work_settings "$conf" "$settings" "$wt" "$repo" || ! work_local_settings "$settings" "$wt"; then
     work_discard "$repo" "$wt" "$branch" "$ident"
     work_refuse "$i" "$l" "the agent's settings could not be written: the repository's \`sandbox\` in $NIGHT_SHIFT_CONFIG does not fit them, or a Claude settings file is not JSON. The worktree is removed"
     return 0
@@ -1950,6 +1996,13 @@ case ${1-} in
     fi
     ;;
   status) status ;;
+  # An interactive session in the agents' sandbox, cld-safe's
+  # (home/night-shift.nix).
+  safe)
+    [[ $mode == work ]] || die "safe is work mode's: on forge, every Claude session is sandboxed already"
+    shift
+    work_safe "$@"
+    ;;
   # Work mode's answer to an agent that stopped: picked up by the next run,
   # which resumes the session with it (work_start_one).
   resume)
