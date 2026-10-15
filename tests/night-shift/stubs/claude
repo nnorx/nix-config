@@ -3,9 +3,10 @@
 # as {tool: "claude", args, cwd}. `agents --json --all` prints the roster,
 # $NS_CASE/roster.json, or [] without one. `--bg -n <name>` adds a running
 # session to the roster, the way claude lists one it started, so the
-# dispatcher's next look finds it. `stop <id>` marks that session stopped, as
-# claude's roster soon does; with the file stop-slow, the roster still lists
-# it as before for the next two looks. rm and --resume only log.
+# dispatcher's next look finds it, and fails when the file claude-fail
+# exists. `stop <id>` marks that session stopped, as claude's roster soon
+# does; with the file stop-slow, the roster still lists it as before for the
+# next two looks. rm and --resume only log.
 set -euo pipefail
 
 dir=$NS_CASE
@@ -30,6 +31,10 @@ case ${1-} in
     mv "$roster.tmp" "$roster"
     ;;
   --bg)
+    [[ ! -f $dir/claude-fail ]] || {
+      echo "claude stub: told to fail" >&2
+      exit 1
+    }
     name=""
     while (($#)); do
       [[ $1 != -n ]] || name=$2

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs hosts/forge/night-shift.sh against stubbed Linear, GitHub, ntfy and
+# Runs pkgs/night-shift/night-shift.sh against stubbed Linear, GitHub, ntfy and
 # Claude, with real git in temporary repositories, and checks what it did. The
 # dispatcher runs unattended every 10 minutes, acts as Nick in Linear, and
 # deletes worktrees, branches and sessions; each guard on that was checked once,
@@ -11,8 +11,9 @@
 # with an environment of the case's own (env -i): HOME, XDG_STATE_HOME,
 # GIT_CONFIG_GLOBAL and NIGHT_SHIFT_PROJECTS all point inside it. The stubs
 # under stubs/ come first on PATH, as curl, claude, systemd-run, bwrap and
-# systemctl, and say how they answer; everything else is real, git included. Nothing reaches
-# the network, the real claude, or Nick's own state directory.
+# systemctl, and for work mode osascript and gh, and say how they answer;
+# everything else is real, git included. Nothing reaches the network, the
+# real claude, or Nick's own state directory.
 #
 # A case on tidy or land_one gives its repository a literal GitHub origin, for
 # github_repo(). One that starts an agent needs a fetch to work, so its origin
@@ -30,7 +31,7 @@ set -euo pipefail
 
 root=$(realpath -- "$(dirname -- "$0")/../..")
 here=$root/tests/night-shift
-script=$(realpath -- "${NIGHT_SHIFT_SCRIPT:-$root/hosts/forge/night-shift.sh}")
+script=$(realpath -- "${NIGHT_SHIFT_SCRIPT:-$root/pkgs/night-shift/night-shift.sh}")
 
 work=$(mktemp -d)
 if [[ -n ${NIGHT_SHIFT_TESTS_KEEP:-} ]]; then
@@ -52,8 +53,10 @@ stub claude claude
 stub systemd-run scope 'export NS_STUB=systemd-run; '
 stub bwrap scope 'export NS_STUB=bwrap; '
 stub systemctl systemctl
+stub osascript osascript
+stub gh gh
 path=$bin:$PATH
-for tool in curl claude systemd-run bwrap systemctl; do
+for tool in curl claude systemd-run bwrap systemctl osascript gh; do
   [[ $(PATH=$path command -v "$tool") == "$bin/$tool" ]] || {
     echo "night-shift tests: $tool on PATH is not the stub" >&2
     exit 1
@@ -678,6 +681,469 @@ case_tidy_refused() {
   expect "neither moved" none '.op == "issueUpdate"'
 }
 
+# --- 8. Work mode ----------------------------------------------------------------
+
+# nsw [VAR=value...] <command> [args]: the dispatcher in work mode on a Mac,
+# with the case's config, the settings fixture standing in for Nix's, and the
+# key from a command, as the keychain gives it.
+nsw() {
+  ns NIGHT_SHIFT_MODE=work NIGHT_SHIFT_PLATFORM=darwin NIGHT_SHIFT_CONFIG="$c/config.json" \
+    NIGHT_SHIFT_SETTINGS="$here/fixtures/work-settings.json" NIGHT_SHIFT_KEY_CMD="cat $c/key" \
+    NIGHT_SHIFT_LOG="$c/night-shift.log" "$@"
+}
+
+# work <jq filter>: repo demo, an issue from fixtures/work-issue.json, and a
+# config for team TST. Its setup logs itself, so a case can see it ran, and
+# when.
+WBRANCH=feat/TST-1/fix-the-widget
+work() {
+  repo demo
+  jq --arg id issue-1 ".id = \$id | ${1:-.}" "$here/fixtures/work-issue.json" >"$c/linear/issues/issue-1.json"
+  jq -n --arg dir "$c/projects/demo" --arg log "$c/log.jsonl" '{label: "agent", startedState: "In Progress",
+    repos: {TST: {dir: $dir, branch: "feat/{ID}/{slug}", checks: "make check",
+      bootstrap: ["touch bootstrapped", "echo '\''{\"tool\": \"bootstrap\"}'\'' >>\($log)"],
+      sandbox: {allowedDomains: ["pypi.org"], allowLocalBinding: true, env: {SCRATCH_DIR: "/x", GIT_TERMINAL_PROMPT: "1"}}}}}' >"$c/config.json"
+}
+
+# A worktree work mode would have made for TST-1, and the state file of an
+# issue that has reached <phase>.
+work_agent() {
+  local r=$c/projects/demo phase=$1 started=${2:-$(date -u +%FT%TZ)}
+  WT=$r/.claude/worktrees/$NAME
+  g -C "$r" worktree add -q --no-track -b "$WBRANCH" "$WT" origin/main
+  echo widget >"$WT/widget.txt"
+  g -C "$WT" add widget.txt
+  g -C "$WT" commit -q -m "fix the widget"
+  jq -n --arg repo "$r" --arg wt "$WT" --arg branch "$WBRANCH" --arg name "$NAME" \
+    --arg phase "$phase" --arg started "$started" \
+    '{id: "issue-1", ident: "TST-1", repo: $repo, worktree: $wt, branch: $branch, name: $name,
+      session: "session-1", phase: $phase, started: $started, since: $started,
+      labelled: "2026-10-02T09:00:00.000Z"}' >"$c/state/night-shift/TST-1.json"
+  echo '{}' >"$c/state/night-shift/TST-1.settings"
+  jq -n --arg wt "$WT" --arg name "$NAME" \
+    '[{id: "job-1", sessionId: "session-1", name: $name, cwd: $wt, state: "done"}]' >"$c/roster.json"
+}
+
+no_linear_writes() {
+  expect "no issueUpdate" none '.op == "issueUpdate"'
+  expect "no comment" none '.op == "commentCreate"'
+}
+
+notified() { one ".tool == \"notify\" and .title == \"Night shift\" and .body == \"TST-1: $1\""; }
+
+case_work_start() {
+  work
+  local r=$c/projects/demo wt f bg settings
+  wt=$r/.claude/worktrees/$NAME
+  f=$c/state/night-shift/TST-1.json
+  settings=$c/state/night-shift/TST-1.settings
+  mkdir -p "$c/home/.claude" "$r/.claude"
+  echo '{"enabledPlugins": {"core@nnorx": true, "mine@x": true}}' >"$c/home/.claude/settings.json"
+  echo '{"enabledPlugins": {"lsp@x": true}}' >"$r/.claude/settings.local.json"
+  nsw run
+  expect "exit 0" is "$status" 0
+  expect "a worktree at $wt" test -d "$wt"
+  expect "on the branch from the template, $WBRANCH" is "$(g -C "$wt" symbolic-ref --short HEAD 2>&1)" "$WBRANCH"
+  expect "set up by the config's commands" test -f "$wt/bootstrapped"
+  expect "set up before claude started" is "$(jq -sr 'map(select(.tool == "bootstrap" or (.tool == "claude" and .args[0] == "--bg"))) | map(.tool) | join(",")' "$c/log.jsonl")" "bootstrap,claude"
+  bg=$(jq -sc 'map(select(.tool == "claude" and .args[0] == "--bg")) | first' "$c/log.jsonl")
+  expect "claude --bg in the worktree" is "$(jq -r .cwd <<<"$bg")" "$wt"
+  expect "with its settings, no MCP servers, in auto mode" is "$(jq -c '.args[1:8]' <<<"$bg")" \
+    "$(jq -nc --arg n "$NAME" --arg s "$settings" '["-n", $n, "--settings", $s, "--strict-mcp-config", "--permission-mode", "auto"]')"
+  expect "given the task and the checks" has "$(jq -r '.args[8]' <<<"$bg")" "Checks: make check."
+  expect "started directly, not through systemd-run" none '.tool == "systemd-run"'
+  expect "the settings add the repo's host" is "$(jq -c .sandbox.network.allowedDomains "$settings" 2>&1)" '["github.com","pypi.org"]'
+  expect "and binding to localhost" is "$(jq -r .sandbox.network.allowLocalBinding "$settings" 2>&1)" true
+  expect "and its environment" is "$(jq -r .env.SCRATCH_DIR "$settings" 2>&1)" /x
+  expect "but not over the base's" is "$(jq -r .env.GIT_TERMINAL_PROMPT "$settings" 2>&1)" 0
+  expect "and keep the base's denials" is "$(jq -c .sandbox.filesystem.denyRead "$settings" 2>&1)" '["~/.ssh","~/Library/Keychains"]'
+  expect "hooks off" is "$(jq -r .disableAllHooks "$settings" 2>&1)" true
+  expect "every plugin a scope enables off, but the base's" is "$(jq -c .enabledPlugins "$settings" 2>&1)" \
+    '{"core@nnorx":true,"lsp@x":false,"mine@x":false}'
+  expect "the worktree's own settings sandbox it too" is "$(jq -c '[.sandbox.enabled, .permissions.deny, .disableAllHooks, .enabledPlugins."lsp@x"]' "$wt/.claude/settings.local.json" 2>&1)" '[true,["Bash(git push:*)"],true,false]'
+  expect "moved to In Progress, once" one '.op == "issueUpdate"'
+  expect "In Progress in Linear" is "$(state issue-1)" "In Progress"
+  expect "no comment" none '.op == "commentCreate"'
+  expect "a state file, phase running" is "$(jq -r .phase "$f" 2>&1)" running
+  expect "which records what setup left" is "$(jq -c '.setup | index("?? bootstrapped") != null' "$f" 2>&1)" true
+  expect "no notification" none '.tool == "notify"'
+}
+
+# Refused by work_start_one: nothing made, no agent, nothing written to
+# Linear, and said once, in a notification and the report.
+work_refused() {
+  nsw run
+  expect "exit 0" is "$status" 0
+  expect "no worktree" test ! -e "$c/projects/demo/.claude/worktrees/$NAME"
+  expect "no branch" not branch_exists "$WBRANCH"
+  expect "no claude --bg" none '.tool == "claude" and (.args | index("--bg"))'
+  no_linear_writes
+  expect "phase refused" is "$(jq -r .phase "$c/state/night-shift/TST-1.json" 2>&1)" refused
+  expect "the report says why: $1" has "$(cat "$c/state/night-shift/TST-1.report.md" 2>&1)" "$1"
+  expect "a notification" notified "Not started"
+  nsw run
+  expect "said once, not every run" notified "Not started"
+  expect "not asked about again, unchanged" one '.tool == "linear" and .op == "issue"'
+}
+
+case_work_start_not_labeler() {
+  work '.history.nodes[1].actorId = "user-teammate"'
+  work_refused "the label was last added by someone else or by an integration"
+}
+
+case_work_start_bot() {
+  work '.history.nodes[1].botActor = {id: "bot-mcp"}'
+  work_refused "the label was last added by someone else or by an integration"
+}
+
+# Linear's filter leaves it out of the queue, so a run passes it over in
+# silence; work_start_one refuses it all the same when handed it.
+case_work_start_not_assignee() {
+  work '.assignee.id = "user-teammate"'
+  nsw run
+  expect "exit 0" is "$status" 0
+  expect "not in the queue" none '.tool == "linear" and .op == "issue"'
+  expect "no notification" none '.tool == "notify"'
+  nsw _start user-nick issue-1
+  expect "refused when handed it" has "$(cat "$c/state/night-shift/TST-1.report.md" 2>&1)" "it is not assigned to you"
+  expect "no claude --bg" none '.tool == "claude" and (.args | index("--bg"))'
+  no_linear_writes
+}
+
+case_work_start_edited() {
+  work '.history.nodes += [{createdAt: "2026-10-03T09:00:00.000Z", actorId: "user-teammate", botActor: null,
+    addedLabelIds: null, updatedDescription: true, fromTitle: null}]'
+  work_refused "someone else changed its title or description after you added the label"
+}
+
+case_work_start_relabelled() {
+  work '.history.nodes[1].actorId = "user-teammate"'
+  nsw run
+  expect "refused first" is "$(jq -r .phase "$c/state/night-shift/TST-1.json" 2>&1)" refused
+  jq '.updatedAt = "2026-10-04T09:00:00.000Z"
+    | .history.nodes += [{createdAt: "2026-10-04T09:00:00.000Z", actorId: "user-nick", botActor: null,
+    addedLabelIds: ["label-agent"], updatedDescription: null, fromTitle: null}]' \
+    "$c/linear/issues/issue-1.json" >"$c/tmp/issue.json"
+  mv "$c/tmp/issue.json" "$c/linear/issues/issue-1.json"
+  nsw run
+  expect "exit 0" is "$status" 0
+  expect "started once Nick added the label again" one '.tool == "claude" and .args[0] == "--bg"'
+  expect "phase running" is "$(jq -r .phase "$c/state/night-shift/TST-1.json" 2>&1)" running
+}
+
+case_work_bootstrap_fails() {
+  work
+  jq '.repos.TST.bootstrap = ["exit 3"]' "$c/config.json" >"$c/tmp/config.json"
+  mv "$c/tmp/config.json" "$c/config.json"
+  work_refused "setting up the worktree failed, and it is removed."
+  expect "the setup log kept" has "$(cat "$c/state/night-shift/TST-1.bootstrap.log" 2>&1)" '$ exit 3'
+}
+
+case_work_overrides() {
+  work
+  mkdir -p "$c/projects/demo/.claude"
+  echo '{"sandbox": {"excludedCommands": ["docker *"]}}' >"$c/projects/demo/.claude/settings.local.json"
+  work_refused "these settings would change the agent's sandbox or run a command outside it: $c/projects/demo/.claude/settings.local.json"
+}
+
+# A helper command Claude runs itself, outside the sandbox, from the branch's
+# own settings: refused. Nick's own, in his user settings, is not.
+case_work_helper() {
+  work
+  local seed=$c/tmp/seed-helper
+  g clone -q "$c/remote/demo.git" "$seed"
+  mkdir -p "$seed/.claude"
+  echo '{"apiKeyHelper": "./get-key.sh"}' >"$seed/.claude/settings.json"
+  g -C "$seed" add .claude/settings.json
+  g -C "$seed" commit -q -m "a helper"
+  g -C "$seed" push -q origin HEAD:main
+  work_refused "these settings would change the agent's sandbox or run a command outside it: $c/projects/demo/.claude/worktrees/$NAME/.claude/settings.json"
+}
+
+case_work_helper_user() {
+  work
+  mkdir -p "$c/home/.claude"
+  echo '{"apiKeyHelper": "/usr/local/bin/get-key"}' >"$c/home/.claude/settings.json"
+  nsw run
+  expect "exit 0" is "$status" 0
+  expect "started" is "$(jq -r .phase "$c/state/night-shift/TST-1.json" 2>&1)" running
+}
+
+# A tracked file setup changed is not recorded as setup's: the agent may
+# change it too, and land_one would then remove the worktree with its work.
+case_work_setup_tracked() {
+  work
+  jq '.repos.TST.bootstrap = ["touch made", "echo more >>README.md"]' "$c/config.json" >"$c/tmp/config.json"
+  mv "$c/tmp/config.json" "$c/config.json"
+  nsw run
+  expect "exit 0" is "$status" 0
+  expect "the untracked file recorded, not the changed one" is \
+    "$(jq -c '[index("?? made") != null, any(.[]; endswith("README.md"))]' <<<"$(jq -c .setup "$c/state/night-shift/TST-1.json")" 2>&1)" \
+    '[true,false]'
+}
+
+case_work_finish_handoff() {
+  work '.state = {name: "In Progress", type: "started"}'
+  work_agent running
+  mkdir -p "$c/projects/demo/.git/night-shift"
+  printf 'handoff\nFixed the widget; the checks pass.\n' >"$c/projects/demo/.git/night-shift/TST-1.md"
+  nsw run
+  expect "exit 0" is "$status" 0
+  no_linear_writes
+  expect "a notification" notified "Handoff ready"
+  expect "the text never reaches AppleScript's script" none '.tool == "notify" and (.script | join(" ") | contains("TST-1"))'
+  expect "the report has the result" has "$(cat "$c/state/night-shift/TST-1.report.md" 2>&1)" "Fixed the widget; the checks pass."
+  expect "and how to publish" has "$(cat "$c/state/night-shift/TST-1.report.md" 2>&1)" "To publish: \`cd $WT && pr-handoff\`."
+  expect "no preflight" none '.tool == "bwrap"'
+  expect "phase waiting" is "$(jq -r .phase "$c/state/night-shift/TST-1.json")" waiting
+  expect "status shows the report" has "$(nsw status && cat "$c/out")" "# TST-1: Handoff ready"
+}
+
+case_work_finish_blocked() {
+  work '.state = {name: "In Progress", type: "started"}'
+  work_agent running
+  mkdir -p "$c/projects/demo/.git/night-shift"
+  printf 'blocked\n1. Which widget?\n' >"$c/projects/demo/.git/night-shift/TST-1.md"
+  nsw run
+  expect "exit 0" is "$status" 0
+  no_linear_writes
+  expect "a notification" notified "Needs you"
+  expect "the report says how to answer" has "$(cat "$c/state/night-shift/TST-1.report.md" 2>&1)" "\`night-shift resume TST-1 \"<answer>\"\`"
+}
+
+case_work_resume() {
+  work '.state = {name: "In Progress", type: "started"}'
+  work_agent waiting
+  nsw resume tst-1 "Use the blue one."
+  expect "resume: exit 0" is "$status" 0
+  nsw run
+  expect "exit 0" is "$status" 0
+  expect "the finished session stopped first" one '.tool == "claude" and .args == ["stop", "job-1"]'
+  expect "resumed once, with no new flags" one '.tool == "claude" and .args[0:3] == ["--bg", "--resume", "session-1"] and (.args | length) == 4'
+  expect "given the answer" one '.tool == "claude" and .args[0] == "--bg" and (.args[3] | contains("with this answer:\n\nUse the blue one."))'
+  expect "the answer used up" test ! -e "$c/state/night-shift/TST-1.answer"
+  expect "phase running" is "$(jq -r .phase "$c/state/night-shift/TST-1.json")" running
+  expect "already In Progress, so not moved" none '.op == "issueUpdate"'
+}
+
+case_work_resume_relabelled() {
+  work '.state = {name: "In Progress", type: "started"} | .updatedAt = "2030-01-01T00:00:00.000Z"
+    | .history.nodes += [{createdAt: "2030-01-01T00:00:00.000Z", actorId: "user-nick", botActor: null,
+      addedLabelIds: ["label-agent"], updatedDescription: null, fromTitle: null}]'
+  work_agent waiting
+  nsw run
+  expect "exit 0" is "$status" 0
+  expect "resumed, saying how" one '.tool == "claude" and .args[0:3] == ["--bg", "--resume", "session-1"] and (.args[3] | contains("by adding its label again"))'
+  nsw run
+  expect "once" one '.tool == "claude" and .args[0:2] == ["--bg", "--resume"]'
+}
+
+case_work_land() {
+  work '.state = {name: "Done", type: "completed"}'
+  work_agent waiting
+  jq -nc --arg sha "$(g -C "$WT" rev-parse HEAD)" \
+    '[{number: 7, url: "https://github.com/test/demo/pull/7", headRefOid: $sha}]' >"$c/gh-prs"
+  g -C "$c/projects/demo" remote set-url origin git@github.com:test/demo.git
+  nsw run
+  expect "exit 0" is "$status" 0
+  expect "asked gh for the branch's merged PRs" one ".tool == \"gh\" and .args[0:7] == [\"pr\", \"list\", \"--repo\", \"test/demo\", \"--head\", \"$WBRANCH\", \"--state\"]"
+  expect "never GitHub's API" none '.tool == "github"'
+  expect "the worktree removed" test ! -e "$WT"
+  expect "the branch deleted" not branch_exists "$WBRANCH"
+  expect "the session removed" one '.tool == "claude" and .args == ["rm", "job-1"]'
+  expect "and the settings it was started with" test ! -e "$c/state/night-shift/TST-1.settings"
+  no_linear_writes
+  expect "the issue forgotten" test ! -e "$c/state/night-shift/TST-1.json"
+  expect "the log says so" has "$(<"$c/out")" "TST-1: Merged in [#7](https://github.com/test/demo/pull/7). Removed its worktree"
+}
+
+# An agent can write the repository's shared refs, origin/HEAD among them,
+# which fetch leaves alone. What the next worktree is made from comes from
+# origin itself.
+poison_head() {
+  local r=$c/projects/demo
+  g -C "$r" checkout -q -b evil
+  echo "the agent's" >"$r/evil.txt"
+  g -C "$r" add evil.txt
+  g -C "$r" commit -q -m "evil"
+  g -C "$r" checkout -q main
+  g -C "$r" symbolic-ref refs/remotes/origin/HEAD refs/heads/evil
+}
+
+case_start_poisoned_head() {
+  repo demo
+  issue issue-1
+  poison_head
+  ns run
+  expect "exit 0" is "$status" 0
+  expect "made from origin's main" is "$(g -C "$c/projects/demo/.claude/worktrees/$NAME" rev-parse HEAD 2>&1)" \
+    "$(g -C "$c/remote/demo.git" rev-parse main)"
+  expect "with nothing of the agent's" test ! -e "$c/projects/demo/.claude/worktrees/$NAME/evil.txt"
+}
+
+case_work_start_poisoned_head() {
+  work
+  poison_head
+  nsw run
+  expect "exit 0" is "$status" 0
+  expect "made from origin's main" is "$(g -C "$c/projects/demo/.claude/worktrees/$NAME" rev-parse HEAD 2>&1)" \
+    "$(g -C "$c/remote/demo.git" rev-parse main)"
+  expect "set up with nothing of the agent's" test ! -e "$c/projects/demo/.claude/worktrees/$NAME/evil.txt"
+}
+
+case_work_bg_fails() {
+  work
+  touch "$c/claude-fail"
+  nsw run
+  expect "exit 0" is "$status" 0
+  expect "refused, saying why" has "$(cat "$c/state/night-shift/TST-1.report.md" 2>&1)" "\`claude --bg\` failed, and the worktree is removed"
+  expect "the worktree removed" test ! -e "$c/projects/demo/.claude/worktrees/$NAME"
+  expect "the branch deleted" not branch_exists "$WBRANCH"
+  expect "its settings removed" test ! -e "$c/state/night-shift/TST-1.settings"
+  rm "$c/claude-fail"
+  jq '.updatedAt = "2026-10-04T09:00:00.000Z"
+    | .history.nodes += [{createdAt: "2026-10-04T09:00:00.000Z", actorId: "user-nick", botActor: null,
+    addedLabelIds: ["label-agent"], updatedDescription: null, fromTitle: null}]' \
+    "$c/linear/issues/issue-1.json" >"$c/tmp/issue.json"
+  mv "$c/tmp/issue.json" "$c/linear/issues/issue-1.json"
+  nsw run
+  expect "labelled again, it starts afresh" is "$(jq -r .phase "$c/state/night-shift/TST-1.json" 2>&1)" running
+}
+
+# A daemon a setup command starts must not hold the run's lock.
+case_work_bootstrap_lock() {
+  work
+  jq '.repos.TST.bootstrap = ["if { true >&9; } 2>/dev/null; then touch fd9-open; fi"]' "$c/config.json" >"$c/tmp/config.json"
+  mv "$c/tmp/config.json" "$c/config.json"
+  nsw run
+  expect "exit 0" is "$status" 0
+  expect "started" is "$(jq -r .phase "$c/state/night-shift/TST-1.json" 2>&1)" running
+  expect "setup ran without the lock's descriptor" test ! -e "$c/projects/demo/.claude/worktrees/$NAME/fd9-open"
+}
+
+case_work_land_busy() {
+  work '.state = {name: "Done", type: "completed"}'
+  work_agent waiting
+  jq --arg wt "$WT" '. + [{id: "job-2", sessionId: "session-2", name: "a copy", cwd: $wt, state: "running"}]' \
+    "$c/roster.json" >"$c/roster.tmp"
+  mv "$c/roster.tmp" "$c/roster.json"
+  jq -nc --arg sha "$(g -C "$WT" rev-parse HEAD)" \
+    '[{number: 7, url: "https://github.com/test/demo/pull/7", headRefOid: $sha}]' >"$c/gh-prs"
+  g -C "$c/projects/demo" remote set-url origin git@github.com:test/demo.git
+  nsw run
+  expect "exit 0" is "$status" 0
+  expect "the worktree kept" test -d "$WT"
+  expect "and the settings its sessions use" test -e "$c/state/night-shift/TST-1.settings"
+  expect "a notification saying so" notified "merged, worktree kept"
+}
+
+# Parked and unchanged in Linear: not asked about at all.
+case_work_waiting_quiet() {
+  work '.state = {name: "In Progress", type: "started"}'
+  work_agent waiting
+  nsw run
+  expect "exit 0" is "$status" 0
+  expect "not asked about" none '.tool == "linear" and .op == "issue"'
+  expect "not resumed" none '.tool == "claude" and .args[0] == "--bg"'
+}
+
+# Merged, with what setup left untracked in the worktree, as git-lfs's hooks
+# under a relative hooksPath: <extra> is anything else left there.
+merged_with_setup_leftovers() {
+  work '.state = {name: "Done", type: "completed"}'
+  work_agent waiting
+  jq '.setup = ["?? .husky/_/pre-push"]' "$c/state/night-shift/TST-1.json" >"$c/tmp/state.json"
+  mv "$c/tmp/state.json" "$c/state/night-shift/TST-1.json"
+  mkdir -p "$WT/.husky/_"
+  echo 'git lfs pre-push "$@"' >"$WT/.husky/_/pre-push"
+  jq -nc --arg sha "$(g -C "$WT" rev-parse HEAD)" \
+    '[{number: 7, url: "https://github.com/test/demo/pull/7", headRefOid: $sha}]' >"$c/gh-prs"
+  g -C "$c/projects/demo" remote set-url origin git@github.com:test/demo.git
+}
+
+case_work_land_setup_leftovers() {
+  merged_with_setup_leftovers
+  nsw run
+  expect "exit 0" is "$status" 0
+  expect "the worktree removed, setup's files with it" test ! -e "$WT"
+  expect "the branch deleted" not branch_exists "$WBRANCH"
+  expect "the session removed" one '.tool == "claude" and .args == ["rm", "job-1"]'
+  expect "the settings removed" test ! -e "$c/state/night-shift/TST-1.settings"
+  expect "no notification" none '.tool == "notify"'
+}
+
+case_work_land_dirty() {
+  merged_with_setup_leftovers
+  echo "not committed" >"$WT/notes.txt"
+  nsw run
+  expect "exit 0" is "$status" 0
+  expect "the worktree kept" test -d "$WT"
+  expect "the agent's file kept" test -f "$WT/notes.txt"
+  expect "the log names the agent's file" has "$(<"$c/out")" "?? notes.txt"
+  expect "and not setup's" lacks "$(<"$c/out")" "?? .husky/_/pre-push"
+  expect "a notification" notified "merged, worktree kept"
+  expect "the settings kept for the session" test -f "$c/state/night-shift/TST-1.settings"
+  nsw status
+  expect "status lists them" has "$(<"$c/out")" "TST-1  merged, but its worktree and session were kept"
+}
+
+# A file the agent adds inside a directory setup made is still the agent's.
+case_work_land_inside_setup_dir() {
+  merged_with_setup_leftovers
+  echo "the agent's" >"$WT/.husky/_/notes.txt"
+  nsw run
+  expect "exit 0" is "$status" 0
+  expect "the worktree kept" test -f "$WT/.husky/_/notes.txt"
+  expect "the log names it" has "$(<"$c/out")" "?? .husky/_/notes.txt"
+}
+
+case_work_land_gh_fails() {
+  work '.state = {name: "Done", type: "completed"}'
+  work_agent waiting
+  touch "$c/gh-fail"
+  g -C "$c/projects/demo" remote set-url origin git@github.com:test/demo.git
+  nsw run
+  expect "exit 0" is "$status" 0
+  expect "the worktree kept" test -d "$WT"
+  expect "the issue kept" test -e "$c/state/night-shift/TST-1.json"
+  expect "says it will ask again" has "$(<"$c/out")" "gh could not say whether TST-1 merged"
+}
+
+case_work_canceled() {
+  work '.state = {name: "Canceled", type: "canceled"}'
+  work_agent waiting
+  nsw run
+  expect "exit 0" is "$status" 0
+  expect "the issue forgotten" test ! -e "$c/state/night-shift/TST-1.json"
+  expect "the worktree kept, for Nick" test -d "$WT"
+}
+
+case_work_tick() {
+  local n
+  work
+  for n in 1 2 3; do
+    nsw NIGHT_SHIFT_KEY_CMD=false _tick
+    expect "tick $n: exit 0" is "$status" 0
+  done
+  expect "a failing run counted" is "$(cat "$c/state/night-shift/failed-runs" 2>&1)" 3
+  expect "one notification on the third" one '.tool == "notify" and .title == "Night shift is failing"'
+  expect "pointing at the log" has "$(jq -rs 'map(select(.tool == "notify")) | first | .body' "$c/log.jsonl")" "$c/night-shift.log says why."
+}
+
+case_work_tick_unconfigured() {
+  nsw _tick
+  expect "exit 0" is "$status" 0
+  expect "no run" none '.tool == "linear"'
+  expect "nothing counted" test ! -e "$c/state/night-shift/failed-runs"
+}
+
+case_work_file() {
+  work
+  nsw file
+  expect "refused" is "$status" 1
+  expect "says why" has "$(<"$c/out")" "file is forge's"
+}
+
 # --- Running them ------------------------------------------------------------------
 
 cases=(
@@ -714,6 +1180,36 @@ cases=(
   "after             _after: a push on the third failure, once, reset by success"
   "after_push_failed _after: a push that failed is tried again"
   "tidy_refused      tidy: GitHub's 403 ends its questions for the run"
+  "work_start        work: set up, sandboxed claude --bg, In Progress, no comment"
+  "work_start_not_labeler work: labelled by a teammate: refused, said once"
+  "work_start_bot    work: labelled by an integration: refused"
+  "work_start_not_assignee work: assigned to someone else: refused"
+  "work_start_edited work: text changed by a teammate after the label: refused"
+  "work_start_relabelled work: refused, then labelled again by Nick: started"
+  "work_bootstrap_fails work: setup fails: refused, worktree removed"
+  "work_overrides    work: repo settings change the sandbox: refused"
+  "work_helper       work: the branch's settings name a helper command: refused"
+  "work_helper_user  work: Nick's own settings name a helper command: started"
+  "work_setup_tracked work: a tracked file setup changed is not recorded as setup's"
+  "work_finish_handoff work: handoff: notification and report, nothing in Linear"
+  "work_finish_blocked work: blocked: report says how to answer"
+  "work_resume       work: night-shift resume: resumed with the answer"
+  "work_resume_relabelled work: labelled again while waiting: resumed once"
+  "work_land         work: completed and merged per gh: all removed, nothing in Linear"
+  "work_land_gh_fails work: gh fails: all kept"
+  "work_canceled     work: canceled: forgotten, worktree kept"
+  "work_tick         work: _tick: three failed runs, one notification"
+  "work_tick_unconfigured work: _tick with no config: nothing, no failure"
+  "work_file         work: file is refused"
+  "start_poisoned_head start: origin/HEAD pointed at an agent's branch: made from origin's"
+  "work_start_poisoned_head work: origin/HEAD pointed at an agent's branch: made from origin's"
+  "work_bg_fails     work: claude --bg fails: removed, and starts afresh when labelled again"
+  "work_bootstrap_lock work: setup runs without the run lock's descriptor"
+  "work_land_busy    work: merged but a session at work: kept, with its settings"
+  "work_waiting_quiet work: waiting and unchanged in Linear: not even asked about"
+  "work_land_setup_leftovers work: merged, only setup's files untracked: all removed"
+  "work_land_dirty   work: merged, the agent's file untracked: kept, and status says so"
+  "work_land_inside_setup_dir work: merged, the agent's file in setup's directory: kept"
 )
 
 failed=()

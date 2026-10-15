@@ -1,0 +1,13 @@
+# shellcheck shell=bash
+# gh, for tests/night-shift/run.sh: merged_pr_gh's `gh pr list`. Logs
+# {tool: "gh", args} to $NS_CASE/log.jsonl and prints $NS_CASE/gh-prs, the
+# merged PRs as gh's --json gives them, or [] without one. Fails as gh does
+# without a login when the file gh-fail exists.
+set -euo pipefail
+
+printf '%s\0' "$@" | jq -Rsc '{tool: "gh", args: (split("\u0000") | .[:-1])}' >>"$NS_CASE/log.jsonl"
+if [[ -f $NS_CASE/gh-fail ]]; then
+  echo "To get started with GitHub CLI, please run:  gh auth login" >&2
+  exit 4
+fi
+if [[ -f $NS_CASE/gh-prs ]]; then cat "$NS_CASE/gh-prs"; else echo '[]'; fi

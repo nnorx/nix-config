@@ -1,10 +1,16 @@
 # The night shift: issues Nick queues in Linear, worked by background Claude
-# Code agents on forge, each ending in a PR handoff for him to publish. See
-# hosts/forge/night-shift.nix for how it runs and docs/night-shift.md for
-# using it. Built with writeShellApplication, which adds the shebang, errexit,
-# nounset and pipefail.
+# Code agents, each ending in a PR handoff for him to publish. See
+# hosts/forge/night-shift.nix and home/night-shift.nix for how it runs, and
+# docs/night-shift.md for using it. Built with writeShellApplication, which
+# adds the shebang, errexit, nounset and pipefail.
 #
-# An issue moves through the team's states:
+# Two modes, from NIGHT_SHIFT_MODE. forge, the default and what this header
+# describes, runs on forge against Nick's own Linear team, with states of his
+# own. work runs on a Mac against a team he shares, whose workflow is not his
+# to change: "Work mode" below says how it differs. NIGHT_SHIFT_PLATFORM,
+# linux or darwin, says how agents are started and how Nick is told.
+#
+# In forge mode, an issue moves through the team's states:
 #
 #   Queued         Nick put it there. Taken when a slot is free, highest
 #                  priority first, but only if Nick himself created it and
@@ -30,6 +36,8 @@ usage: night-shift run      take finished work back to Linear, then start queued
        night-shift file     create Linear issues from drafts in each repo's .git/linear-handoff/
        night-shift check    confirm the key, states, repo labels and tools
        night-shift status   what each issue's agent is doing
+       night-shift resume <ID> <answer>
+                            work mode: resume an agent that stopped, with your answer
 EOF
   exit 64
 }
@@ -47,6 +55,10 @@ NEEDS="Needs you"
 # comments are told apart from his when collecting his answers.
 MARKER="**Night shift**"
 
+mode=${NIGHT_SHIFT_MODE:-forge}
+platform=${NIGHT_SHIFT_PLATFORM:-linux}
+[[ $mode == forge || $mode == work ]] || die "NIGHT_SHIFT_MODE is forge or work, not '$mode'"
+[[ $platform == linux || $platform == darwin ]] || die "NIGHT_SHIFT_PLATFORM is linux or darwin, not '$platform'"
 projects=${NIGHT_SHIFT_PROJECTS:-$HOME/projects}
 max=${NIGHT_SHIFT_MAX:-2}
 stall_hours=${NIGHT_SHIFT_STALL_HOURS:-4}
@@ -64,9 +76,16 @@ now() { date -u +%FT%TZ; }
 
 # Read once and never exported, so the agents started below do not inherit
 # it. It reaches curl through a file descriptor rather than the command line,
-# which any of Nick's processes could read from /proc.
+# which any of Nick's processes could read from /proc. From a file, sops's on
+# forge, or from the output of NIGHT_SHIFT_KEY_CMD, the login keychain's on a
+# Mac, which commands in the sandbox cannot read (lib/claude-sandbox.nix).
 key=""
 load_key() {
+  if [[ -n ${NIGHT_SHIFT_KEY_CMD:-} ]]; then
+    key=$("$BASH" -c "$NIGHT_SHIFT_KEY_CMD" </dev/null) && [[ -n $key ]] ||
+      die "no Linear key from '$NIGHT_SHIFT_KEY_CMD'; docs/night-shift.md says how to store it"
+    return 0
+  fi
   [[ -r ${NIGHT_SHIFT_KEY_FILE:-} ]] || die "cannot read the Linear key at '${NIGHT_SHIFT_KEY_FILE:-}'"
   key=$(<"$NIGHT_SHIFT_KEY_FILE")
 }
@@ -98,7 +117,19 @@ gql() {
 # only after_run acts on: elsewhere a missed push leaves the issue itself
 # correct. The topic is the only access control, so it goes through a
 # descriptor too.
+#
+# On a Mac, a notification on the desktop instead, with no URL to open. The
+# text reaches AppleScript as arguments to its run handler, never as part of
+# the script, so nothing in it can make osascript do more than show it.
 notify() {
+  if [[ $platform == darwin ]]; then
+    osascript -e 'on run argv' -e 'display notification (item 2 of argv) with title (item 1 of argv)' \
+      -e 'end run' "$1" "$2" </dev/null >/dev/null || {
+      echo "night-shift: notification failed for: $1" >&2
+      return 1
+    }
+    return 0
+  fi
   [[ -r ${NIGHT_SHIFT_NTFY_FILE:-} ]] || return 0
   local click=()
   [[ -z ${3-} ]] || click=(-H "Click: $3")
@@ -120,8 +151,24 @@ ISSUE_FIELDS='id identifier title description url
   comments(first: 100) { nodes { body createdAt user { id } } }
   history(first: 250) { pageInfo { hasNextPage } nodes { createdAt actorId toState { name } } }'
 
+# Work mode's: the assignee, the team's key, which names its repository in the
+# config, and from the history who added which label and who edited the text,
+# for work_refusal. A query of its own rather than more fields on forge's, so a
+# field Linear renames breaks only the mode that asks for it.
+WORK_FIELDS='id identifier title description url createdAt updatedAt
+  state { name type }
+  creator { id }
+  assignee { id }
+  team { key states { nodes { id name type position } } }
+  labels { nodes { id name } }
+  comments(first: 100) { nodes { body createdAt user { id } } }
+  history(first: 250) { pageInfo { hasNextPage }
+    nodes { createdAt actorId botActor { id } addedLabelIds updatedDescription fromTitle } }'
+
 issue() {
-  gql "query(\$id: String!) { issue(id: \$id) { $ISSUE_FIELDS } }" \
+  local fields=$ISSUE_FIELDS
+  [[ $mode == forge ]] || fields=$WORK_FIELDS
+  gql "query(\$id: String!) { issue(id: \$id) { $fields } }" \
     "$(jq -nc --arg id "$1" '{id: $id}')" | jq -c '.issue'
 }
 
@@ -145,13 +192,27 @@ comment() {
 # stop_issue <issue json> <state> <markdown> <what happened>. The push names
 # the issue by its identifier, and a tap opens its URL. Never by its title:
 # ntfy.sh is a third party, and a title can describe the house.
+#
+# In work mode the issue is left as it is, since teammates read it: the text
+# goes to $state_dir/<ID>.report.md, which `night-shift status` shows, under
+# what the state would have been.
 stop_issue() {
   local ident
   ident=$(jq -r .identifier <<<"$1")
-  comment "$1" "$3"
-  move "$1" "$2"
+  if [[ $mode == work ]]; then
+    write_report "$ident" "$2" "$3"
+  else
+    comment "$1" "$3"
+    move "$1" "$2"
+  fi
   notify "Night shift" "$ident: $4" "$(jq -r .url <<<"$1")" || true
   echo "night-shift: $ident: $4"
+}
+
+# write_report <ident> <heading> <markdown>: work mode's comment, kept here.
+write_report() {
+  mkdir -p "$state_dir"
+  printf '# %s: %s\n\n_%s_\n\n%s\n' "$1" "$2" "$(now)" "$3" >"$state_dir/$1.report.md"
 }
 
 # Nick's comments, oldest first, after <since> when given, without this
@@ -269,6 +330,11 @@ forget() {
   if dir=$(git -C "$(jq -r .repo "$f")" rev-parse --path-format=absolute --git-common-dir 2>/dev/null); then
     rm -f "$dir/night-shift/$ident.issue.md" "$dir/night-shift/$ident.md" "$dir/night-shift/$ident.md".*
   fi
+  # Work mode's, beside the state file.
+  # Not the settings an agent's session was started with, which it reads
+  # again on every resume and which may outlive this, a session kept by
+  # land_one say; land_one removes them with the session.
+  rm -f "$state_dir/$ident".{report.md,answer,bootstrap.log}
   rm "$f"
   echo "night-shift: forgot $ident${2:+, $2}"
 }
@@ -291,8 +357,24 @@ update() {
 # issue quoting a workflow's ${{ github.ref }} or a shell's "${args[@]}" reached
 # the agent with those emptied, and a name that is set, ${HOME} say, would
 # reach it as its value. The prompt has to arrive as Nick wrote it.
+#
+# On a Mac there is no cgroup to leave: launchd lets processes outlive the run
+# because the agent sets AbandonProcessGroup (home/night-shift.nix). The
+# run's deadline (_tick) ends the run's whole process group, so claude starts
+# in a group of its own, as a job under job control, and its daemon is left
+# be. Job control goes off again before the wait, which would otherwise print
+# the job's end.
 cl() {
-  systemd-run --user --scope --collect --quiet --expand-environment=no -- claude "$@" 9>&-
+  if [[ $platform == darwin ]]; then
+    (
+      set -m
+      claude "$@" 9>&- &
+      set +m
+      wait $!
+    )
+  else
+    systemd-run --user --scope --collect --quiet --expand-environment=no -- claude "$@" 9>&-
+  fi
 }
 
 closed() {
@@ -452,6 +534,36 @@ slug() {
   tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | sed 's/^-//' | cut -c1-32 | sed 's/-$//'
 }
 
+# add_worktree <repo> <branch> <worktree> <base>: the agent's worktree, on a
+# new branch with no upstream (start_one says why), and with no hook run.
+# forge runs none anyway (home/claude.nix); a work repo's would, and with a
+# relative core.hooksPath, husky's say, they come from the new worktree, which
+# is the agent's to write from here on. Setup is work_bootstrap's alone.
+add_worktree() {
+  git -C "$1" -c core.hooksPath=/dev/null worktree add --quiet --no-track -b "$2" "$3" "$4"
+}
+
+# fetch_base <repo>: fetches origin, then prints "<branch> <commit>" for the
+# branch origin's HEAD names, as origin itself answers. Not from
+# refs/remotes/origin/HEAD: commands in the sandbox can write the shared refs
+# (it protects .git/config and hooks, not refs), fetch never resets that one,
+# and an agent that pointed it at its own branch would hand its code to the
+# next agent, and in work mode to work_bootstrap, outside the sandbox. A
+# commit id from origin is one nothing in the repository can forge.
+#
+# Without the run lock's descriptor: an SSH connection kept open for reuse
+# would otherwise hold the lock for as long as it lives.
+fetch_base() {
+  local out branch sha
+  out=$(git -C "$1" ls-remote --symref origin HEAD 9>&-) || return 1
+  branch=$(sed -nE 's#^ref: refs/heads/([^[:space:]]+)[[:space:]]+HEAD$#\1#p' <<<"$out")
+  sha=$(awk '$1 != "ref:" && $2 == "HEAD" { print $1 }' <<<"$out")
+  [[ -n $branch && -n $sha ]] || return 1
+  git -C "$1" fetch --quiet origin 9>&- || return 1
+  git -C "$1" cat-file -e "$sha^{commit}" 2>/dev/null || return 1
+  echo "$branch $sha"
+}
+
 # Runs a command with NIGHT_SHIFT_HIDE's paths hidden, one per line, `~` and
 # globs allowed: what Claude Code's sandbox denies, and Nick's credentials
 # besides (night-shift.nix). The brief evaluates the agent's branch, which is
@@ -492,7 +604,7 @@ brief() {
 # Queued while its agent worked stays there. The same run then resumes it
 # with his new comments, rather than leaving them unanswered.
 report() {
-  if [[ $(jq -r .state.name <<<"$1") == "$QUEUED" ]]; then
+  if [[ $mode == forge && $(jq -r .state.name <<<"$1") == "$QUEUED" ]]; then
     comment "$1" "$3"
     echo "night-shift: $(jq -r .identifier <<<"$1"): $4, left in $QUEUED"
   else
@@ -506,7 +618,15 @@ report() {
 # one there now is new: Nick answered a flagged agent through `claude attach`,
 # or asked a handed-off one for more, and it reported again.
 finish_one() {
-  local f=$1 id ident repo wt branch name result kind body i rc=0 verdict="" level session="" why=""
+  local f=$1 id ident repo wt branch name result kind body i rc=0 verdict="" level session="" why="" nudge answer
+  # How Nick answers: in Linear on forge, here in work mode, where the agent
+  # reads nothing from the issue but what its text was when it started.
+  nudge="move this back to $QUEUED to nudge it"
+  answer="Answer in a comment and move this back to $QUEUED to resume it"
+  if [[ $mode == work ]]; then
+    nudge="\`night-shift resume $(jq -r .ident "$f") \"<what to do>\"\` nudges it"
+    answer="Answer with \`night-shift resume $(jq -r .ident "$f") \"<answer>\"\` to resume it"
+  fi
   id=$(jq -r .id "$f")
   ident=$(jq -r .ident "$f")
   repo=$(jq -r .repo "$f")
@@ -526,8 +646,10 @@ finish_one() {
     kind=$(head -n 1 "$result" | tr -d '[:space:]')
     body=$(tail -n +2 "$result")
     # Preflight first: it takes minutes, and the issue's state is read after
-    # it, so a re-queue made meanwhile counts.
-    [[ $kind != handoff ]] || verdict=$(brief "$repo" "$branch")
+    # it, so a re-queue made meanwhile counts. Not in work mode, whose repos
+    # have no preflight and whose Mac has no bwrap to confine one: there the
+    # agent's own checks in its sandbox and CI's on the PR stand in.
+    [[ $mode == work || $kind != handoff ]] || verdict=$(brief "$repo" "$branch")
     # The agent has just reported, so the roster surely lists it: keep its id
     # for a resume after the roster forgets.
     read -r _ session _ <<<"$(agent "$name" "$wt")" || true
@@ -543,7 +665,7 @@ finish_one() {
   ((rc == 0)) || return "$rc"
 
   if [[ -n $why ]]; then
-    report "$i" "$NEEDS" "$why \`claude attach $name\` shows where it is; move this back to $QUEUED to nudge it." \
+    report "$i" "$NEEDS" "$why \`claude attach $name\` shows where it is; $nudge." \
       "Went quiet"
   else
     if [[ $kind == handoff ]]; then
@@ -562,7 +684,7 @@ To publish: \`cd $wt && pr-handoff\`. To talk to the agent: \`claude attach $nam
 
 $body
 
-Answer in a comment and move this back to $QUEUED to resume it, or \`claude attach $name\`." \
+$answer, or \`claude attach $name\`." \
         "Needs you"
     fi
     archive "$result"
@@ -570,9 +692,73 @@ Answer in a comment and move this back to $QUEUED to resume it, or \`claude atta
   update "$f" '.phase = "waiting"'
 }
 
+# resume_agent <issue json> <state file> <prompt function>: continues the
+# issue's session in its worktree, with what the function prints given the
+# issue, when the agent last heard from Nick, and the result path. Returns 1,
+# with the issue stopped and why, when it could not.
+resume_agent() {
+  local i=$1 f=$2 prompt=$3 ident repo wt name job="" session="" st="" result out copy
+  ident=$(jq -r .ident "$f")
+  repo=$(jq -r .repo "$f")
+  wt=$(jq -r .worktree "$f")
+  name=$(jq -r .name "$f")
+  # The roster first; the id saved earlier covers a roster that has
+  # forgotten the session.
+  read -r job session _ <<<"$(agent "$name" "$wt")" || true
+  [[ -n ${session:-} ]] || session=$(jq -r '.session // empty' "$f")
+  if [[ -z $session ]]; then
+    stop_issue "$i" "$NEEDS" "Could not find the agent's session to resume in \`$wt\`." "Did not resume"
+    return 1
+  fi
+  result=$(result_path "$repo" "$ident")
+  # finish_one took any result written before this run; one written since
+  # is moot, as the resume asks for a new one.
+  archive "$result"
+  write_issue "$i" "$result"
+  # --resume continues the session under the same id only if it is stopped
+  # and given no flags; otherwise it starts a copy under a new id. A finished
+  # session keeps its process, so stop it first. Its name, permission mode
+  # and, in work mode, its --settings and --strict-mcp-config are saved with
+  # it, and passing them again counts as new flags.
+  if [[ -n ${job:-} ]]; then
+    cl stop "$job" </dev/null >/dev/null 2>&1 || true
+    # The roster can still call a session busy just after it stops, and a
+    # resume then starts a copy, as NNO-65's did just after its session
+    # exited. So wait, up to a minute, for the roster to say it has ended,
+    # or to forget it.
+    for _ in {1..30}; do
+      read -r _ _ st <<<"$(agent "$name" "$wt")" || true
+      if [[ -z $st ]] || ! at_work "$st"; then
+        break
+      fi
+      sleep 2
+    done
+  fi
+  if ! out=$(cd "$wt" && cl --bg --resume "$session" </dev/null \
+    "$("$prompt" "$i" "$(jq -r .since "$f")" "$result")" 2>&1 >/dev/null); then
+    stop_issue "$i" "$NEEDS" "Could not resume the session in \`$wt\`." "Did not resume"
+    return 1
+  fi
+  echo "$out" >&2
+  # claude says so when it started a copy instead, which would put two
+  # agents in one worktree: stop it and let Nick decide. A copy keeps none of
+  # the saved flags, so in work mode it is sandboxed only by the worktree's
+  # own settings (work_start_one).
+  copy=$(sed -nE 's/.*started a copy as ([0-9a-f]+).*/\1/p' <<<"$out" | head -n 1)
+  if [[ -n $copy ]]; then
+    cl stop "$copy" </dev/null >/dev/null 2>&1 || true
+    stop_issue "$i" "$NEEDS" "Not resumed: claude started a copy ($copy) instead of continuing the session, and the copy was stopped. \`claude attach ${job:-$session}\` opens the original." "Did not resume"
+    return 1
+  fi
+  # quiet's clock starts over.
+  # shellcheck disable=SC2016 # jq's variables, not the shell's
+  update "$f" '.phase = "running" | .started = $now | .since = $now | .session = $s | del(.worked, .ticked, .ended)' \
+    --arg now "$(now)" --arg s "$session"
+}
+
 # One queued issue: start an agent on it, or resume the one it had.
 start_one() {
-  local id=$1 i ident queuer f label repo base name wt branch session="" job="" st="" result out copy
+  local id=$1 i ident queuer f label repo fb base sha name wt branch session="" result
   i=$(issue "$id")
   [[ $(jq -r .state.name <<<"$i") == "$QUEUED" ]] || return 0
   ident=$(jq -r .identifier <<<"$i")
@@ -611,58 +797,7 @@ start_one() {
   fi
 
   if [[ -f $f ]]; then
-    repo=$(jq -r .repo "$f")
-    wt=$(jq -r .worktree "$f")
-    name=$(jq -r .name "$f")
-    # The roster first; the id saved earlier covers a roster that has
-    # forgotten the session.
-    read -r job session _ <<<"$(agent "$name" "$wt")" || true
-    [[ -n ${session:-} ]] || session=$(jq -r '.session // empty' "$f")
-    if [[ -z $session ]]; then
-      stop_issue "$i" "$NEEDS" "Could not find the agent's session to resume in \`$wt\`." "Did not resume"
-      return 0
-    fi
-    result=$(result_path "$repo" "$ident")
-    # finish_one took any result written before this run; one written since
-    # is moot, as the resume asks for a new one.
-    archive "$result"
-    write_issue "$i" "$result"
-    # --resume continues the session under the same id only if it is stopped
-    # and given no flags; otherwise it starts a copy under a new id. A finished
-    # session keeps its process, so stop it first. Its name and permission
-    # mode are saved with it, and passing them again counts as new flags.
-    if [[ -n ${job:-} ]]; then
-      cl stop "$job" </dev/null >/dev/null 2>&1 || true
-      # The roster can still call a session busy just after it stops, and a
-      # resume then starts a copy, as NNO-65's did just after its session
-      # exited. So wait, up to a minute, for the roster to say it has ended,
-      # or to forget it.
-      for _ in {1..30}; do
-        read -r _ _ st <<<"$(agent "$name" "$wt")" || true
-        if [[ -z $st ]] || ! at_work "$st"; then
-          break
-        fi
-        sleep 2
-      done
-    fi
-    if ! out=$(cd "$wt" && cl --bg --resume "$session" </dev/null \
-      "$(prompt_resume "$i" "$(jq -r .since "$f")" "$result")" 2>&1 >/dev/null); then
-      stop_issue "$i" "$NEEDS" "Could not resume the session in \`$wt\`." "Did not resume"
-      return 0
-    fi
-    echo "$out" >&2
-    # claude says so when it started a copy instead, which would put two
-    # agents in one worktree: stop it and let Nick decide.
-    copy=$(sed -nE 's/.*started a copy as ([0-9a-f]+).*/\1/p' <<<"$out" | head -n 1)
-    if [[ -n $copy ]]; then
-      cl stop "$copy" </dev/null >/dev/null 2>&1 || true
-      stop_issue "$i" "$NEEDS" "Not resumed: claude started a copy ($copy) instead of continuing the session, and the copy was stopped. \`claude attach ${job:-$session}\` opens the original." "Did not resume"
-      return 0
-    fi
-    # quiet's clock starts over.
-    # shellcheck disable=SC2016 # jq's variables, not the shell's
-    update "$f" '.phase = "running" | .started = $now | .since = $now | .session = $s | del(.worked, .ticked, .ended)' \
-      --arg now "$(now)" --arg s "$session"
+    resume_agent "$i" "$f" prompt_resume || return 0
   else
     label=$(jq -r '[.labels.nodes[] | select(.parent.name == "repo") | .name] | first // ""' <<<"$i")
     repo=$projects/$label
@@ -671,8 +806,9 @@ start_one() {
       return 0
     fi
     # Offline, say: leave it queued for the next run.
-    git -C "$repo" fetch --quiet origin || die "$ident: could not fetch $label; trying again next run"
-    base=$(git -C "$repo" symbolic-ref --quiet --short refs/remotes/origin/HEAD || echo origin/main)
+    fb=$(fetch_base "$repo") || die "$ident: could not fetch $label; trying again next run"
+    read -r base sha <<<"$fb"
+    base=origin/$base
     name="${ident,,}-$(jq -r .title <<<"$i" | slug)"
     wt=$repo/.claude/worktrees/$name
     branch=worktree-$name
@@ -680,7 +816,7 @@ start_one() {
     # while a sandboxed Claude session in the repo holds its placeholder at
     # .git/config.lock. git has made the branch by then, so the next run would
     # fail on that instead. Nothing reads the upstream; pr-handoff sets its own.
-    if ! git -C "$repo" worktree add --quiet --no-track -b "$branch" "$wt" "$base"; then
+    if ! add_worktree "$repo" "$branch" "$wt" "$sha"; then
       stop_issue "$i" "$NEEDS" "Not started: could not make the worktree \`$wt\` on \`$branch\`. One may be left from an earlier run." "No worktree"
       return 0
     fi
@@ -734,6 +870,19 @@ merged_pr() {
   esac
 }
 
+# after_setup <state file> <status>: the lines of `git status --porcelain
+# --untracked-files=all` that setup did not leave behind. Work mode records
+# the untracked files setup left when it sets the worktree up
+# (work_start_one): files a repository's setup writes and does not ignore,
+# git-lfs's hooks under a relative core.hooksPath say, are not the agent's
+# work and keep nothing. A tracked file setup changed still keeps it. File by
+# file, since by default git folds an untracked directory into one line,
+# which would hide a file the agent added inside one of setup's. On forge,
+# every line.
+after_setup() {
+  grep -vxF -f <(jq -r '(.setup // [])[]' "$1") <<<"$2" || true
+}
+
 # One handoff whose PR Nick merged (tidy): clean up after its agent, then move
 # it to Done. The worktree goes only when nothing in it can be lost: the
 # branch's tip is the head the PR merged, so every commit is in main, nothing
@@ -760,10 +909,16 @@ land_one() {
   sha=$(jq -r .merged.sha "$f")
 
   i=$(issue "$id")
-  # Moved on since tidy asked: the next run looks again.
-  [[ $(jq -r .state.name <<<"$i") == "$READY" ]] || return 0
-  completed=$(jq -r '[.team.states.nodes[] | select(.type == "completed")] | sort_by(.position) | first | .name // empty' <<<"$i")
-  [[ -n $completed ]] || die "$ident's team has no completed state"
+  # Moved on since tidy asked: the next run looks again. In work mode Linear's
+  # GitHub integration has completed it already, which is what tidy saw.
+  if [[ $mode == work ]]; then
+    [[ $(jq -r .state.type <<<"$i") == completed ]] || return 0
+    completed=$(jq -r .state.name <<<"$i")
+  else
+    [[ $(jq -r .state.name <<<"$i") == "$READY" ]] || return 0
+    completed=$(jq -r '[.team.states.nodes[] | select(.type == "completed")] | sort_by(.position) | first | .name // empty' <<<"$i")
+    [[ -n $completed ]] || die "$ident's team has no completed state"
+  fi
 
   tip=$(git -C "$repo" rev-parse --verify --quiet "refs/heads/$branch^{commit}" || true)
   # Every session in the worktree, by name or not: a resume that started a
@@ -779,12 +934,16 @@ land_one() {
   elif [[ -d $wt ]]; then
     if [[ -z $tip || $(git -C "$wt" symbolic-ref --quiet HEAD || true) != "refs/heads/$branch" ]]; then
       keep="it is no longer on \`$branch\`."
-    elif ! dirty=$(git -C "$wt" status --porcelain 2>&1) || [[ -n $dirty ]]; then
+    elif ! dirty=$(git -C "$wt" status --porcelain --untracked-files=all 2>&1) ||
+      ! dirty=$(after_setup "$f" "$dirty") ||
+      [[ -n $dirty ]]; then
       keep="it has changes not committed:
 \`\`\`
 $(head -n 10 <<<"$dirty")
 \`\`\`"
-    elif ! out=$(git -C "$repo" worktree remove "$wt" 2>&1); then
+    # --force for what setup left, which git would otherwise refuse to
+    # remove along with the worktree. Nothing else is uncommitted by now.
+    elif ! out=$(git -C "$repo" worktree remove --force "$wt" 2>&1); then
       keep="git would not remove it: $out"
     else
       removed+=("its worktree")
@@ -804,6 +963,8 @@ $(head -n 10 <<<"$dirty")
         note+=" \`claude rm $s\` failed."
       fi
     done
+    # Work mode's sandbox for the sessions just removed (forget keeps it).
+    rm -f "$state_dir/$ident.settings"
     if ((n == 1)); then
       removed+=("the agent's session")
     elif ((n > 1)); then
@@ -823,11 +984,26 @@ $(head -n 10 <<<"$dirty")
       2) done_text="Removed ${removed[0]} and ${removed[1]}." ;;
       *) done_text="Removed ${removed[0]}, ${removed[1]} and ${removed[2]}." ;;
     esac
-    comment "$i" "Merged in [#$number]($url). $done_text$note"
+    done_text="Merged in [#$number]($url). $done_text$note"
   else
-    comment "$i" "Merged in [#$number]($url). Kept its worktree \`$wt\`, the branch and the agent's session, since $keep"
+    done_text="Merged in [#$number]($url). Kept its worktree \`$wt\`, the branch and the agent's session, since $keep"
   fi
-  # No push: Nick merged it himself.
+  # No push: Nick merged it himself. In work mode nothing goes to the issue,
+  # which teammates read and which is in its completed state already; the
+  # log has what was removed or kept.
+  if [[ $mode == work ]]; then
+    echo "night-shift: $ident: $done_text"
+    if [[ -n $keep ]]; then
+      # The session kept may still be attached to or resumed, with the
+      # settings it was started with, so they stay; status lists them.
+      [[ ! -f $state_dir/$ident.settings ]] ||
+        echo "night-shift: $ident: its sandbox settings stay at $state_dir/$ident.settings until the session goes"
+      notify "Night shift" "$ident: merged, worktree kept" || true
+    fi
+    forget "$f" "merged in #$number"
+    return 0
+  fi
+  comment "$i" "$done_text"
   move "$i" "$completed"
   forget "$f" "merged in #$number, moved to $completed"
 }
@@ -846,6 +1022,9 @@ $(head -n 10 <<<"$dirty")
 # GitHub allows 60 requests an hour without a token, for every caller on
 # forge's address, so it is asked once a run for each issue in Handoff ready
 # and no more, the longest unasked first, and not again in a run it refuses.
+#
+# In work mode, work_tidy_one decides for each issue Linear still has, and
+# refused issues are asked about too, so one that closes is forgotten.
 tidy() {
   local states=("$state_dir"/*.json) chunk nodes id f i gh=1 slug pr rc
   ((${#states[@]})) || return 0
@@ -855,6 +1034,10 @@ tidy() {
       "$(jq -c '{ids: map(.id)}' <<<"$chunk")" | jq -c '.issues.nodes') || continue
     while IFS=$'\t' read -r id f; do
       i=$(jq -c --arg id "$id" '.[] | select(.id == $id)' <<<"$nodes")
+      if [[ $mode == work && -n $i ]]; then
+        work_tidy_one "$i" "$f"
+        continue
+      fi
       if [[ -z $i ]] || closed "$i"; then
         forget "$f"
         continue
@@ -877,7 +1060,8 @@ tidy() {
         child _land "$viewer" "$f" </dev/null
       fi
     done < <(jq -r '.[] | [.id, .file] | @tsv' <<<"$chunk")
-  done < <(jq -nc '[inputs | select(.phase == "waiting") | {id, checked, file: input_filename}]
+  done < <(jq -nc --arg mode "$mode" '[inputs | select(.phase == "waiting" or ($mode == "work" and .phase == "refused"))
+    | {id, checked, file: input_filename}]
     | sort_by(.checked // "") | range(0; length; 50) as $n | .[$n:$n + 50]' "${states[@]}")
 }
 
@@ -904,6 +1088,10 @@ run() {
     child _finish "$viewer" "$f"
   done
   tidy
+  if [[ $mode == work ]]; then
+    work_queue
+    return 0
+  fi
   # shellcheck disable=SC2016 # GraphQL's variables, not the shell's
   queued=$(gql 'query($s: String!) { issues(first: 50, filter: {state: {name: {eq: $s}}}) { nodes { id priority createdAt } } }' \
     "$(jq -nc --arg s "$QUEUED" '{s: $s}')" |
@@ -913,6 +1101,514 @@ run() {
     child _start "$viewer" "$id"
   done
   backlog || echo "night-shift: backlog.md not written; the next run tries again" >&2
+}
+
+# --- Work mode ------------------------------------------------------------------
+#
+# On a Mac at work (home/night-shift.nix), against a Linear team Nick shares,
+# whose workflow and labels are not his to change and whose issues his
+# teammates read. What takes the place of forge's states:
+#
+#   Queued         a label of Nick's (the config's `label`) on an issue
+#                  assigned to him, taken only if he added it himself and
+#                  nobody else has changed the title or description since. A
+#                  teammate writes the issue; adding the label is Nick saying
+#                  the text is his task.
+#   Running        moved to the team's started state (`startedState`), the one
+#                  thing this writes to Linear.
+#   Handoff ready, Needs you
+#                  a notification and $state_dir/<ID>.report.md, which
+#                  `night-shift status` shows. Nothing on the issue.
+#   Done           Linear's GitHub integration completes the issue when the PR
+#                  merges. tidy sees that, gh confirms the merge, and land_one
+#                  cleans up as on forge.
+#
+# Nick resumes an agent here, with `night-shift resume <ID> <answer>`, or by
+# adding the label again. Each team's repository, branch name, setup commands
+# and checks come from NIGHT_SHIFT_CONFIG, a file of Nick's outside the repo,
+# since this one is public: docs/night-shift.md, "On a Mac", has its shape.
+#
+# Each agent runs in Claude Code's sandbox, which the Mac's own sessions do
+# not have, from NIGHT_SHIFT_SETTINGS (home/night-shift.nix). Its worktree is
+# set up first, outside that sandbox, from origin's HEAD: what setup fetches
+# needs Nick's credentials, LFS objects say, and nothing of the agent's is
+# there yet to run.
+
+LABEL="agent"
+STARTED="In Progress"
+config="{}"
+
+load_config() {
+  local extra
+  [[ -r ${NIGHT_SHIFT_CONFIG:-} ]] ||
+    die "no config at '${NIGHT_SHIFT_CONFIG:-}'; docs/night-shift.md, \"On a Mac\", has its shape"
+  config=$(jq -ce 'if type == "object" then . else error("not an object") end' "$NIGHT_SHIFT_CONFIG") ||
+    die "$NIGHT_SHIFT_CONFIG is not a JSON object"
+  LABEL=$(jq -r --arg d "$LABEL" '.label // $d' <<<"$config")
+  STARTED=$(jq -r --arg d "$STARTED" '.startedState // $d' <<<"$config")
+  max=$(jq -r --arg d "$max" '.max // $d' <<<"$config")
+  stall_hours=$(jq -r --arg d "$stall_hours" '.stallHours // $d' <<<"$config")
+  [[ $max =~ ^[0-9]+$ && $stall_hours =~ ^[0-9]+$ ]] || die "max and stallHours in $NIGHT_SHIFT_CONFIG are whole numbers"
+  # Where setup and the agents find the repos' own tools, a language's
+  # package manager say, which launchd's PATH does not carry.
+  extra=$(jq -r --arg h "$HOME" '(.path // []) | map(sub("^~"; $h)) | join(":")' <<<"$config")
+  [[ -z $extra ]] || PATH=$extra:$PATH
+}
+
+# work_labelled <issue json>: the history entry that last added Nick's label
+# to the issue, or its creation, for a label set when the issue was made.
+# Nothing when the issue does not carry the label.
+work_labelled() {
+  jq -c --arg l "$LABEL" '
+    ([.labels.nodes[] | select(.name == $l) | .id] | first) as $id
+    | select($id)
+    | ([.history.nodes[] | select((.addedLabelIds // []) | index($id))] | max_by(.createdAt))
+      // {createdAt, actorId: .creator.id, botActor: null}' <<<"$1"
+}
+
+# work_refusal <issue json> <labelled json>: why the issue is not taken, or
+# nothing. An integration acting with Nick's login, the Linear MCP server in
+# a Claude session say, could add the label as him; Linear records it as a
+# bot's, which is refused.
+work_refusal() {
+  jq -r --arg me "$viewer" --argjson l "${2:-null}" '
+    if (.assignee.id // "") != $me then "it is not assigned to you"
+    elif .history.pageInfo.hasNextPage then "its history is too long to tell who added the label"
+    elif $l == null then "it does not carry the label"
+    elif $l.actorId != $me or $l.botActor != null then "the label was last added by someone else or by an integration"
+    elif [.history.nodes[] | select(.createdAt > $l.createdAt and .actorId != $me
+        and (.updatedDescription == true or .fromTitle != null))] != []
+    then "someone else changed its title or description after you added the label"
+    else empty end' <<<"$1"
+}
+
+# work_refuse <issue json> <labelled json> <why>: not taken, and said once.
+# The state file remembers which labelling was refused, so later runs stay
+# quiet until the label is added again.
+work_refuse() {
+  local ident
+  ident=$(jq -r .identifier <<<"$1")
+  jq -n --arg id "$(jq -r .id <<<"$1")" --arg ident "$ident" --arg at "$(jq -r '.createdAt // ""' <<<"${2:-null}")" \
+    --arg seen "$(jq -r '.updatedAt // ""' <<<"$1")" \
+    '{id: $id, ident: $ident, phase: "refused", labelled: $at, seen: $seen}' >"$state_dir/$ident.json"
+  stop_issue "$1" "Not started" "Not started: $3. Add the label again to try again." "Not started"
+}
+
+# work_seen <issue json> <state file>: the issue looked at and left as it
+# was. work_queue asks Linear for it again only once it has changed since.
+work_seen() {
+  # shellcheck disable=SC2016 # jq's variables, not the shell's
+  update "$2" '.seen = $u' --arg u "$(jq -r '.updatedAt // ""' <<<"$1")"
+}
+
+# work_discard <repo> <worktree> <branch> <ident>: undoes a start that ended
+# before an agent ran.
+work_discard() {
+  git -C "$1" worktree remove --force "$2" >/dev/null 2>&1 || true
+  git -C "$1" branch -D "$3" >/dev/null 2>&1 || true
+  rm -f "$state_dir/$4.settings"
+}
+
+# work_overrides <repo> <worktree>: settings files that would change the
+# agent's sandbox, or run a command outside it. --settings outranks the
+# project's scalars, but lists such as excludedCommands or allowWrite add up
+# across scopes, and a key it leaves unset is taken from below. A worktree's
+# session reads the main checkout's settings.local.json as well as the
+# branch's own settings.json.
+#
+# The sandbox covers commands only. Claude runs a helper command itself, with
+# Nick's full access, in a worktree the agent writes, so a repository's is
+# refused too; Nick's own, in his user settings, are his to run. Hooks, the
+# status line and file suggestions are off (disableAllHooks in
+# home/night-shift.nix), and plugins, whose LSP servers and monitors also run
+# outside the sandbox, are turned off by work_settings.
+work_overrides() {
+  local s keys
+  for s in "$HOME/.claude/settings.json" "$1/.claude/settings.json" "$1/.claude/settings.local.json" \
+    "$2/.claude/settings.json"; do
+    keys='["sandbox", "apiKeyHelper", "awsAuthRefresh", "awsCredentialExport", "gcpAuthRefresh",
+      "otelHeadersHelper", "subagentStatusLine"]'
+    [[ $s != "$HOME/.claude/settings.json" ]] || keys='["sandbox"]'
+    [[ -f $s ]] && jq -e --argjson k "$keys" 'any(keys[]; IN($k[]))' "$s" >/dev/null 2>&1 && echo "$s"
+  done
+  return 0
+}
+
+# work_bootstrap <repo conf> <worktree> <log>: the repo's setup commands, in
+# the new worktree, outside the sandbox, each with half an hour to finish.
+# Without the run lock's descriptor, which a daemon one of them starts, a
+# build server say, would otherwise hold for as long as it runs.
+work_bootstrap() {
+  local cmd
+  : >"$3"
+  while IFS= read -r cmd; do
+    [[ -n $cmd ]] || continue
+    printf '$ %s\n' "$cmd" >>"$3"
+    (cd "$2" && timeout 1800 "$BASH" -c "$cmd") </dev/null >>"$3" 2>&1 9>&- || return 1
+  done < <(jq -r '(.bootstrap // [])[]' <<<"$1")
+}
+
+# work_settings <repo conf> <out> <worktree> <repo>: the agent's settings,
+# Nix's base plus the repo's additions from the config, which can only add:
+# hosts to reach, paths to write or to hide, binding to localhost (a test
+# server), environment, though not over a variable the base sets. Written
+# outside the worktree, where the agent cannot change it, and given with
+# --settings. The sandbox, environment, deny rules and what turns hooks and
+# plugins off also go to the worktree's .claude/settings.local.json, which
+# commands in the sandbox cannot write, so a session claude starts there
+# without the flag, a copy from a resume say, is contained all the same.
+#
+# Every plugin a scope enables is turned off, except those the base enables:
+# a plugin's LSP servers and monitors run outside the sandbox, in a worktree
+# the agent writes, and a language server loads code from it (a workspace's
+# own TypeScript, say). Enabled plugins merge per plugin, the highest scope
+# that names one deciding, so each needs naming here.
+work_settings() {
+  local s files=() plugins
+  [[ -r ${NIGHT_SHIFT_SETTINGS:-} ]] || return 1
+  for s in "$HOME/.claude/settings.json" "$4/.claude/settings.json" "$4/.claude/settings.local.json" \
+    "$3/.claude/settings.json"; do
+    [[ ! -f $s ]] || files+=("$s")
+  done
+  plugins=$(jq -nc '[inputs | (.enabledPlugins // {}) | keys[]] | unique' /dev/null "${files[@]}") || return 1
+  jq --argjson x "$(jq -c '.sandbox // {}' <<<"$1")" --argjson p "$plugins" '
+    .sandbox.network.allowedDomains += ($x.allowedDomains // [])
+    | .sandbox.filesystem.allowWrite += ($x.allowWrite // [])
+    | .sandbox.filesystem.denyRead += ($x.denyRead // [])
+    | if $x.allowLocalBinding == true then .sandbox.network.allowLocalBinding = true else . end
+    | .env = ($x.env // {}) + .env
+    | .enabledPlugins = (reduce $p[] as $n ({}; .[$n] = false)) + (.enabledPlugins // {})' \
+    "$NIGHT_SHIFT_SETTINGS" >"$2" || return 1
+  mkdir -p "$3/.claude"
+  jq '{sandbox, env, disableAllHooks, enabledPlugins, permissions: {deny: .permissions.deny}}' "$2" \
+    >"$3/.claude/settings.local.json"
+}
+
+work_prompt_new() {
+  local issue=$1 repo=$2 wt=$3 branch=$4 base=$5 result=$6 conf=$7 comments
+  comments=$(answers "$issue")
+  cat <<EOP
+You are the night shift: an unattended Claude Code session working on a task
+Nick queued in Linear at work. Nobody is watching. He reads what you leave
+when he is next at his desk.
+
+# $(jq -r '"\(.identifier): \(.title)"' <<<"$issue")
+
+$(jq -r '.description // "(no description)"' <<<"$issue")
+
+## Nick's comments on the issue, oldest first
+
+${comments:-(none)}
+
+## How to work
+
+- You are in a git worktree of $(basename "$repo") at $wt, on branch $branch,
+  made from $base, with its dependencies installed. Read the repository's
+  CLAUDE.md first. Where it and this prompt disagree, CLAUDE.md wins, except
+  that you never push, merge or deploy, and you keep the branch's name.
+- Make the change the task asks for, as one pull request. If it has to grow
+  beyond that, stop and ask.
+- The task above is all you have of the issue: you have no Linear access and
+  no MCP servers. ${result%.md}.issue.md has the same text.
+- Your commands run in a sandbox. The network reaches GitHub and package
+  registries, without credentials. There is no docker. Do not look for a way
+  around it; if the task needs more, stop and say what.
+- Checks: $(jq -r '.checks // "the ones the repository names that need no running services"' <<<"$conf").
+  Do not run docker, docker compose, database migrations, or anything that
+  needs running services. If verifying the change needs them, finish what
+  you can and stop as blocked, saying what is left to verify.
+- Commit on this branch, following the repository's conventions for commit
+  messages and PR titles, then write the PR handoff with the core plugin's
+  pr-handoff skill, so Nick can publish it with \`pr-handoff\` from this
+  worktree. Touch no other worktree.
+- Stop and ask rather than guess when a decision is Nick's, when the task is
+  ambiguous, or when a check fails for a reason outside the task. A stopped
+  task costs him one look; one that improvised costs a review of all of it.
+
+## When you finish or stop
+
+Write $result, then end your turn:
+
+- The first line is exactly \`handoff\` or \`blocked\`.
+- After a handoff: what changed and what you verified, in a few lines.
+- When blocked: what you did so far, then numbered questions, each answerable
+  in a sentence.
+
+Nick answers on this machine, and you will be resumed in this session with
+his answer, so do not wait for one here.
+EOP
+}
+
+# The answer from `night-shift resume`, read by work_start_one before the file
+# goes, or nothing when the label was added again instead.
+work_answer=""
+
+work_prompt_resume() {
+  local issue=$1 since=$2 result=$3 new lead="by adding its label again, with no answer here."
+  new=$(answers "$issue" "$since")
+  [[ -z $work_answer ]] || lead="with this answer:"
+  cat <<EOP
+Nick resumed $(jq -r .identifier <<<"$issue"), $lead
+${work_answer:+
+$work_answer
+}${new:+
+His comments on the issue since you last heard from him:
+
+$new
+}
+Carry on under the same rules. When you finish or stop again, write $result
+the same way, and end your turn.
+EOP
+}
+
+# One issue assigned to Nick with his label: start an agent on it, resume the
+# one it had, or say why not, once.
+work_start_one() {
+  local id=$1 i ident f l why conf repo fb base sha name wt branch slugged settings result session="" overrides setup
+  i=$(issue "$id")
+  ! closed "$i" || return 0
+  ident=$(jq -r .identifier <<<"$i")
+  f=$state_dir/$ident.json
+  l=$(work_labelled "$i")
+
+  if [[ -f $f ]]; then
+    case $(jq -r .phase "$f") in
+      running) return 0 ;;
+      waiting)
+        if [[ -f $state_dir/$ident.answer ]]; then
+          work_answer=$(<"$state_dir/$ident.answer")
+          rm "$state_dir/$ident.answer"
+        elif [[ -z $l || ! $(jq -r .createdAt <<<"$l") > $(jq -r .since "$f") || -n $(work_refusal "$i" "$l") ]]; then
+          work_seen "$i" "$f"
+          return 0
+        fi
+        # Either way its trigger is spent, so a resume that fails is said
+        # once, not every run.
+        # shellcheck disable=SC2016 # jq's variables, not the shell's
+        if resume_agent "$i" "$f" work_prompt_resume; then
+          update "$f" 'del(.seen)'
+        else
+          update "$f" '.since = $now' --arg now "$(now)"
+        fi
+        return 0
+        ;;
+      refused)
+        if [[ -z $l || ! $(jq -r .createdAt <<<"$l") > $(jq -r '.labelled // ""' "$f") ]]; then
+          work_seen "$i" "$f"
+          return 0
+        fi
+        rm "$f"
+        ;;
+    esac
+  fi
+
+  why=$(work_refusal "$i" "$l")
+  [[ -z $why ]] || {
+    work_refuse "$i" "$l" "$why"
+    return 0
+  }
+  conf=$(jq -c --arg k "$(jq -r .team.key <<<"$i")" '.repos[$k] // empty' <<<"$config")
+  repo=$(jq -r --arg h "$HOME" '(.dir // "") | sub("^~"; $h)' <<<"${conf:-null}")
+  if [[ -z $repo ]] || ! git -C "$repo" remote get-url origin >/dev/null 2>&1; then
+    work_refuse "$i" "$l" "no repository with an \`origin\` is set for team $(jq -r .team.key <<<"$i") in $NIGHT_SHIFT_CONFIG"
+    return 0
+  fi
+  # Not <ID>.json or any *.json: that is the state files' glob.
+  settings=$state_dir/$ident.settings
+  if [[ ! -r ${NIGHT_SHIFT_SETTINGS:-} ]]; then
+    work_refuse "$i" "$l" "the sandbox settings at '${NIGHT_SHIFT_SETTINGS:-}' are missing, so no agent starts; \`hms\` writes them"
+    return 0
+  fi
+  # Offline, or the SSH agent locked: left for the next run.
+  fb=$(fetch_base "$repo") || die "$ident: could not fetch $(basename "$repo"); trying again next run"
+  read -r base sha <<<"$fb"
+  base=origin/$base
+  slugged=$(jq -r .title <<<"$i" | slug)
+  name="${ident,,}-$slugged"
+  wt=$repo/.claude/worktrees/$name
+  # The identifier in the branch is what links the PR to the issue.
+  branch=$(jq -r --arg ID "$ident" --arg id "${ident,,}" --arg slug "$slugged" \
+    '(.branch // "night-shift/{id}-{slug}") | gsub("\\{ID\\}"; $ID) | gsub("\\{id\\}"; $id) | gsub("\\{slug\\}"; $slug)' <<<"$conf")
+  if ! git check-ref-format --branch "$branch" >/dev/null 2>&1; then
+    work_refuse "$i" "$l" "the branch template gives \`$branch\`, which is not a branch name"
+    return 0
+  fi
+  if ! add_worktree "$repo" "$branch" "$wt" "$sha"; then
+    work_refuse "$i" "$l" "could not make the worktree \`$wt\` on \`$branch\`. One may be left from an earlier run"
+    return 0
+  fi
+  # No agent has run in the worktree yet, so on any refusal from here it
+  # goes, with its branch, and adding the label again starts afresh.
+  overrides=$(work_overrides "$repo" "$wt")
+  if [[ -n $overrides ]]; then
+    work_discard "$repo" "$wt" "$branch" "$ident"
+    work_refuse "$i" "$l" "these settings would change the agent's sandbox or run a command outside it: $(paste -sd ' ' <<<"$overrides")"
+    return 0
+  fi
+  if ! work_bootstrap "$conf" "$wt" "$state_dir/$ident.bootstrap.log"; then
+    work_discard "$repo" "$wt" "$branch" "$ident"
+    work_refuse "$i" "$l" "setting up the worktree failed, and it is removed. \`$state_dir/$ident.bootstrap.log\` says why"
+    return 0
+  fi
+  if ! work_settings "$conf" "$settings" "$wt" "$repo"; then
+    work_discard "$repo" "$wt" "$branch" "$ident"
+    work_refuse "$i" "$l" "the agent's settings could not be written: the repository's \`sandbox\` in $NIGHT_SHIFT_CONFIG does not fit them, or a Claude settings file is not JSON. The worktree is removed"
+    return 0
+  fi
+  # The files setup left untracked, before the agent has written anything, for
+  # land_one to tell from the agent's work (after_setup). Not tracked files
+  # setup changed: the agent may change one of those too, a lockfile say, and
+  # its line would read the same.
+  setup=$(git -C "$wt" status --porcelain --untracked-files=all | grep '^?? ' || true)
+  result=$(result_path "$repo" "$ident")
+  write_issue "$i" "$result"
+  # No MCP servers: the repo's own include Linear's, through which a session
+  # acting as Nick could add the label to an issue and queue it.
+  if ! (cd "$wt" && cl --bg -n "$name" --settings "$settings" --strict-mcp-config --permission-mode auto </dev/null \
+    "$(work_prompt_new "$i" "$repo" "$wt" "$branch" "$base" "$result" "$conf")") >/dev/null; then
+    work_discard "$repo" "$wt" "$branch" "$ident"
+    work_refuse "$i" "$l" "\`claude --bg\` failed, and the worktree is removed"
+    return 0
+  fi
+  read -r _ session _ <<<"$(agent "$name" "$wt")" || true
+  jq -n --arg id "$id" --arg ident "$ident" --arg repo "$repo" --arg worktree "$wt" \
+    --arg branch "$branch" --arg name "$name" --arg session "$session" --arg now "$(now)" \
+    --arg labelled "$(jq -r .createdAt <<<"$l")" --arg setup "$setup" \
+    '{id: $id, ident: $ident, repo: $repo, worktree: $worktree, branch: $branch, name: $name,
+      session: $session, phase: "running", started: $now, since: $now, labelled: $labelled,
+      setup: ($setup | split("\n") | map(select(. != "")))}' >"$f.tmp"
+  mv "$f.tmp" "$f"
+  [[ $(jq -r .state.name <<<"$i") == "$STARTED" ]] || move "$i" "$STARTED"
+  echo "night-shift: started $ident"
+}
+
+# work_queue: what run starts in work mode. Answers left with `night-shift
+# resume` first, since Nick is waiting on those, then the issues assigned to
+# him with his label, highest priority first. Passed over: those with an
+# agent at work, and those waiting or refused that have not changed in Linear
+# since work_start_one last looked (work_seen), which a label added again or a
+# new comment would. work_start_one decides the rest.
+work_queue() {
+  local f ident states=("$state_dir"/*.json) known="[]" queued id
+  for f in "$state_dir"/*.answer; do
+    (($(running) < max)) || return 0
+    ident=$(basename "$f" .answer)
+    if [[ -f $state_dir/$ident.json ]]; then
+      child _start "$viewer" "$(jq -r .id "$state_dir/$ident.json")"
+    else
+      rm -f "$f"
+    fi
+  done
+  ((${#states[@]} == 0)) || known=$(jq -sc . "${states[@]}")
+  # shellcheck disable=SC2016 # GraphQL's variables, not the shell's
+  queued=$(gql 'query($l: String!) { issues(first: 50, filter: {assignee: {isMe: {eq: true}},
+      labels: {some: {name: {eq: $l}}}, state: {type: {nin: ["completed", "canceled"]}}}) {
+      nodes { id priority createdAt updatedAt } } }' "$(jq -nc --arg l "$LABEL" '{l: $l}')" |
+    jq -r --argjson known "$known" '
+      ($known | map({key: .id, value: .}) | from_entries) as $f
+      | .issues.nodes | sort_by((if .priority == 0 then 5 else .priority end), .createdAt) | .[]
+      | select($f[.id] as $s | $s == null
+          or ($s.phase == "waiting" and .updatedAt > ($s.seen // $s.since))
+          or ($s.phase == "refused" and .updatedAt > ($s.seen // "")))
+      | .id')
+  for id in $queued; do
+    (($(running) < max)) || break
+    child _start "$viewer" "$id"
+  done
+}
+
+# merged_pr_gh <owner/name> <branch>: merged_pr's answer, from gh, for a
+# private repository, which GitHub answers only with a token. Read-only, and
+# here, outside the sandbox, is the one place that has Nick's login.
+merged_pr_gh() {
+  gh pr list --repo "$1" --head "$2" --state merged --json number,url,headRefOid </dev/null |
+    jq -c 'max_by(.number) | select(.) | {number, url, sha: .headRefOid}'
+}
+
+# work_tidy_one <issue json> <state file>: tidy for one issue in work mode. A
+# canceled issue is forgotten. A completed one that waited for Nick is
+# landed when gh finds the merged PR from its branch, and forgotten otherwise,
+# its worktree kept, as forge does with an issue closed by hand.
+work_tidy_one() {
+  local i=$1 f=$2 slug pr rc=0
+  case $(jq -r .state.type <<<"$i") in
+    canceled)
+      forget "$f"
+      return 0
+      ;;
+    completed) ;;
+    *) return 0 ;;
+  esac
+  if [[ $(jq -r .phase "$f") != waiting ]]; then
+    forget "$f" "completed"
+    return 0
+  fi
+  slug=$(github_repo "$(jq -r .repo "$f")")
+  [[ -z $slug ]] || pr=$(merged_pr_gh "$slug" "$(jq -r .branch "$f")") || rc=$?
+  if ((rc != 0)); then
+    echo "night-shift: gh could not say whether $(jq -r .ident "$f") merged; the next run asks again" >&2
+  elif [[ -n ${pr:-} ]]; then
+    # shellcheck disable=SC2016 # jq's variables, not the shell's
+    update "$f" '.merged = $pr' --argjson pr "$pr"
+    child _land "$viewer" "$f" </dev/null
+  else
+    forget "$f" "completed with no merged PR from its branch; its worktree stays"
+  fi
+}
+
+work_check() {
+  local data k conf dir s
+  # shellcheck disable=SC2016 # GraphQL's variables, not the shell's
+  data=$(gql 'query($l: String!) { viewer { id displayName }
+    teams { nodes { key states { nodes { name } } } }
+    issueLabels(first: 50, filter: {name: {eq: $l}}) { nodes { name } } }' "$(jq -nc --arg l "$LABEL" '{l: $l}')")
+  echo "key: works, acting as $(jq -r .viewer.displayName <<<"$data")"
+  if [[ $(jq '.issueLabels.nodes | length' <<<"$data") -gt 0 ]]; then
+    echo "label $LABEL: exists"
+  else
+    echo "label $LABEL: not in Linear yet"
+  fi
+  while IFS= read -r k; do
+    conf=$(jq -c --arg k "$k" '.repos[$k]' <<<"$config")
+    dir=$(jq -r --arg h "$HOME" '(.dir // "") | sub("^~"; $h)' <<<"$conf")
+    jq -r --arg k "$k" --arg s "$STARTED" '[.teams.nodes[] | select(.key == $k)] | first
+      | if . == null then "team \($k): not found"
+        elif any(.states.nodes[]; .name == $s) then "team \($k): has \($s)"
+        else "team \($k): no state \($s)" end' <<<"$data"
+    if git -C "$dir" remote get-url origin >/dev/null 2>&1; then
+      echo "team $k: repository $dir"
+    else
+      echo "team $k: no repository with an origin at '$dir'"
+    fi
+    # claude --bg refuses a directory whose trust prompt was never accepted.
+    if [[ $(jq -r --arg d "$dir" '.projects[$d].hasTrustDialogAccepted // false' "$HOME/.claude.json" 2>/dev/null) == true ]]; then
+      echo "team $k: Claude trusts it"
+    else
+      echo "team $k: run claude in $dir once and accept the trust prompt"
+    fi
+    for s in $(work_overrides "$dir" "$dir"); do
+      echo "team $k: $s changes the sandbox or runs a command outside it, so its issues are refused"
+    done
+  done < <(jq -r '.repos // {} | keys[]' <<<"$config")
+  # The fields a run asks for, on one issue of Nick's, so a field Linear has
+  # renamed shows here rather than as a failed run.
+  if gql "query { issues(first: 1, filter: {assignee: {isMe: {eq: true}}}) { nodes { $WORK_FIELDS } } }" >/dev/null; then
+    echo "issue fields: all known to Linear"
+  fi
+  if jq -e '.sandbox.enabled and (.sandbox.filesystem.denyRead | index("~/Library/Keychains"))
+      and .disableAllHooks == true' "${NIGHT_SHIFT_SETTINGS:-/dev/null}" >/dev/null 2>&1; then
+    echo "sandbox: on, with the keychain hidden and hooks off"
+  else
+    echo "sandbox: '${NIGHT_SHIFT_SETTINGS:-}' is missing, does not hide ~/Library/Keychains, or leaves hooks on"
+  fi
+  if command -v claude >/dev/null; then
+    echo "claude: $(claude --version </dev/null)"
+  else
+    echo "claude: not on PATH"
+  fi
+  if notify "Night shift" "A test notification from night-shift check"; then
+    echo "notification: sent"
+  fi
 }
 
 # Issue drafts, for `night-shift file`: <repo>/.git/linear-handoff/<any>.md,
@@ -1134,7 +1830,8 @@ check() {
 # out is tried again after the next failure. Runs started from a shell count
 # neither way.
 after_run() {
-  local f=$state_dir/failed-runs n="" why
+  local f=$state_dir/failed-runs n="" why where="journalctl --user -u night-shift on forge says why."
+  [[ $platform == linux ]] || where="${NIGHT_SHIFT_LOG:-The launchd log} says why."
   mkdir -p "$state_dir"
   if [[ ${SERVICE_RESULT-} == success ]]; then
     rm -f "$f" "$f.pushed"
@@ -1148,17 +1845,27 @@ after_run() {
   echo "night-shift: $n run(s) in a row failed, the last with $why" >&2
   if ((n >= failed_runs)) && [[ ! -e $f.pushed ]]; then
     if notify "Night shift is failing" \
-      "The last $n runs failed, the last with $why, so nothing is taken from Linear or started. journalctl --user -u night-shift on forge says why."; then
+      "The last $n runs failed, the last with $why, so nothing is taken from Linear or started. $where"; then
       touch "$f.pushed"
     fi
   fi
 }
 
 status() {
-  local any=""
+  local any="" report
   for f in "$state_dir"/*.json; do
     any=1
-    jq -r '"\(.ident)  \(.phase)  since \(.started)  \(.name)  \(.worktree)"' "$f"
+    jq -r '"\(.ident)  \(.phase)  since \(.started // .labelled)  \(.name // "")  \(.worktree // "")"' "$f"
+    # Work mode's reports, which on forge are comments on the issue.
+    report=$state_dir/$(jq -r .ident "$f").report.md
+    [[ ! -f $report ]] || sed 's/^/    /' "$report"
+  done
+  # Work mode's settings for a session land_one kept, once the issue itself
+  # is forgotten: delete one with `claude rm` of its session.
+  for f in "$state_dir"/*.settings; do
+    [[ -f ${f%.settings}.json ]] && continue
+    any=1
+    echo "$(basename "$f" .settings)  merged, but its worktree and session were kept; $f stays until you remove them"
   done
   [[ -n $any ]] || echo "nothing yet"
 }
@@ -1176,6 +1883,7 @@ case ${1-} in
     # However the run ends. One that cannot reach Linear ends early, and
     # forge taken off AC and offline must still be let sleep.
     trap awake EXIT
+    [[ $mode == forge ]] || load_config
     load_key
     viewer=$(gql 'query { viewer { id } }' | jq -r .viewer.id)
     run
@@ -1183,17 +1891,41 @@ case ${1-} in
   # The per-issue halves of a run, each in its own process (child above).
   _finish | _start | _land)
     [[ $# -eq 3 ]] || usage
+    [[ $mode == forge ]] || load_config
     load_key
     viewer=$2
     case $1 in
       _finish) finish_one "$3" ;;
-      _start) start_one "$3" ;;
+      _start) if [[ $mode == work ]]; then work_start_one "$3"; else start_one "$3"; fi ;;
       _land) land_one "$3" ;;
     esac
     ;;
   # After every run of the unit, its ExecStopPost.
   _after) after_run ;;
+  # launchd's entry on a Mac (home/night-shift.nix), for what systemd gives
+  # forge's unit: an hour's deadline, as TimeoutStartSec, then after_run with
+  # how the run ended, as ExecStopPost has it. At the deadline timeout ends
+  # the run's whole process group, its children and their setup commands
+  # with it, as stopping the unit ends its cgroup; claude's daemon, in a group
+  # of its own (cl), stays. Not set up yet, with no config, it does nothing,
+  # and that is no failure.
+  _tick)
+    if [[ -n ${NIGHT_SHIFT_LOG:-} && -f $NIGHT_SHIFT_LOG ]] && (($(stat -c %s "$NIGHT_SHIFT_LOG") > 5000000)); then
+      mv "$NIGHT_SHIFT_LOG" "$NIGHT_SHIFT_LOG.old"
+    fi
+    [[ $mode == forge || -e ${NIGHT_SHIFT_CONFIG:-} ]] || exit 0
+    echo "night-shift: run at $(now)"
+    rc=0
+    timeout --kill-after=60 3600 "$BASH" -euo pipefail "$0" run </dev/null || rc=$?
+    case $rc in
+      0) SERVICE_RESULT=success ;;
+      124 | 137) SERVICE_RESULT=timeout ;;
+      *) SERVICE_RESULT=exit-code ;;
+    esac
+    EXIT_STATUS=$rc after_run
+    ;;
   file)
+    [[ $mode == forge ]] || die "file is forge's: in work mode, issues are filed in Linear by hand"
     load_key
     file_drafts
     # So what was just filed is in the backlog without waiting for a run.
@@ -1201,8 +1933,23 @@ case ${1-} in
     ;;
   check)
     load_key
-    check
+    if [[ $mode == work ]]; then
+      load_config
+      work_check
+    else
+      check
+    fi
     ;;
   status) status ;;
+  # Work mode's answer to an agent that stopped: picked up by the next run,
+  # which resumes the session with it (work_start_one).
+  resume)
+    [[ $# -eq 3 && -n $3 ]] || usage
+    [[ $mode == work ]] || die "resume is work mode's; on forge, answer in Linear and move the issue back to $QUEUED"
+    f=$state_dir/${2^^}.json
+    [[ -f $f && $(jq -r .phase "$f") == waiting ]] || die "${2^^} has no agent waiting; night-shift status lists them"
+    printf '%s\n' "$3" >"$state_dir/${2^^}.answer"
+    echo "night-shift: ${2^^} resumes on the next run; \`night-shift run\` starts one now"
+    ;;
   *) usage ;;
 esac

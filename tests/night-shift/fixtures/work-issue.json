@@ -1,0 +1,54 @@
+{
+  "id": "issue-1",
+  "identifier": "TST-1",
+  "title": "Fix the widget",
+  "description": "Make the widget work again.",
+  "url": "https://linear.app/test/issue/TST-1",
+  "priority": 3,
+  "createdAt": "2026-10-01T09:00:00.000Z",
+  "updatedAt": "2026-10-02T09:00:00.000Z",
+  "state": { "name": "Todo", "type": "unstarted" },
+  "creator": { "id": "user-teammate" },
+  "assignee": { "id": "user-nick" },
+  "team": {
+    "key": "TST",
+    "states": {
+      "nodes": [
+        { "id": "state-backlog", "name": "Backlog", "type": "backlog", "position": 0 },
+        { "id": "state-todo", "name": "Todo", "type": "unstarted", "position": 1 },
+        { "id": "state-progress", "name": "In Progress", "type": "started", "position": 2 },
+        { "id": "state-review", "name": "In Review", "type": "started", "position": 3 },
+        { "id": "state-done", "name": "Done", "type": "completed", "position": 4 },
+        { "id": "state-canceled", "name": "Canceled", "type": "canceled", "position": 5 }
+      ]
+    }
+  },
+  "labels": {
+    "nodes": [
+      { "id": "label-agent", "name": "agent" },
+      { "id": "label-bug", "name": "Bug" }
+    ]
+  },
+  "comments": { "nodes": [] },
+  "history": {
+    "pageInfo": { "hasNextPage": false },
+    "nodes": [
+      {
+        "createdAt": "2026-10-01T09:00:00.000Z",
+        "actorId": "user-teammate",
+        "botActor": null,
+        "addedLabelIds": ["label-bug"],
+        "updatedDescription": null,
+        "fromTitle": null
+      },
+      {
+        "createdAt": "2026-10-02T09:00:00.000Z",
+        "actorId": "user-nick",
+        "botActor": null,
+        "addedLabelIds": ["label-agent"],
+        "updatedDescription": null,
+        "fromTitle": null
+      }
+    ]
+  }
+}

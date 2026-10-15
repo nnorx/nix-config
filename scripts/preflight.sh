@@ -7,8 +7,8 @@
 #      tests/preflight-brief/ (scripts/test-preflight-brief.sh). A slip in a
 #      rule changes verdicts with no error, so this fails the run instead.
 #      First, since it takes milliseconds.
-#   2. The night-shift dispatcher, hosts/forge/night-shift.sh, against stubbed
-#      Linear, GitHub, ntfy and Claude (tests/night-shift/run.sh). It runs
+#   2. The night-shift dispatcher, pkgs/night-shift/night-shift.sh, against
+#      stubbed Linear, GitHub, ntfy and Claude (tests/night-shift/run.sh). It runs
 #      unattended, acts as Nick in Linear and deletes worktrees and branches,
 #      and nothing else checks its guards once a change lands. Second, since
 #      it needs no evaluation and takes seconds, so a broken guard shows

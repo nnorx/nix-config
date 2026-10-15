@@ -3,8 +3,9 @@
 Issues queued in Linear, worked by background Claude Code agents on forge while
 you are away from the desk, each ending in a PR handoff for you to publish.
 [`hosts/forge/night-shift.nix`](../hosts/forge/night-shift.nix) runs it and
-says why it is built the way it is; [`night-shift.sh`](../hosts/forge/night-shift.sh)
-is the dispatcher.
+says why it is built the way it is; [`night-shift.sh`](../pkgs/night-shift/night-shift.sh)
+is the dispatcher. The same dispatcher runs on the work Mac against a shared
+team, in a sandbox of its own: "On a Mac (work mode)" below.
 
 Every 10 minutes while forge is awake, a user timer takes finished work back
 to Linear and starts what is queued, two agents at most. Each agent gets its own
@@ -197,3 +198,96 @@ rename it back.
   did not exist, so its issues are left for you to close. GitHub allows 60
   such requests an hour from forge's address, Claude's own included; when it
   refuses, the rest wait for a later run, the longest unasked first.
+
+## On a Mac (work mode)
+
+The same dispatcher runs on a Mac, from launchd every 10 minutes, against a
+Linear team you share. [`home/night-shift.nix`](../home/night-shift.nix) runs
+it, and "Work mode" in `night-shift.sh` has the details. The team's workflow
+and issues are shared, so it changes as little in Linear as it can:
+
+- **Queue.** An issue assigned to you that carries your label, which you
+  added yourself, with no one else changing the title or description since.
+  An issue it refuses gets one notification, and is looked at again only
+  when you add the label again.
+- **Linear.** The one write is a move to the team's started state. Results,
+  questions and refusals go to a desktop notification and
+  `~/.local/state/night-shift/<ID>.report.md`, which `night-shift status`
+  shows.
+- **Answering.** `night-shift resume <ID> "<answer>"` resumes the agent on
+  the next run, or add the label again.
+- **Done.** Once Linear completes the issue and gh finds the merged PR from
+  its branch, the worktree, branch and sessions are removed as on forge.
+
+### The sandbox
+
+The Mac's own Claude sessions have no sandbox. The night shift's agents run
+in one, from settings Nix writes, passed with `--settings` and copied into
+the worktree's `.claude/settings.local.json`. `cld-safe` starts an
+interactive session in the same sandbox.
+
+- Commands cannot read your credentials or most of `~/Library`.
+  `~/Library/Keychains` must stay hidden: with it readable, `security` finds
+  every item in the login keychain.
+- Commands may write only in the worktree, under `~/.cache/night-shift`, and
+  in Claude's temporary directory, and reach only the hosts listed in
+  `home/night-shift.nix` and the config.
+- No Unix sockets, Apple Events or MCP servers. Hooks are off, and so is
+  every plugin but the one the agents use, since hooks, LSP servers and
+  helper commands run outside the sandbox.
+- A repository whose settings change the sandbox, or name a helper command
+  such as `apiKeyHelper`, is refused.
+
+### Setting it up on the Mac
+
+1. In Linear, make the label and a personal API key that can read and
+   update issues.
+2. Put the key in the login keychain, pasting it at the prompt in your own
+   terminal:
+
+   ```
+   security add-generic-password -s night-shift-linear -a "$USER" -w
+   ```
+
+3. Write `~/.config/night-shift/config.json`, which stays outside this repo:
+
+   ```json
+   {
+     "label": "agent",
+     "startedState": "In Progress",
+     "path": ["<where the repositories' tools are>"],
+     "repos": {
+       "<TEAM KEY>": {
+         "dir": "~/projects/<repo>",
+         "branch": "<prefix>/{ID}/{slug}",
+         "bootstrap": ["<setup commands>"],
+         "checks": "<checks that need no running services>",
+         "sandbox": { "allowedDomains": [], "allowWrite": [], "denyRead": [], "allowLocalBinding": false, "env": {} }
+       }
+     }
+   }
+   ```
+
+   `bootstrap` runs in each new worktree before the agent starts, outside
+   the sandbox. `sandbox` can only add to the base, which reaches GitHub
+   alone: list the package registries a repository needs in its
+   `allowedDomains`. Keep `{ID}` in `branch` so the PR links to the issue. `max` and `stallHours` are optional.
+4. Run `claude` in each repository once and accept the trust prompt.
+5. Run `hms`, then `night-shift check`. With no config the launchd job does
+   nothing, so switching first is safe.
+
+### Publishing from an agent's worktree
+
+In a worktree under `.claude/worktrees/`, `pr-handoff` runs git with hooks
+off, lists changed files that run code on your machine, and refuses to push
+if the `.lfsconfig` there is not the base branch's. Read the diff with `phd`
+or `phg` before opening the worktree in an editor or running git in it.
+
+### Limits on the Mac
+
+- It runs only while you are logged in and the Mac is awake.
+- Agents cannot run docker or anything that needs running services.
+- The log is `~/Library/Logs/night-shift.log`. The third failed run in a row
+  sends one notification.
+- `cld-safe` turns hooks off but not a repository's plugins.
+- `night-shift file` and the backlog snapshot are forge's.

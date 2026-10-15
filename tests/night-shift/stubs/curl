@@ -8,8 +8,10 @@
 #           ISSUE_FIELDS asks for. Queries are answered from those files and
 #           mutations change them, so a case reads an issue's state after a
 #           run from its file. `night-shift file`'s workspace query gets
-#           linear/workspace.json. {tool: "linear", op, variables}. With the
-#           file linear-down, every request fails as an unresolved host does.
+#           linear/workspace.json. Work mode's queue, issues assigned to
+#           user-nick with a label, is answered from the issues too.
+#           {tool: "linear", op, variables}. With the file linear-down,
+#           every request fails as an unresolved host does.
 #   GitHub  https://api.github.com/..., read with -w '\n%{http_code}'. The
 #           answer is the file github: the status code on its first line, the
 #           body after it; with no such file, 200 and []. {tool: "github", url}.
@@ -74,6 +76,7 @@ if [[ $url == https://api.linear.app/graphql ]]; then
     *includeArchived*) op=tidy ;;
     *'after: $after'*) op=backlog ;;
     *'state: {name: {eq: $s}}'*) op=queued ;;
+    *'isMe: {eq: true}'*'labels: {some'*) op=labelled ;;
     *'teams {'*) op=workspace ;;
     *'viewer { id }'*) op=viewer ;;
     *) op=unknown ;;
@@ -117,6 +120,12 @@ if [[ $url == https://api.linear.app/graphql ]]; then
         nodes: [.[] | select(.state.type | IN("completed", "canceled") | not)
           | {identifier, title, description, priority, priorityLabel, updatedAt,
              state, project, labels}]}}}' <<<"$all"
+      ;;
+    labelled)
+      jq -c --arg l "$(jq -r .l <<<"$vars")" '{data: {issues: {nodes: [.[]
+        | select(.assignee.id == "user-nick" and any(.labels.nodes[]; .name == $l)
+          and (.state.type | IN("completed", "canceled") | not))
+        | {id, priority, createdAt, updatedAt}]}}}' <<<"$all"
       ;;
     workspace) cat "$dir/linear/workspace.json" ;;
     issueCreate) echo '{"data": {"issueCreate": {"success": true, "issue": {"identifier": "TST-99", "url": "https://linear.app/test/issue/TST-99"}}}}' ;;

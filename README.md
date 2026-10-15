@@ -92,6 +92,7 @@ modules/
 
 home/                  Home Manager. common.nix everywhere, default.nix on dev
                        hosts (adds dev-tools, ssh agent, Claude Code)
+pkgs/night-shift/      The night shift's dispatcher, for forge and the Mac
 docs/                  Runbooks, see below
 scripts/               preflight, the check every change gets; dns-top-domains
 .github/workflows/     Evaluation gate, binary cache builds, weekly lock bumps
@@ -109,7 +110,7 @@ scripts/               preflight, the check every change gets; dns-top-domains
 | [home-assistant.md](docs/home-assistant.md) | First run, phones, adding integrations, upgrades |
 | [laptop.md](docs/laptop.md) | Installing forge, enabling Secure Boot, preparing for Windows |
 | [observability.md](docs/observability.md) | The metrics and alerting design: store, collection, alerts, access |
-| [night-shift.md](docs/night-shift.md) | Agents on forge working issues queued in Linear |
+| [night-shift.md](docs/night-shift.md) | Agents on forge, and in a sandbox on the work Mac, working issues queued in Linear |
 | [privacy.md](docs/privacy.md) | What leaves the house, per host and service, and what could stop |
 | [device-identity.md](docs/device-identity.md) | Naming devices in rules without publishing their MACs: the design |
 | [ipv6.md](docs/ipv6.md) | IPv6 on gate: probing the ISP, the design, and the PRs in order |
@@ -448,7 +449,7 @@ Three Home Manager profiles:
 |---|---|---|
 | `home/common.nix` | every host; on the Pis and gate the only one, embedded in NixOS | zsh/bash + starship, git, nano, tmux, CLI tools, vulnix |
 | `home/default.nix` | WSL (`nick`), macOS (`nicknorcross`), and forge through NixOS | common, plus Node, Rust, Docker CLI, direnv, keychain ssh-agent, Claude Code |
-| `home/darwin.nix` | macOS only | GNU coreutils |
+| `home/darwin.nix` | macOS only | GNU coreutils, and the night shift's work mode with its sandbox (`home/night-shift.nix`) |
 | `home/wsl.nix` | WSL only | What Claude Code's sandbox hides on WSL: interop, Docker Desktop and WSLg sockets |
 
 First run on a new WSL or macOS machine:
@@ -487,7 +488,9 @@ Run `direnv allow` once in a fresh clone.
 | `phd` / `phds` | What the current branch changes since it left the default branch, in full or as a file list: what its PR will show |
 | `phg [<base>]` | The same change opened in GitLens, in the VS Code window already open, so you can move between files; against `<base>` for a stacked branch |
 | `wt [query]` | cd into an agent's worktree, picked with fzf; a query that matches one jumps straight there (dev hosts) |
-| `ns`, `nsr`, `nss`, `nsf` | `night-shift`, and its `run`, `status` and `file` (forge) |
+| `ns`, `nsr`, `nss`, `nsf` | `night-shift`, and its `run`, `status` and `file` (`nsf` on forge only) |
+| `nsres <ID> "<answer>"` | Resume a night-shift agent that stopped, with your answer (Mac) |
+| `cld-safe` | Claude Code in the night shift's sandbox, for an interactive session on the Mac |
 | `claude --bg -w <name> "<task>"` | Start a background agent in its own worktree. `claude agents` lists them (Enter opens one, ← goes back), `claude attach <name>` opens one from the shell, `claude rm <id>` removes one once its PR has merged |
 | `agents-status [--offline]` | Each agent branch's handoff, PR and checks, conflicts with main and with each other, and what to merge next |
 | `fleet-status [host...]` | Every fleet host's running revision against main, root device, last upgrade and failed units (Linux dev hosts) |
