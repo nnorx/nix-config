@@ -16,7 +16,7 @@
   nodes.machine =
     { lib, pkgs, ... }:
     let
-      keys = import "${pkgs.path}/nixos/tests/ssh-keys.nix" pkgs;
+      keys = import (pkgs.path + "/nixos/tests/ssh-keys.nix") pkgs;
     in
     {
       _module.args.deployPubKeys = [ keys.snakeOilPublicKey ];
