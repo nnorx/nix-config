@@ -163,6 +163,7 @@ ISSUE_FIELDS='id identifier title description url
 WORK_FIELDS='id identifier title description url createdAt updatedAt
   state { name type }
   creator { id }
+  botActor { id }
   assignee { id }
   team { key states { nodes { id name type position } } }
   labels { nodes { id name } }
@@ -1178,13 +1179,16 @@ load_config() {
 
 # work_labelled <issue json>: the history entry that last added Nick's label
 # to the issue, or its creation, for a label set when the issue was made.
-# Nothing when the issue does not carry the label.
+# Nothing when the issue does not carry the label. A creation counts as
+# Nick's only if no integration made it: Linear leaves the creator empty for
+# one acting as itself, and names the bot for one acting as him, and
+# work_refusal refuses either.
 work_labelled() {
   jq -c --arg l "$LABEL" '
     ([.labels.nodes[] | select(.name == $l) | .id] | first) as $id
     | select($id)
     | ([.history.nodes[] | select((.addedLabelIds // []) | index($id))] | max_by(.createdAt))
-      // {createdAt, actorId: .creator.id, botActor: null}' <<<"$1"
+      // {createdAt, actorId: .creator.id, botActor}' <<<"$1"
 }
 
 # work_refusal <issue json> <labelled json>: why the issue is not taken, or

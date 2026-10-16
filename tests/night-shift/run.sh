@@ -826,6 +826,24 @@ case_work_start_not_assignee() {
   no_linear_writes
 }
 
+# The label set when the issue was made: no history entry adds it, so the
+# creation stands in, and counts as Nick's only if no integration made it.
+created_labelled() {
+  work ".creator.id = \"user-nick\" | .history.nodes = [.history.nodes[0]] | $1"
+}
+
+case_work_start_created_labelled() {
+  created_labelled '.'
+  nsw run
+  expect "exit 0" is "$status" 0
+  expect "started" is "$(jq -r .phase "$c/state/night-shift/TST-1.json" 2>&1)" running
+}
+
+case_work_start_created_by_bot() {
+  created_labelled '.botActor = {id: "bot-integration"}'
+  work_refused "the label was last added by someone else or by an integration"
+}
+
 case_work_start_edited() {
   work '.history.nodes += [{createdAt: "2026-10-03T09:00:00.000Z", actorId: "user-teammate", botActor: null,
     addedLabelIds: null, updatedDescription: true, fromTitle: null}]'
@@ -1310,6 +1328,8 @@ cases=(
   "work_start_not_labeler work: labelled by a teammate: refused, said once"
   "work_start_bot    work: labelled by an integration: refused"
   "work_start_not_assignee work: assigned to someone else: refused"
+  "work_start_created_labelled work: labelled when Nick made it: started"
+  "work_start_created_by_bot work: labelled when an integration made it as Nick: refused"
   "work_start_edited work: text changed by a teammate after the label: refused"
   "work_start_relabelled work: refused, then labelled again by Nick: started"
   "work_bootstrap_fails work: setup fails: refused, worktree removed"

@@ -9,6 +9,7 @@
   "updatedAt": "2026-10-02T09:00:00.000Z",
   "state": { "name": "Todo", "type": "unstarted" },
   "creator": { "id": "user-teammate" },
+  "botActor": null,
   "assignee": { "id": "user-nick" },
   "team": {
     "key": "TST",
