@@ -71,14 +71,19 @@ jobs:
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # main @ 2026-09-09
         with:
           diagnostic-endpoint: ""
-          # One evaluator thread. The runner's Determinate Nix evaluated flake
-          # check's outputs in parallel, and on four vCPUs that took 660 s,
-          # where forge's upstream Nix evaluates them one at a time in 96 s.
-          # At 1, Determinate Nix's executor is off and flake check is serial.
-          extra-conf: eval-cores = 1
+          # flake check took 660 s here and 96 s on forge's upstream Nix. Run
+          # serially (eval-cores = 1) it still took 733 s, nearly all of it
+          # in the gate VM tests, about two minutes each, which are the only
+          # outputs it fully evaluates. The runner's Determinate Nix has lazy
+          # trees on, and --no-build is read-only, so a source tree such as
+          # nixpkgs may be hashed again wherever a test's machines refer to
+          # it. Both off, to match forge.
+          extra-conf: |
+            eval-cores = 1
+            lazy-trees = false
       # Fails the job, rather than warning in nix.conf's parse, if the
-      # installed Nix has dropped or renamed the setting.
-      - run: nix config show eval-cores
+      # installed Nix has dropped or renamed either setting.
+      - run: nix config show eval-cores && nix config show lazy-trees
       - run: nix run .#preflight -- --flake-check only
 
   # Builds each fleet host's /etc on pull requests. `check` only evaluates,
