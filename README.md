@@ -446,12 +446,12 @@ Three Home Manager profiles:
 
 | Profile | Used by | Contents |
 |---|---|---|
-| `home/common.nix` | every host, including the Pis and gate | zsh/bash + starship, git, nano, tmux, CLI tools, vulnix |
+| `home/common.nix` | every host; on the Pis and gate the only one, embedded in NixOS | zsh/bash + starship, git, nano, tmux, CLI tools, vulnix |
 | `home/default.nix` | WSL (`nick`), macOS (`nicknorcross`), and forge through NixOS | common, plus Node, Rust, Docker CLI, direnv, keychain ssh-agent, Claude Code |
 | `home/darwin.nix` | macOS only | GNU coreutils |
 | `home/wsl.nix` | WSL only | What Claude Code's sandbox hides on WSL: interop, Docker Desktop and WSLg sockets |
 
-First run on a new machine:
+First run on a new WSL or macOS machine:
 
 ```bash
 git clone https://github.com/nnorx/nix-config.git ~/projects/nix-config
@@ -461,6 +461,8 @@ exec $SHELL -l
 ```
 
 After that, `hms` applies changes and `nfu && hms` updates everything first.
+The NixOS hosts have no standalone config: their Home Manager comes with the
+system, so a rebuild applies it.
 
 Package lists live in `home/common-tools.nix` and `home/dev-tools.nix` rather
 than being mirrored here, where they would rot.
@@ -475,7 +477,7 @@ Run `direnv allow` once in a fresh clone.
 | Command | Description |
 |---|---|
 | `nrs` / `nrb` | Rebuild a NixOS host, switch or boot (on the host) |
-| `hms` | Apply Home Manager config |
+| `hms` | Apply Home Manager config (WSL, macOS); on forge, rebuild the system from the local checkout |
 | `nfu` | `nix flake update` |
 | `ngc` | Garbage collect, 30+ days |
 | `nix run .#preflight` | What CI runs: format, check, evaluate everything, report what changed |

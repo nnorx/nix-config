@@ -186,18 +186,39 @@
         [
           ./hosts/common
           ./hosts/${hostname}
+        ]
+        ++ systemModules {
+          inherit system;
+          username = hostname;
+          homeModule = import ./home/common.nix;
+        };
+
+      # What every NixOS host here gets, the fleet through fleetModules and
+      # forge directly: secrets, the revision it was built from, and Home
+      # Manager embedded for its one user. forge stays out of fleetModules
+      # because hosts/common is the servers' contract, not because any of this
+      # differs for it.
+      systemModules =
+        {
+          system,
+          username,
+          homeModule,
+          extraSpecialArgs ? { },
+        }:
+        [
           sops-nix.nixosModules.sops
           { system.configurationRevision = self.rev or self.dirtyRev or "unknown"; }
           home-manager.nixosModules.home-manager
           {
             home-manager.useGlobalPkgs = true;
             home-manager.useUserPackages = true;
-            home-manager.users.${hostname} = import ./home/common.nix;
+            home-manager.users.${username} = homeModule;
             home-manager.extraSpecialArgs = {
-              username = hostname;
-              homeDirectory = "/home/${hostname}";
+              inherit username;
+              homeDirectory = "/home/${username}";
               unstable = unstableFor.${system};
-            };
+            }
+            // extraSpecialArgs;
           }
         ];
 
@@ -258,22 +279,20 @@
         improve = improve;
       };
 
-      # Helper function to create a Home Manager configuration
+      # A standalone Home Manager configuration with the dev profile, for the
+      # machines that do not run NixOS. The NixOS hosts embed theirs through
+      # systemModules.
       mkHome =
         {
           system,
           username,
           homeDirectory,
-          homeModule ? ./home,
           extraModules ? [ ],
         }:
         home-manager.lib.homeManagerConfiguration {
           pkgs = pkgsFor.${system};
 
-          modules = [
-            homeModule
-          ]
-          ++ extraModules;
+          modules = [ ./home ] ++ extraModules;
 
           extraSpecialArgs = {
             inherit username homeDirectory;
@@ -290,38 +309,37 @@
       # pull request copies each test whose inputs it leaves alone instead of
       # running it. To run one locally, on a machine with KVM:
       # `nix build --no-link .#checks.x86_64-linux.<name>`.
-      checks.x86_64-linux.gate-dns = pkgsFor.x86_64-linux.testers.runNixOSTest (
-        import ./tests/gate-dns.nix { inherit net; }
-      );
-      checks.x86_64-linux.gate-metrics = pkgsFor.x86_64-linux.testers.runNixOSTest (
-        import ./tests/gate-metrics.nix { inherit net; }
-      );
-      checks.x86_64-linux.gate-iot-egress = pkgsFor.x86_64-linux.testers.runNixOSTest (
-        import ./tests/gate-iot-egress.nix { inherit net; }
-      );
-      checks.x86_64-linux.gate-servers-egress = pkgsFor.x86_64-linux.testers.runNixOSTest (
-        import ./tests/gate-servers-egress.nix { inherit net; }
-      );
-      checks.x86_64-linux.deploy-agent = pkgsFor.x86_64-linux.testers.runNixOSTest (
-        import ./tests/deploy-agent.nix { }
-      );
-      checks.x86_64-linux.dns-metrics = pkgsFor.x86_64-linux.testers.runNixOSTest (
-        import ./tests/dns-metrics.nix { inherit net; }
-      );
-      checks.x86_64-linux.forge-dns = pkgsFor.x86_64-linux.testers.runNixOSTest (
-        import ./tests/forge-dns.nix { inherit net; }
-      );
-      checks.x86_64-linux.unbound-root-zone = pkgsFor.x86_64-linux.testers.runNixOSTest (
-        import ./tests/unbound-root-zone.nix { inherit net; }
-      );
-      checks.x86_64-linux.alerting = pkgsFor.x86_64-linux.testers.runNixOSTest (
-        import ./tests/alerting.nix { inherit net; }
-      );
-      # Not a VM: vmalert-tool, in the build.
-      checks.x86_64-linux.alert-rules = import ./tests/alert-rules.nix {
-        pkgs = pkgsFor.x86_64-linux;
-        inherit net;
-      };
+      checks.x86_64-linux =
+        nixpkgs.lib.genAttrs
+          [
+            "gate-dns"
+            "gate-metrics"
+            "gate-iot-egress"
+            "gate-servers-egress"
+            "deploy-agent"
+            "dns-metrics"
+            "forge-dns"
+            "unbound-root-zone"
+            "alerting"
+          ]
+          (
+            name:
+            let
+              test = import ./tests/${name}.nix;
+            in
+            # Each test gets the arguments it names: most take `net`, and
+            # deploy-agent takes none.
+            pkgsFor.x86_64-linux.testers.runNixOSTest (
+              test (builtins.intersectAttrs (builtins.functionArgs test) { inherit net; })
+            )
+          )
+        // {
+          # Not a VM: vmalert-tool, in the build.
+          alert-rules = import ./tests/alert-rules.nix {
+            pkgs = pkgsFor.x86_64-linux;
+            inherit net;
+          };
+        };
 
       # Formatter for `nix fmt`
       formatter = forAllSystems ({ pkgs, ... }: pkgs.nixfmt-tree);
@@ -540,25 +558,18 @@
               nixos-hardware.nixosModules.framework-16-amd-ai-300-series-nvidia
               disko.nixosModules.disko
               lanzaboote.nixosModules.lanzaboote
-              sops-nix.nixosModules.sops
-              { system.configurationRevision = self.rev or self.dirtyRev or "unknown"; }
-              home-manager.nixosModules.home-manager
-              {
-                home-manager.useGlobalPkgs = true;
-                home-manager.useUserPackages = true;
-                home-manager.users.nick = import ./home;
-                home-manager.extraSpecialArgs = {
-                  username = "nick";
-                  homeDirectory = "/home/nick";
-                  unstable = unstableFor.${system};
-                  inherit claudeMarketplaces net;
-                };
-              }
-            ];
+            ]
+            ++ systemModules {
+              inherit system;
+              username = "nick";
+              homeModule = import ./home;
+              extraSpecialArgs = { inherit claudeMarketplaces net; };
+            };
           };
       };
 
-      # Home Manager configurations for different machines
+      # Standalone Home Manager, for the dev machines without NixOS. The NixOS
+      # hosts, the fleet and forge, embed it and have no entry here.
       homeConfigurations = {
         # WSL configuration
         "nick" = mkHome {
@@ -566,41 +577,6 @@
           username = "nick";
           homeDirectory = "/home/nick";
           extraModules = [ ./home/wsl.nix ];
-        };
-
-        # Raspberry Pi 5 configuration (common profile — no dev tools)
-        "core5" = mkHome {
-          system = "aarch64-linux";
-          username = "core5";
-          homeDirectory = "/home/core5";
-          homeModule = ./home/common.nix;
-        };
-
-        # Raspberry Pi 4 configuration (common profile — no dev tools)
-        "core4" = mkHome {
-          system = "aarch64-linux";
-          username = "core4";
-          homeDirectory = "/home/core4";
-          homeModule = ./home/common.nix;
-        };
-
-        # Raspberry Pi 4 configuration (common profile — no dev tools)
-        "lifeline" = mkHome {
-          system = "aarch64-linux";
-          username = "lifeline";
-          homeDirectory = "/home/lifeline";
-          homeModule = ./home/common.nix;
-        };
-
-        # The router (common profile, x86_64)
-        "gate" = mkHome {
-          system = "x86_64-linux";
-          username = "gate";
-          homeDirectory = "/home/gate";
-          homeModule = ./home/common.nix;
-          # Installed from 26.05, unlike the Pis. Mirrors the override the
-          # NixOS-embedded home-manager user gets in hosts/gate.
-          extraModules = [ { home.stateVersion = "26.05"; } ];
         };
 
         # macOS configuration
