@@ -19,6 +19,11 @@ let
   # holds the WAN and the DHCP pools, and it upgrades by hand.
   router = "gate";
 
+  # How old main's head may be, in hours, and still be judged by: past it,
+  # RevisionBehind stops and RevisionCheckStale says so. modules/alerting.nix
+  # reads the head every 30 minutes, so this is a dozen reads failing in a row.
+  headFresh = 6;
+
   # Kea labels its statistics with the subnet in CIDR form and with Kea's
   # subnet id, which hosts/gate/routing.nix sets to the segment's VLAN id. The
   # alert names the segment instead, so no address leaves the house.
@@ -52,6 +57,30 @@ in
           for = "5m";
           labels.severity = "critical";
           annotations.summary = "{{ $labels.instance }} has not answered a scrape for 5 minutes.";
+        }
+        {
+          # Every other source, whose silence would leave the rules that read
+          # it nothing to read, quiet rather than firing. unbound and kea keep
+          # `instance`, the host they run on, so HostDown holds them back when
+          # the whole host is down. A probe job's targets are all asked of the
+          # blackbox exporter here, and probe-ping's `instance` is a public
+          # resolver's address, so a probe job is down when all its targets
+          # are, and is named for this host. A probe that fails still answers
+          # its scrape, with probe_success 0.
+          #
+          # Not the store, vmalert or Alertmanager, which scrape themselves:
+          # with one of them down this rule is not evaluated or its alert not
+          # delivered, and the Watchdog's silence says so from outside. 10
+          # minutes is past a restart: in the store's first 4 days, to
+          # 2026-10-15, unbound and kea missed two minutes' scrapes at most.
+          alert = "ScrapeDown";
+          expr = ''
+            max by (job, instance) (up{job!~"node|probe-.*|victoriametrics|vmalert|alertmanager"}) == 0
+              or label_replace(max by (job) (up{job=~"probe-.*"}) == 0, "instance", "${hostname}", "", "")
+          '';
+          for = "10m";
+          labels.severity = "warning";
+          annotations.summary = "{{ $labels.job }} on {{ $labels.instance }} has not answered a scrape for 10 minutes.";
         }
         {
           # gate's own view of its uplink, and the house's view through it:
@@ -96,6 +125,18 @@ in
           for = "5m";
           labels.severity = "critical";
           annotations.summary = "{{ $labels.instance }} is failing DNS: it does not answer core5's probe, or over 5% of its answers are SERVFAIL.";
+        }
+        {
+          # AdGuard's counts going missing, and only that: AdGuard not serving
+          # is the DNS probe's, above. The read reaches the store through
+          # node_exporter rather than a scrape of its own, and writes
+          # fleet_adguard_up 0 when AdGuard does not answer it. 30 minutes,
+          # since the counts feed only the dashboards.
+          alert = "AdGuardStatsMissing";
+          expr = "max by (instance) (fleet_adguard_up) == 0";
+          for = "30m";
+          labels.severity = "warning";
+          annotations.summary = "AdGuard's statistics on {{ $labels.instance }} have not been read for 30 minutes.";
         }
         {
           alert = "ConntrackPressure";
@@ -151,6 +192,47 @@ in
           labels.severity = "warning";
           annotations.summary = "{{ $labels.instance }} has been above 75°C for 15 minutes.";
         }
+        {
+          # Frames that arrived damaged or could not be sent, which a healthy
+          # link does not count. Not drops, which count ordinary things such
+          # as frames for a protocol nothing here speaks. Every interface on
+          # every host counted none over the store's first 4 days, to
+          # 2026-10-15, so any error is a fault once it persists: some in
+          # every 10 minutes for 30, as a failing cable, port or driver keeps
+          # up, and a link reseated or renegotiating, a burst of seconds,
+          # does not.
+          alert = "InterfaceErrors";
+          expr = ''
+            sum by (instance, device) (increase({__name__=~"node_network_(receive|transmit)_errs_total"}[10m])) > 0
+          '';
+          for = "30m";
+          labels.severity = "warning";
+          annotations.summary = "{{ $labels.device }} on {{ $labels.instance }} has counted receive or transmit errors for 30 minutes.";
+        }
+        {
+          # main's head unread for `headFresh` hours, which turns
+          # RevisionBehind off. One failed read is a GitHub hiccup, which is
+          # why fleet-main-revision is not in fleetAlerts; a dozen in a row is
+          # not. A failed read leaves the last one in place, so the first term
+          # sees it age. The second is the file missing altogether: it is in
+          # /run, so after core5 boots it is gone until a read succeeds, and a
+          # read that never does is the same fault, held to the same hours from
+          # the last sample the store has. Named for this host, which reads the
+          # head, so HostDown holds it back when the series stops with the rest
+          # of core5's. 10 minutes for a new store, empty until the first read,
+          # 2 minutes after boot.
+          alert = "RevisionCheckStale";
+          expr = ''
+            label_replace(
+              time() - max(fleet_main_revision_checked_timestamp_seconds) > ${toString headFresh} * 3600
+                or absent_over_time(fleet_main_revision_checked_timestamp_seconds[${toString headFresh}h]),
+              "instance", "${hostname}", "", ""
+            )
+          '';
+          for = "10m";
+          labels.severity = "warning";
+          annotations.summary = "{{ $labels.instance }} has not read main's head for ${toString headFresh} hours, so RevisionBehind is judging no host.";
+        }
       ]
       ++
         map
@@ -162,14 +244,14 @@ in
             }:
             {
               # How long a host has run something other than main's head,
-              # judged only while that head is known: read in the last 6 hours.
-              # A head that has gone stale would flag every host that upgraded
-              # past it. The revision is dropped, so a host that upgrades but
-              # is still behind keeps its clock running.
+              # judged only while that head is known: read in the last
+              # `headFresh` hours. A head that has gone stale would flag every
+              # host that upgraded past it. The revision is dropped, so a host
+              # that upgrades but is still behind keeps its clock running.
               alert = "RevisionBehind";
               expr = ''
                 max by (instance) (fleet_revision_info{${hosts}} unless on (revision) fleet_main_revision_info)
-                  and on () (time() - max(fleet_main_revision_checked_timestamp_seconds) < 6 * 3600)
+                  and on () (time() - max(fleet_main_revision_checked_timestamp_seconds) < ${toString headFresh} * 3600)
               '';
               inherit for;
               labels.severity = "warning";

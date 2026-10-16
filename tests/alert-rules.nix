@@ -112,6 +112,63 @@ let
       ];
     }
 
+    # ScrapeDown. core4's Unbound exporter stops, and the blackbox exporter's
+    # DNS probes do, which is the exporter. gate's Kea exporter misses one
+    # scrape, a restart. One public resolver's probe misses its scrapes and
+    # the other's does not, so the exporter answers. vmalert's and
+    # node_exporter's are not this rule's.
+    {
+      interval = "1m";
+      input_series = [
+        (series "up" {
+          job = "unbound";
+          instance = "core4";
+        } "1x2 0x20")
+        (series "up" {
+          job = "kea";
+          instance = "gate";
+        } "1x5 0 1x15")
+        (series "up" {
+          job = "probe-ping";
+          instance = lib.head net.publicResolvers;
+        } "0x22")
+        (series "up" {
+          job = "probe-ping";
+          instance = lib.last net.publicResolvers;
+        } "1x22")
+        (series "up" {
+          job = "probe-resolver";
+          instance = "core4";
+        } "1x2 0x20")
+        (series "up" {
+          job = "probe-resolver";
+          instance = "lifeline";
+        } "1x2 0x20")
+        (series "up" {
+          job = "vmalert";
+          instance = "core5";
+        } "0x22")
+        (series "up" (node "lifeline") "0x22")
+      ];
+      alert_rule_test = [
+        (expect "8m" "ScrapeDown" "fleet" [ ])
+        (expect "14m" "ScrapeDown" "fleet" [
+          {
+            instance = "core4";
+            job = "unbound";
+            severity = "warning";
+            summary = "unbound on core4 has not answered a scrape for 10 minutes.";
+          }
+          {
+            instance = "core5";
+            job = "probe-resolver";
+            severity = "warning";
+            summary = "probe-resolver on core5 has not answered a scrape for 10 minutes.";
+          }
+        ])
+      ];
+    }
+
     # WanDown: the link goes, and with it the lease.
     {
       interval = "1m";
@@ -213,6 +270,26 @@ let
       alert_rule_test = [ (expect "30m" "ResolverFailing" "fleet" [ ]) ];
     }
 
+    # AdGuard's statistics stop being read on core4, and on lifeline for 20
+    # minutes, which is not long enough.
+    {
+      interval = "1m";
+      input_series = [
+        (series "fleet_adguard_up" (node "core4") "1x5 0x40")
+        (series "fleet_adguard_up" (node "lifeline") "1x10 0x20 1x15")
+      ];
+      alert_rule_test = [
+        (expect "25m" "AdGuardStatsMissing" "fleet" [ ])
+        (expect "40m" "AdGuardStatsMissing" "fleet" [
+          {
+            instance = "core4";
+            severity = "warning";
+            summary = "AdGuard's statistics on core4 have not been read for 30 minutes.";
+          }
+        ])
+      ];
+    }
+
     {
       interval = "1m";
       input_series = [
@@ -272,6 +349,30 @@ let
             instance = "lifeline";
             severity = "warning";
             summary = "lifeline has been above 75°C for 15 minutes.";
+          }
+        ])
+      ];
+    }
+
+    # gate's WAN port fails to send 3 frames a minute, throughout. core4's
+    # port counts 200 damaged frames at once, a link renegotiating, and none
+    # after.
+    {
+      interval = "1m";
+      input_series = [
+        (series "node_network_transmit_errs_total" (node "gate" // { device = "wan"; }) "0+3x50")
+        (series "node_network_receive_errs_total" (node "gate" // { device = "wan"; }) "0x50")
+        (series "node_network_transmit_errs_total" (node "core4" // { device = "end0"; }) "0x50")
+        (series "node_network_receive_errs_total" (node "core4" // { device = "end0"; }) "0x5 200x45")
+      ];
+      alert_rule_test = [
+        (expect "25m" "InterfaceErrors" "fleet" [ ])
+        (expect "45m" "InterfaceErrors" "fleet" [
+          {
+            instance = "gate";
+            device = "wan";
+            severity = "warning";
+            summary = "wan on gate has counted receive or transmit errors for 30 minutes.";
           }
         ])
       ];
@@ -344,6 +445,7 @@ let
       ];
       alert_rule_test = [
         (expect "34h" "RevisionBehind" "fleet" [ ])
+        (expect "38h" "RevisionCheckStale" "fleet" [ ])
         (expect "38h" "RevisionBehind" "fleet" [
           {
             instance = "core4";
@@ -353,7 +455,8 @@ let
         ])
       ];
     }
-    # main's head last read 5 hours in: by 38 hours it is too old to judge by.
+    # main's head last read 5 hours in: by 38 hours it is too old to judge by,
+    # and from 11 hours that is an alert of its own.
     {
       interval = "1h";
       input_series = [
@@ -361,7 +464,35 @@ let
         (series "fleet_main_revision_info" (node "core5" // { revision = "head"; }) "1x48")
         (series "fleet_main_revision_checked_timestamp_seconds" (node "core5") "${at 0}+3600x5 ${at 5}x43")
       ];
-      alert_rule_test = [ (expect "38h" "RevisionBehind" "fleet" [ ]) ];
+      alert_rule_test = [
+        (expect "38h" "RevisionBehind" "fleet" [ ])
+        (expect "11h" "RevisionCheckStale" "fleet" [ ])
+        (expect "13h" "RevisionCheckStale" "fleet" [
+          {
+            instance = "core5";
+            severity = "warning";
+            summary = "core5 has not read main's head for 6 hours, so RevisionBehind is judging no host.";
+          }
+        ])
+      ];
+    }
+    # The file gone 2 hours in, as after a boot whose reads all fail: absent
+    # for 6 hours is the same fault.
+    {
+      interval = "1h";
+      input_series = [
+        (series "fleet_main_revision_checked_timestamp_seconds" (node "core5") "${at 0}+3600x2 _x20")
+      ];
+      alert_rule_test = [
+        (expect "7h" "RevisionCheckStale" "fleet" [ ])
+        (expect "10h" "RevisionCheckStale" "fleet" [
+          {
+            instance = "core5";
+            severity = "warning";
+            summary = "core5 has not read main's head for 6 hours, so RevisionBehind is judging no host.";
+          }
+        ])
+      ];
     }
 
     # 100 days of gate's view of three peers. phone connected in the first
