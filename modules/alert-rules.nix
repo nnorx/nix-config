@@ -6,9 +6,10 @@
 #
 # Labels are the alert's name, `instance` (a host's name, which
 # modules/metrics.nix sets at scrape and ntfy's template shows), `severity`,
-# and where one is needed, a name from lib/net.nix: a segment, a WireGuard
-# peer, a mountpoint. Never an address and never a value, since every label
-# and annotation leaves the house in the push.
+# and where one is needed, a name: a segment or a WireGuard peer from
+# lib/net.nix, a mountpoint, a drive's kernel name. Never an address, a serial
+# number or a value, since every label and annotation leaves the house in the
+# push.
 {
   lib,
   net,
@@ -198,6 +199,49 @@ in
           for = "15m";
           labels.severity = "warning";
           annotations.summary = "{{ $labels.instance }} has been above 75°C for 15 minutes.";
+        }
+        {
+          # The drive's own verdict, from its health log (modules/smartctl.nix).
+          # Each term is a field the NVMe specification defines as a fault,
+          # judged against the drive's own figures rather than ours. The
+          # critical-warning field is a bit set: spare under its threshold,
+          # temperature past the drive's limit, reliability degraded by media
+          # or internal errors, the media read-only, or its volatile backup
+          # failed. smartctl's verdict fails on the same bits. The spare's
+          # threshold is the drive's, from the same log. Media errors are
+          # unrecovered integrity errors, and any new one is data lost; the
+          # count a drive arrives with is history, so the term is the count
+          # risen above its lowest in the last hour, which holds for an hour
+          # and is one push. Not increase(): VictoriaMetrics counts a new
+          # series' first value, if small, as an increase from 0, so a drive
+          # with old errors would push at its first scrape. 5 minutes, so that
+          # the temperature bit, which a burst of writes can set and clear,
+          # has to persist.
+          alert = "DriveFailing";
+          expr = ''
+            max by (instance, device) (
+              smartctl_device_critical_warning > 0
+              or smartctl_device_smart_status == 0
+              or smartctl_device_available_spare < smartctl_device_available_spare_threshold
+              or smartctl_device_media_errors > min_over_time(smartctl_device_media_errors[1h])
+            )
+          '';
+          for = "5m";
+          labels.severity = "critical";
+          annotations.summary = "{{ $labels.device }} on {{ $labels.instance }} says it is failing: a critical warning, a failed SMART verdict, spare under its threshold, or new media errors.";
+        }
+        {
+          # The drive's estimate of its rated endurance used, which may pass
+          # 100 and goes on working there. 80 leaves a fifth of the rating: at
+          # the rate that used the first four fifths, a quarter as long again,
+          # which is years on any drive that took years to get there, and time
+          # to buy one rather than react to DriveFailing. It only rises, so it
+          # stays firing, and Alertmanager repeats it every 30 days.
+          alert = "DriveWearing";
+          expr = "max by (instance, device) (smartctl_device_percentage_used) > 80";
+          for = "1h";
+          labels.severity = "warning";
+          annotations.summary = "{{ $labels.device }} on {{ $labels.instance }} has used over 80% of its rated endurance.";
         }
         {
           # Frames that arrived damaged or could not be sent, which a healthy

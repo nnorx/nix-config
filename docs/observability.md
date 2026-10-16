@@ -169,6 +169,7 @@ pimon's loopback agent on core5 already does:
 | 9167 | `unboundExporter` | core4, lifeline |
 | 9547 | `keaExporter` | gate's servers gateway |
 | 9115 | `blackboxExporter` | core5 loopback |
+| 9633 | `smartctlExporter` | core5 loopback |
 | 8428 | `victoriaMetrics` | core5 loopback |
 | 8881 | `vmalert` | core5 loopback |
 | 9093 | `alertmanager` | core5 loopback |
@@ -431,8 +432,11 @@ holds the rules, each with its reasons beside it.
 The rule set. Every threshold below was checked against core5's store on
 2026-10-13, and the four added in NNO-68 (`ScrapeDown`, `AdGuardStatsMissing`,
 `InterfaceErrors`, `RevisionCheckStale`) against all it held on 2026-10-15,
-4 days; none fired. `tests/alert-rules.nix` checks each rule against series of
-its own, firing and not.
+4 days; none fired. The two drive rules, added in NNO-69, were not: the store
+had no drive health until they merged, and they are judged by the NVMe
+fields' meanings and the drive's own threshold ("Drive health" below).
+`tests/alert-rules.nix` checks each rule against series of its own, firing
+and not.
 
 | Alert | Fires when | Severity |
 |---|---|---|
@@ -445,6 +449,8 @@ its own, firing and not.
 | `DhcpPoolLow` | A segment's pool is over 90% leased for 15 minutes | warning |
 | `DiskFilling` | A filesystem is over 85% full, or over half full and predicted full within 3 days at its last 6 hours' rate, for an hour | warning |
 | `HostHot` | A thermal zone stays above 75°C for 15 minutes | warning |
+| `DriveFailing` | A drive's health log reports a critical warning, a failed SMART verdict, spare under the drive's own threshold, or a media error newer than an hour, for 5 minutes | critical |
+| `DriveWearing` | A drive reports over 80% of its rated endurance used, for an hour | warning |
 | `InterfaceErrors` | An interface counts receive or transmit errors in every 10 minutes for 30 | warning |
 | `RevisionBehind` | See "The wrong boot" below | warning |
 | `RevisionCheckStale` | main's head was last read more than 6 hours ago, or not at all in 6 hours | warning |
@@ -519,6 +525,7 @@ Where the table needed a decision:
   last one's file in place, which then ages. The file is in `/run`, so after
   core5 boots it is missing until a read succeeds, and missing for 6 hours
   counts the same.
+- **`DriveFailing`** and **`DriveWearing`** are under "Drive health" below.
 
 **What none of this watches.** With core5 down, nothing here runs, and the
 watchdog's silence is the one signal, from healthchecks.io, without a reason.
@@ -533,7 +540,76 @@ fleetAlerts still covers the other Pis' upgrades. Away from core5:
   facts, and AdGuard's counts freeze rather than go missing. Only main's head
   carries its own read time.
 - **Throughput and drops**, which the dashboards show and no rule reads.
-- **Drive health**, an issue of its own.
+- **The Pis' SD cards.** SD cards report no SMART or health log, so core4's
+  and lifeline's roots, and core5's fallback card, have no drive health at
+  all. `DiskFilling` and the wrong-boot checks are what watches them.
+- **gate's NVMe drive**, until its own issue: the exporter there opens a port
+  on gate, which waits for a `deploy-guard` sitting.
+- **A drive that stops answering.** smartctl_exporter keeps the last good
+  reading and serves it, so a drive that has dropped off its bus reads as it
+  last did. On core5 that drive is the root, so `HostDown` and the watchdog
+  say so instead.
+
+## Drive health
+
+**core5's NVMe drive reports its own health log, and two rules read it.**
+
+On 2026-09-04 core5's NVMe drive dropped off its bus and the firmware booted
+the SD card ([recovery.md](recovery.md#the-silent-wrong-boot)). That was a
+loose ribbon, which no health log predicts. What the log does say is the
+drive's own view of itself, which node_exporter does not read: its
+temperature reaches the store through hwmon, and nothing else does.
+
+[`modules/smartctl.nix`](../modules/smartctl.nix) runs nixpkgs'
+smartctl_exporter, named the devices to read rather than scanning: on core5,
+`/dev/nvme0n1`. The namespace, not the controller (`/dev/nvme0`): nixpkgs'
+sandbox for the exporter is kept as it is, a dynamic user in `disk` with the
+two capabilities smartctl's passthrough commands need, and its udev rule
+grants the controller only when the device is added, so after the nightly
+switch it would stay unreadable until a reboot. `disk` reads the namespace
+already. The exporter listens on loopback, as the blackbox exporter does, and
+core5 scrapes it as the `smartctl` job, with `instance` its name. A
+`ScrapeDown` covers it like any other source.
+
+**Labels.** smartctl_exporter 0.14.0 labels `smartctl_device` with the
+drive's serial number, which identifies the physical drive, and labels
+nothing else with an identifier: no WWN, EUI-64 or NGUID. The scrape drops any
+label whose name contains `serial`, `wwn`, `eui`, `nguid` or `uuid`, which
+today is `serial_number` alone, so that a later version adding one stores
+nothing. Model, firmware and the kernel name (`device="nvme0n1"`) stay. The
+exporter builds `device` from the path it reads, and a `/dev/disk/by-id` path
+holds the serial, so the module asserts kernel names.
+
+**The rules**, judged by the NVMe specification's meaning for each field and
+by the drive's own threshold, since reading the log takes root and nothing
+here has it on core5:
+
+- **`DriveFailing`**, critical, for 5 minutes. The critical-warning field is
+  a bit set, and any bit is the drive saying it is in trouble: spare under its
+  threshold, temperature past its own limit, reliability degraded by media or
+  internal errors, the media read-only, or its volatile backup failed.
+  smartctl's SMART verdict fails on the same bits; the rule reads both, and
+  spare under the threshold the drive itself reports. Media errors are
+  unrecovered integrity errors, data lost, and the count a drive arrives with
+  is history, so the term is the count risen above its lowest in the last
+  hour, which is one push. Not `increase()`: VictoriaMetrics counts a new
+  series' small first value as an increase from 0, so a drive with old errors
+  would have pushed at its first scrape, which the test checks. The 5 minutes
+  are for the temperature bit, which a burst of writes can set and clear.
+- **`DriveWearing`**, warning, for an hour: percentage used over 80. It is the
+  drive's estimate of its rated endurance used, and may pass 100 and go on
+  working. 80 leaves a fifth of the rating, a quarter as long again at the
+  rate that used the rest, which is years on a drive that took years to get
+  there, and time to buy a replacement rather than react to `DriveFailing`.
+  It only rises, so it stays firing and repeats every 30 days.
+
+The Fleet dashboard has the three in a row: spare beside its threshold,
+endurance used, and media errors.
+
+gate's drive is its own issue, since the exporter there opens a port on gate.
+The NAS will import the same module for its disks, which first needs the
+exporter on an address core5 can scrape, the way node_exporter binds, and the
+assertion that holds it to the collector relaxed.
 
 ## pimon
 

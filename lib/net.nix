@@ -480,6 +480,10 @@
     # public resolvers (modules/blackbox.nix).
     blackboxExporter = 9115;
 
+    # The NVMe drive's own health log, on core5's loopback
+    # (modules/smartctl.nix).
+    smartctlExporter = 9633;
+
     # WireGuard on gate's WAN, which every peer's config names. 443 rather
     # than 51820, because restrictive Wi-Fi blocks unusual UDP ports more often
     # than the one HTTP/3 uses.
