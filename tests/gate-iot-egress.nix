@@ -9,28 +9,15 @@
 # `nix build .#checks.x86_64-linux.gate-iot-egress`. It needs KVM, which
 # forge's daemon has; CI's vm-tests job runs it on pull requests.
 #
-# The topology is ./gate-dns.nix's: gate is hosts/gate/routing.nix itself, the
-# fleet's resolvers are one VM holding both their addresses, and "the
-# internet" is one VM holding the public resolvers' addresses, here also
+# The topology is ./lib/gate-topology.nix's, with "the internet" also
 # listening on 443 as a device's cloud would.
 { net }:
 let
+  topology = import ./lib/gate-topology.nix { inherit net; };
+  inherit (topology) isp filteredName;
   seg = net.segments;
   publicResolver = builtins.head net.publicResolvers;
   pi = net.hosts.${builtins.head net.resolvers}.ip;
-  filteredName = "filtered.example";
-
-  # RFC 5737 documentation addresses, as in ./gate-dns.nix.
-  isp = {
-    gate = "203.0.113.2";
-    upstream = "203.0.113.1";
-  };
-
-  wire = {
-    wan = 1;
-    trunk = 2;
-    wired = 3;
-  };
 
   # The two ends of iot's pool: one goes into the trial set, one stays out.
   addressOf = {
@@ -38,32 +25,15 @@ let
     other = seg.iot.pool.last;
   };
 
-  # A device on iot, at `address`, as one behind the AP is.
+  # A device on iot, at `address`.
   onIot =
     address:
     { pkgs, ... }:
     {
-      virtualisation.interfaces.trunk.vlan = wire.trunk;
-      networking = {
-        useDHCP = false;
-        vlans.iot = {
-          inherit (seg.iot) id;
-          interface = "trunk";
-        };
-        interfaces.iot.ipv4.addresses = [
-          {
-            inherit address;
-            inherit (seg.iot) prefixLength;
-          }
-        ];
-        defaultGateway = {
-          address = seg.iot.gateway;
-          interface = "iot";
-        };
-      };
+      imports = [ (topology.onSegment "iot" address) ];
       environment.systemPackages = [
         pkgs.dnsutils
-        (probe pkgs)
+        (topology.probe pkgs)
         (hold pkgs)
       ];
     };
@@ -95,36 +65,6 @@ let
               break
           time.sleep(1)
     '';
-
-  # Connects over TCP and says how it went: "open", "refused", or "timeout",
-  # which is what a drop looks like.
-  probe =
-    pkgs:
-    pkgs.writers.writePython3Bin "probe" { } ''
-      import socket
-      import sys
-
-      host, port = sys.argv[1], int(sys.argv[2])
-      s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-      s.settimeout(5)
-      try:
-          s.connect((host, port))
-          result = "open"
-      except ConnectionRefusedError:
-          result = "refused"
-      except socket.timeout:
-          result = "timeout"
-      print(result)
-    '';
-
-  dns = answer: {
-    enable = true;
-    resolveLocalQueries = false;
-    settings = {
-      no-resolv = true;
-      address = "/${filteredName}/${answer}";
-    };
-  };
 in
 {
   name = "gate-iot-egress";
@@ -133,75 +73,20 @@ in
 
   nodes = {
     gate =
-      { lib, pkgs, ... }:
+      { pkgs, ... }:
       {
-        imports = [ ../hosts/gate/routing.nix ];
-
-        virtualisation.interfaces = {
-          wan.vlan = wire.wan;
-          ${net.hosts.gate.trunkIface}.vlan = wire.trunk;
-          ${net.hosts.gate.wiredIface}.vlan = wire.wired;
-        };
-
-        # Kea requires carrier on every interface it serves, and leases are
-        # not what is under test. The devices here are static.
-        services.kea.dhcp4.enable = lib.mkForce false;
-
+        imports = [ (topology.router { }) ];
         # As hosts/gate/default.nix installs it, for the trial's `conntrack -D`.
         environment.systemPackages = [ pkgs.conntrack-tools ];
-
-        networking = {
-          useDHCP = false;
-          interfaces.wan.ipv4.addresses = [
-            {
-              address = isp.gate;
-              prefixLength = 24;
-            }
-          ];
-          defaultGateway = {
-            address = isp.upstream;
-            interface = "wan";
-          };
-        };
       };
 
-    # core4 and lifeline, untagged on the trunk as they are on the switch.
-    fleet = {
-      virtualisation.interfaces.trunk.vlan = wire.trunk;
-      networking = {
-        useDHCP = false;
-        firewall.enable = false;
-        interfaces.trunk.ipv4.addresses = map (h: {
-          address = net.hosts.${h}.ip;
-          inherit (seg.servers) prefixLength;
-        }) net.resolvers;
-        defaultGateway = {
-          address = seg.servers.gateway;
-          interface = "trunk";
-        };
-      };
-      services.dnsmasq = dns "0.0.0.0";
-    };
+    inherit (topology) fleet;
 
     internet =
       { pkgs, ... }:
       {
-        virtualisation.interfaces.wan.vlan = wire.wan;
-        networking = {
-          useDHCP = false;
-          firewall.enable = false;
-          interfaces.wan.ipv4.addresses = [
-            {
-              address = isp.upstream;
-              prefixLength = 24;
-            }
-          ]
-          ++ map (address: {
-            inherit address;
-            prefixLength = 32;
-          }) net.publicResolvers;
-        };
-        services.dnsmasq = dns isp.upstream;
+        imports = [ topology.internet ];
+        services.dnsmasq = topology.answering isp.upstream;
         # Echoes, so a device can hold a connection open as it would to its
         # cloud; a probe's connection ends when the probe exits.
         systemd.services.listen-443 = {

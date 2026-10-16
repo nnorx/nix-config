@@ -8,28 +8,13 @@
 # `nix build .#checks.x86_64-linux.gate-servers-egress`. It needs KVM, which
 # forge's daemon has; CI's vm-tests job runs it on pull requests.
 #
-# The topology is ./gate-iot-egress.nix's, with servers in place of iot: gate
-# is hosts/gate/routing.nix itself, and "the internet" is one VM holding the
-# public resolvers' addresses, listening on 443 as a vendor's cloud would and
-# serving NTP as a public pool does.
+# The topology is ./lib/gate-topology.nix's, with "the internet" listening on
+# 443 as a vendor's cloud would and serving NTP as a public pool does.
 { net }:
 let
+  topology = import ./lib/gate-topology.nix { inherit net; };
   seg = net.segments;
   publicResolver = builtins.head net.publicResolvers;
-
-  # RFC 5737 documentation addresses, as in ./gate-dns.nix.
-  isp = {
-    gate = "203.0.113.2";
-    upstream = "203.0.113.1";
-  };
-
-  wire = {
-    wan = 1;
-    trunk = 2;
-    # Nothing on it. gate's config expects lan1, and without the device its
-    # boot waits five minutes for it.
-    wired = 3;
-  };
 
   # A Pi, by the address lib/net.nix gives it, and a stranger, as the switch
   # or the AP is: an address on servers that lib/net.nix does not name. The
@@ -44,52 +29,16 @@ let
       builtins.concatStringsSep "." (builtins.genList (builtins.elemAt octets) 3 ++ [ "241" ]);
   };
 
-  # Untagged on the trunk, as everything on servers is.
   onServers =
     address:
     { pkgs, ... }:
     {
-      virtualisation.interfaces.trunk.vlan = wire.trunk;
-      networking = {
-        useDHCP = false;
-        firewall.enable = false;
-        interfaces.trunk.ipv4.addresses = [
-          {
-            inherit address;
-            inherit (seg.servers) prefixLength;
-          }
-        ];
-        defaultGateway = {
-          address = seg.servers.gateway;
-          interface = "trunk";
-        };
-      };
+      imports = [ (topology.onServers [ address ]) ];
       environment.systemPackages = [
         pkgs.chrony
-        (probe pkgs)
+        (topology.probe pkgs)
       ];
     };
-
-  # Connects over TCP and says how it went: "open", "refused", or "timeout",
-  # which is what a drop looks like.
-  probe =
-    pkgs:
-    pkgs.writers.writePython3Bin "probe" { } ''
-      import socket
-      import sys
-
-      host, port = sys.argv[1], int(sys.argv[2])
-      s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-      s.settimeout(5)
-      try:
-          s.connect((host, port))
-          result = "open"
-      except ConnectionRefusedError:
-          result = "refused"
-      except socket.timeout:
-          result = "timeout"
-      print(result)
-    '';
 in
 assert !(builtins.any (h: (h.ip or null) == addressOf.stranger) (builtins.attrValues net.hosts));
 {
@@ -98,54 +47,12 @@ assert !(builtins.any (h: (h.ip or null) == addressOf.stranger) (builtins.attrVa
   node.specialArgs = { inherit net; };
 
   nodes = {
-    gate =
-      { lib, ... }:
-      {
-        imports = [ ../hosts/gate/routing.nix ];
-
-        virtualisation.interfaces = {
-          wan.vlan = wire.wan;
-          ${net.hosts.gate.trunkIface}.vlan = wire.trunk;
-          ${net.hosts.gate.wiredIface}.vlan = wire.wired;
-        };
-
-        # Kea requires carrier on every interface it serves, and leases are
-        # not what is under test. The hosts here are static, as servers' are.
-        services.kea.dhcp4.enable = lib.mkForce false;
-
-        networking = {
-          useDHCP = false;
-          interfaces.wan.ipv4.addresses = [
-            {
-              address = isp.gate;
-              prefixLength = 24;
-            }
-          ];
-          defaultGateway = {
-            address = isp.upstream;
-            interface = "wan";
-          };
-        };
-      };
+    gate = topology.router { };
 
     internet =
       { pkgs, ... }:
       {
-        virtualisation.interfaces.wan.vlan = wire.wan;
-        networking = {
-          useDHCP = false;
-          firewall.enable = false;
-          interfaces.wan.ipv4.addresses = [
-            {
-              address = isp.upstream;
-              prefixLength = 24;
-            }
-          ]
-          ++ map (address: {
-            inherit address;
-            prefixLength = 32;
-          }) net.publicResolvers;
-        };
+        imports = [ topology.internet ];
         systemd.services.listen-443 = {
           wantedBy = [ "multi-user.target" ];
           script = "${pkgs.socat}/bin/socat TCP-LISTEN:443,fork,reuseaddr EXEC:${pkgs.coreutils}/bin/true";
