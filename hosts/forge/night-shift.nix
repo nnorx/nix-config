@@ -35,6 +35,9 @@
 }:
 let
   user = "nick";
+  # Minutes between runs: the timer's, and the dispatcher's measure of how
+  # much work one run can count (quiet in night-shift.sh). A divisor of 60.
+  interval = 10;
   home = config.users.users.${user}.home;
   secrets = [
     "linear-api-key"
@@ -67,6 +70,7 @@ let
       NIGHT_SHIFT_KEY_FILE = config.sops.secrets.linear-api-key.path;
       NIGHT_SHIFT_NTFY_FILE = config.sops.secrets.ntfy-url.path;
       NIGHT_SHIFT_PROJECTS = "${home}/projects";
+      NIGHT_SHIFT_INTERVAL = toString (interval * 60);
       NIGHT_SHIFT_MAX = "2";
       NIGHT_SHIFT_STALL_HOURS = "4";
       NIGHT_SHIFT_FAILED_RUNS = "3";
@@ -125,7 +129,7 @@ in
     wantedBy = [ "timers.target" ];
     unitConfig.ConditionUser = user;
     timerConfig = {
-      OnCalendar = "*:0/10";
+      OnCalendar = "*:0/${toString interval}";
       Persistent = true;
     };
   };

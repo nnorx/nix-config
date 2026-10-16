@@ -441,6 +441,18 @@ case_finish_asleep() {
   expect "forge kept awake" one '.tool == "systemctl" and .args[1] == "start"'
 }
 
+# The clock follows the interval each machine passes: with runs half an
+# hour apart, a gap counts up to an hour.
+case_finish_asleep_interval() {
+  running_agent "$(date -u -d '17 hours ago' +%FT%TZ)"
+  ns NIGHT_SHIFT_INTERVAL=1800 run
+  expect "exit 0" is "$status" 0
+  expect "an hour of work counted" is "$(jq -r .worked "$c/state/night-shift/TST-1.json")" 3600
+  ns NIGHT_SHIFT_INTERVAL=ten run
+  expect "a bad interval: exit 1" is "$status" 1
+  expect "says why" has "$(<"$c/out")" "NIGHT_SHIFT_INTERVAL is a number of seconds, not 'ten'"
+}
+
 # The session ended without a result: left alone on the first look, flagged
 # on one 5 minutes or more later.
 case_finish_ended() {
@@ -1277,6 +1289,7 @@ cases=(
   "finish_quiet      finish: no result past the stall hours of work: Needs you"
   "finish_working    finish: no result within the stall hours: left alone"
   "finish_asleep     finish: hours asleep count as one tick: left alone"
+  "finish_asleep_interval finish: the clock follows the interval passed, and refuses a bad one"
   "finish_ended      finish: session ended with no result: Needs you on the second look"
   "finish_prompt     finish: session waiting on a prompt: Needs you, saying so"
   "finish_roster_gap finish: ended, then gone from the roster: the end seen stands"

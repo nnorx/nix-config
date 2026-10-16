@@ -67,10 +67,13 @@ stall_hours=${NIGHT_SHIFT_STALL_HOURS:-4}
 failed_runs=${NIGHT_SHIFT_FAILED_RUNS:-3}
 state_dir=${XDG_STATE_HOME:-$HOME/.local/state}/night-shift
 power_dir=${NIGHT_SHIFT_POWER:-/sys/class/power_supply}
-# The most one run adds to an agent's working time (quiet), twice the timer's
-# 10 minutes, and how far apart two looks must be before an ended session
-# counts as quiet.
-tick=$((20 * 60))
+# Seconds between runs, forge's timer's or the Mac's launchd schedule, each
+# passing its own. The most one run adds to an agent's working time (quiet)
+# is twice that, and an ended session counts as quiet on two looks `settle`
+# apart.
+interval=${NIGHT_SHIFT_INTERVAL:-600}
+[[ $interval =~ ^[1-9][0-9]*$ ]] || die "NIGHT_SHIFT_INTERVAL is a number of seconds, not '$interval'"
+tick=$((2 * interval))
 settle=$((5 * 60))
 shopt -s nullglob
 
@@ -408,8 +411,8 @@ at_work() {
 # - Its session has ended without writing a result, or waits on a prompt,
 #   on two looks `settle` apart. One look is not enough to be sure the agent
 #   will not carry on.
-# - It has worked `stall_hours` with forge awake. Each run adds the time since
-#   the last, but at most `tick`, so hours forge spent asleep, when no run
+# - It has worked `stall_hours` with the machine awake. Each run adds the time
+#   since the last, but at most `tick`, so hours it spent asleep, when no run
 #   came, count as one tick. On a wall clock, a night asleep reads as a night
 #   of silence, and agents still at work were flagged as soon as forge woke.
 quiet() {
@@ -477,7 +480,7 @@ awake() {
     if (($(running) > 0)); then
       (
         set -m
-        caffeinate -s -t $((${NIGHT_SHIFT_INTERVAL:-600} + 60)) </dev/null >/dev/null 2>&1 9>&- &
+        caffeinate -s -t $((interval + 60)) </dev/null >/dev/null 2>&1 9>&- &
       )
     fi
     return 0
