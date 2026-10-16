@@ -40,19 +40,38 @@ jobs:
         with:
           diagnostic-endpoint: ""
 
-      # The same command a change is checked with locally: formatting, flake
-      # check across all systems, every host's toplevel and every Home Manager
-      # config evaluated, and which of them the change touches, written to the
-      # run's summary. Evaluation only, so it needs no aarch64 builder and
-      # cannot turn into a multi-hour build. scripts/preflight.sh says why
-      # each step is there.
+      # The same command a change is checked with locally: formatting, every
+      # host's toplevel and every Home Manager config evaluated, and which of
+      # them the change touches, written to the run's summary. Evaluation
+      # only, so it needs no aarch64 builder and cannot turn into a
+      # multi-hour build. scripts/preflight.sh says why each step is there.
       #
       # On a pull request HEAD is the merge commit, and the base is the tip of
       # the branch it targets, which for a stacked PR is not main, so the
       # summary says what merging this PR would change. A push is only ever to
       # main, where there is no base branch, and preflight compares main with
       # its previous commit: what the squash-merged PR changed.
-      - run: nix run .#preflight -- ${GITHUB_BASE_REF:+--base "origin/$GITHUB_BASE_REF"}
+      #
+      # All of preflight but flake check, which `flake-check` runs beside it.
+      - run: nix run .#preflight -- --flake-check skip ${GITHUB_BASE_REF:+--base "origin/$GITHUB_BASE_REF"}
+
+  # Preflight's `nix flake check`, on a runner of its own. In one job it and
+  # the evaluations ran in a row, since flake check alone peaks near 12 GB
+  # and could not share a 16 GB runner with them. Side by side, a pull request
+  # waits for the slower of the two rather than both. The same trigger as
+  # `check`, and like it a required check on main.
+  flake-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history: Determinate Nix refuses a shallow clone as a
+          # git+file flake, since it cannot count its commits (revCount).
+          fetch-depth: 0
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # main @ 2026-09-09
+        with:
+          diagnostic-endpoint: ""
+      - run: nix run .#preflight -- --flake-check only
 
   # Builds each fleet host's /etc on pull requests. `check` only evaluates,
   # and some failures only happen at build time: shellcheck on every

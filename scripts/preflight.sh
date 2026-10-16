@@ -40,27 +40,39 @@
 # on files. --json <file> also writes the brief as JSON, for tools that act on
 # the verdict.
 #
+# --flake-check skip leaves out step 3, and --flake-check only runs it alone.
+# CI uses them to run flake check on a runner of its own, beside the rest:
+# in a row the two are most of preflight's time, and flake check's 12 GB
+# cannot share a 16 GB runner with the evaluations (check.yml).
+#
 # Uses the nix on PATH rather than one of its own, so it talks to the daemon in
 # the way everything else on the machine does.
 
 usage() {
-  echo "usage: preflight [--base <rev>] [--head <rev>] [--json <file>]" >&2
+  echo "usage: preflight [--base <rev>] [--head <rev>] [--json <file>] [--flake-check skip|only]" >&2
   exit 64
 }
 
 base=""
 head=""
 json=""
+flake_check=run
 while [[ $# -gt 0 ]]; do
   [[ $# -ge 2 ]] || usage
   case $1 in
     --base) base=$2 ;;
     --head) head=$2 ;;
     --json) json=$2 ;;
+    --flake-check)
+      [[ $2 == skip || $2 == only ]] || usage
+      flake_check=$2
+      ;;
     *) usage ;;
   esac
   shift 2
 done
+# Alone, flake check writes no brief.
+[[ $flake_check != only || -z $json ]] || usage
 # Before the cd below, so a relative path means what it did to the caller.
 [[ -z $json ]] || json=$(realpath -m -- "$json")
 
@@ -79,7 +91,8 @@ else
   ref="git+file://$root"
 fi
 
-if [[ -z $base ]]; then
+# Alone, flake check compares with nothing.
+if [[ $flake_check != only && -z $base ]]; then
   base=$(git merge-base "${head:-HEAD}" origin/main) ||
     {
       echo "preflight: no merge-base with origin/main; fetch it, or pass --base" >&2
@@ -98,7 +111,7 @@ if [[ -z $base ]]; then
     base=$(git rev-parse --verify --quiet "$head^") || base=$head
   fi
 fi
-base=$(git rev-parse --verify "$base^{commit}")
+[[ $flake_check == only ]] || base=$(git rev-parse --verify "$base^{commit}")
 
 # The flake sees only what git tracks, so a new file that was never added is
 # silently absent from every evaluation below.
@@ -108,16 +121,18 @@ if [[ -z $head && -n $untracked ]]; then
   while IFS= read -r path; do echo "   $path"; done <<<"$untracked"
 fi
 
-step "brief rules"
-# Under --head too: the brief below uses the rules this preflight was built
-# with (PREFLIGHT_BRIEF), not the commit's, and those are what this tests.
-# $BASH, since writeShellApplication puts no bash on PATH.
-"$BASH" scripts/test-preflight-brief.sh
+if [[ $flake_check != only ]]; then
+  step "brief rules"
+  # Under --head too: the brief below uses the rules this preflight was built
+  # with (PREFLIGHT_BRIEF), not the commit's, and those are what this tests.
+  # $BASH, since writeShellApplication puts no bash on PATH.
+  "$BASH" scripts/test-preflight-brief.sh
 
-step "night-shift dispatcher"
-# From the checkout under --head too: the working tree's dispatcher, not the
-# commit's.
-"$BASH" tests/night-shift/run.sh
+  step "night-shift dispatcher"
+  # From the checkout under --head too: the working tree's dispatcher, not the
+  # commit's.
+  "$BASH" tests/night-shift/run.sh
+fi
 
 work=$(mktemp -d)
 # The evaluations below run in the background, each in a process group of its
@@ -148,9 +163,12 @@ peak() {
   awk -v name="$label" '{ printf "   %s: %.0f s, peak %.1f GB\n", name, $1, $2 / 1048576 }' "$work/$1.time"
 }
 
-step "flake check"
-timed flake-check nix flake check --all-systems --no-build "$ref"
-peak flake-check "flake check"
+if [[ $flake_check != skip ]]; then
+  step "flake check"
+  timed flake-check nix flake check --all-systems --no-build "$ref"
+  peak flake-check "flake check"
+fi
+[[ $flake_check != only ]] || exit 0
 
 evaluate() {
   timed "$2" nix eval --impure --json --expr "import $PREFLIGHT_EVAL { ref = \"$1\"; }" \
