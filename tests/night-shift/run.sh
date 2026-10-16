@@ -769,6 +769,8 @@ case_work_start() {
   expect "a state file, phase running" is "$(jq -r .phase "$f" 2>&1)" running
   expect "which records what setup left" is "$(jq -c '.setup | index("?? bootstrapped") != null' "$f" 2>&1)" true
   expect "no notification" none '.tool == "notify"'
+  expect "kept awake while it works" caffeinated
+  expect "never forge's unit" none '.tool == "systemctl"'
 }
 
 # Refused by work_start_one: nothing made, no agent, nothing written to
@@ -1159,15 +1161,15 @@ case_work_tick() {
   expect "pointing at the log" has "$(jq -rs 'map(select(.tool == "notify")) | first | .body' "$c/log.jsonl")" "$c/night-shift.log says why."
 }
 
-# _tick leaves caffeinate running in the background, so its log line may
-# lag the tick's own return.
+# awake leaves caffeinate running in the background, so its log line may
+# lag the run's own return.
 caffeinated() {
   local n
   for n in {1..50}; do
     (($(requests '.tool == "caffeinate"') == 0)) || break
     sleep 0.1
   done
-  one '.tool == "caffeinate" and .args == ["-s", "-t", "660"]'
+  one '.tool == "caffeinate" and .args == ["-s", "-t", "660"] and .lock == false'
 }
 
 case_work_tick_awake() {
@@ -1175,7 +1177,8 @@ case_work_tick_awake() {
   work_agent running
   nsw NIGHT_SHIFT_INTERVAL=600 _tick
   expect "exit 0" is "$status" 0
-  expect "kept awake on AC power until a minute past the next tick" caffeinated
+  expect "kept awake on AC power until a minute past the next tick, without the lock" caffeinated
+  expect "never forge's unit" none '.tool == "systemctl"'
 }
 
 case_work_tick_waiting() {
@@ -1185,6 +1188,7 @@ case_work_tick_waiting() {
   expect "exit 0" is "$status" 0
   sleep 0.5
   expect "left to sleep" none '.tool == "caffeinate"'
+  expect "never forge's unit" none '.tool == "systemctl"'
 }
 
 # safe: claude here, in the agents' sandbox, with the repository's additions

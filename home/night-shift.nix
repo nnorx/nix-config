@@ -33,7 +33,7 @@ let
   cache = "${home}/.cache/night-shift";
   log = "${home}/Library/Logs/night-shift.log";
   # Seconds between runs: launchd's schedule, and how long each run keeps
-  # the Mac awake while an agent works (_tick in night-shift.sh).
+  # the Mac awake while an agent works (awake in night-shift.sh).
   interval = 600;
   # The launchd job's, which `night-shift resume` starts.
   label = "org.nix-community.home.night-shift";

@@ -455,17 +455,33 @@ on_ac() {
   [[ -z $battery ]]
 }
 
-# awake: keeps forge from idle sleep while an agent works on AC, and only then.
-# Called as a run exits, whether it got through or not. Plasma suspends after
-# 15 idle minutes whatever runs, and a suspended forge freezes every agent
-# until someone wakes it, so work queued for the night waits for the morning.
-# This starts night-shift-awake.service, a power inhibition held by
-# kde-inhibit (night-shift.nix), and stops it once nothing runs or forge is on
-# battery, where it sleeps as before and the agents wait. Only idle sleep is
-# blocked: the screen still locks and turns off, and a closed lid still
-# suspends.
+# awake: keeps the machine from sleep while an agent works on AC, and only
+# then. Called as a run exits, whether it got through or not. A sleeping
+# machine freezes every agent until someone wakes it, so work queued for the
+# night waits for the morning.
+#
+# On forge, Plasma suspends after 15 idle minutes whatever runs. This starts
+# night-shift-awake.service, a power inhibition held by kde-inhibit
+# (night-shift.nix), and stops it once nothing runs or forge is on battery,
+# where it sleeps as before and the agents wait. Only idle sleep is blocked:
+# the screen still locks and turns off, and a closed lid still suspends.
+#
+# On a Mac, caffeinate -s, which holds only on AC power, until a minute past
+# the next run, which asks again; once nothing runs it lapses by then. It
+# outlives the run: in a process group of its own, so a run's deadline
+# (_tick) does not end it, and without the run lock's descriptor, which it
+# would otherwise hold until it lapsed and keep the next run out.
 awake() {
   local verb=stop
+  if [[ $platform == darwin ]]; then
+    if (($(running) > 0)); then
+      (
+        set -m
+        caffeinate -s -t $((${NIGHT_SHIFT_INTERVAL:-600} + 60)) </dev/null >/dev/null 2>&1 9>&- &
+      )
+    fi
+    return 0
+  fi
   if (($(running) > 0)) && on_ac; then
     verb=start
   fi
@@ -1969,15 +1985,6 @@ case ${1-} in
       *) SERVICE_RESULT=exit-code ;;
     esac
     EXIT_STATUS=$rc after_run
-    # Sleep would pause an agent at work until Nick is back, so while one is,
-    # the Mac stays awake until a minute past the next tick, which asks
-    # again. On AC power only (-s): on battery it sleeps and pauses them, as
-    # before. An agent that goes quiet stops counting after stall_hours
-    # (finish_one), so this cannot keep the Mac awake for good. Left to
-    # outlive the tick, as AbandonProcessGroup allows (home/night-shift.nix).
-    if [[ $platform == darwin ]] && (($(running) > 0)); then
-      caffeinate -s -t $((${NIGHT_SHIFT_INTERVAL:-600} + 60)) </dev/null >/dev/null 2>&1 &
-    fi
     ;;
   file)
     [[ $mode == forge ]] || die "file is forge's: in work mode, issues are filed in Linear by hand"
