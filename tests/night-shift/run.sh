@@ -738,6 +738,25 @@ work_agent() {
     '[{id: "job-1", sessionId: "session-1", name: $name, cwd: $wt, state: "done"}]' >"$c/roster.json"
 }
 
+# github_origin: repo demo's origin on GitHub, for github_repo().
+github_origin() { g -C "$c/projects/demo" remote set-url origin git@github.com:test/demo.git; }
+
+# work_merged: the worktree's tip merged as PR #7, as gh lists it, from a
+# GitHub origin.
+work_merged() {
+  jq -nc --arg sha "$(g -C "$WT" rev-parse HEAD)" \
+    '[{number: 7, url: "https://github.com/test/demo/pull/7", headRefOid: $sha}]' >"$c/gh-prs"
+  github_origin
+}
+
+# relabel <time>: Nick adds the label to issue-1 again at <time>.
+relabel() {
+  jq --arg t "$1" '.updatedAt = $t | .history.nodes += [{createdAt: $t, actorId: "user-nick",
+    botActor: null, addedLabelIds: ["label-agent"], updatedDescription: null, fromTitle: null}]' \
+    "$c/linear/issues/issue-1.json" >"$c/tmp/issue.json"
+  mv "$c/tmp/issue.json" "$c/linear/issues/issue-1.json"
+}
+
 no_linear_writes() {
   expect "no issueUpdate" none '.op == "issueUpdate"'
   expect "no comment" none '.op == "commentCreate"'
@@ -854,11 +873,7 @@ case_work_start_relabelled() {
   work '.history.nodes[1].actorId = "user-teammate"'
   nsw run
   expect "refused first" is "$(jq -r .phase "$c/state/night-shift/TST-1.json" 2>&1)" refused
-  jq '.updatedAt = "2026-10-04T09:00:00.000Z"
-    | .history.nodes += [{createdAt: "2026-10-04T09:00:00.000Z", actorId: "user-nick", botActor: null,
-    addedLabelIds: ["label-agent"], updatedDescription: null, fromTitle: null}]' \
-    "$c/linear/issues/issue-1.json" >"$c/tmp/issue.json"
-  mv "$c/tmp/issue.json" "$c/linear/issues/issue-1.json"
+  relabel 2026-10-04T09:00:00.000Z
   nsw run
   expect "exit 0" is "$status" 0
   expect "started once Nick added the label again" one '.tool == "claude" and .args[0] == "--bg"'
@@ -988,9 +1003,8 @@ case_work_resume_no_job() {
 }
 
 case_work_resume_relabelled() {
-  work '.state = {name: "In Progress", type: "started"} | .updatedAt = "2030-01-01T00:00:00.000Z"
-    | .history.nodes += [{createdAt: "2030-01-01T00:00:00.000Z", actorId: "user-nick", botActor: null,
-      addedLabelIds: ["label-agent"], updatedDescription: null, fromTitle: null}]'
+  work '.state = {name: "In Progress", type: "started"}'
+  relabel 2030-01-01T00:00:00.000Z
   work_agent waiting
   nsw run
   expect "exit 0" is "$status" 0
@@ -1002,9 +1016,7 @@ case_work_resume_relabelled() {
 case_work_land() {
   work '.state = {name: "Done", type: "completed"}'
   work_agent waiting
-  jq -nc --arg sha "$(g -C "$WT" rev-parse HEAD)" \
-    '[{number: 7, url: "https://github.com/test/demo/pull/7", headRefOid: $sha}]' >"$c/gh-prs"
-  g -C "$c/projects/demo" remote set-url origin git@github.com:test/demo.git
+  work_merged
   nsw run
   expect "exit 0" is "$status" 0
   expect "asked gh for the branch's merged PRs" one ".tool == \"gh\" and .args[0:7] == [\"pr\", \"list\", \"--repo\", \"test/demo\", \"--head\", \"$WBRANCH\", \"--state\"]"
@@ -1026,9 +1038,7 @@ case_work_land_reported_again() {
   work_agent waiting
   mkdir -p "$c/projects/demo/.git/night-shift"
   printf 'handoff\nTweaked the widget.\n' >"$c/projects/demo/.git/night-shift/TST-1.md"
-  jq -nc --arg sha "$(g -C "$WT" rev-parse HEAD)" \
-    '[{number: 7, url: "https://github.com/test/demo/pull/7", headRefOid: $sha}]' >"$c/gh-prs"
-  g -C "$c/projects/demo" remote set-url origin git@github.com:test/demo.git
+  work_merged
   nsw run
   expect "exit 0" is "$status" 0
   expect "not forgotten as closed while running" lacks "$(<"$c/out")" "closed while running"
@@ -1084,11 +1094,7 @@ case_work_bg_fails() {
   expect "the branch deleted" not branch_exists "$WBRANCH"
   expect "its settings removed" test ! -e "$c/state/night-shift/TST-1.settings"
   rm "$c/claude-fail"
-  jq '.updatedAt = "2026-10-04T09:00:00.000Z"
-    | .history.nodes += [{createdAt: "2026-10-04T09:00:00.000Z", actorId: "user-nick", botActor: null,
-    addedLabelIds: ["label-agent"], updatedDescription: null, fromTitle: null}]' \
-    "$c/linear/issues/issue-1.json" >"$c/tmp/issue.json"
-  mv "$c/tmp/issue.json" "$c/linear/issues/issue-1.json"
+  relabel 2026-10-04T09:00:00.000Z
   nsw run
   expect "labelled again, it starts afresh" is "$(jq -r .phase "$c/state/night-shift/TST-1.json" 2>&1)" running
 }
@@ -1110,9 +1116,7 @@ case_work_land_busy() {
   jq --arg wt "$WT" '. + [{id: "job-2", sessionId: "session-2", name: "a copy", cwd: $wt, state: "running"}]' \
     "$c/roster.json" >"$c/roster.tmp"
   mv "$c/roster.tmp" "$c/roster.json"
-  jq -nc --arg sha "$(g -C "$WT" rev-parse HEAD)" \
-    '[{number: 7, url: "https://github.com/test/demo/pull/7", headRefOid: $sha}]' >"$c/gh-prs"
-  g -C "$c/projects/demo" remote set-url origin git@github.com:test/demo.git
+  work_merged
   nsw run
   expect "exit 0" is "$status" 0
   expect "the worktree kept" test -d "$WT"
@@ -1139,9 +1143,7 @@ merged_with_setup_leftovers() {
   mv "$c/tmp/state.json" "$c/state/night-shift/TST-1.json"
   mkdir -p "$WT/.husky/_"
   echo 'git lfs pre-push "$@"' >"$WT/.husky/_/pre-push"
-  jq -nc --arg sha "$(g -C "$WT" rev-parse HEAD)" \
-    '[{number: 7, url: "https://github.com/test/demo/pull/7", headRefOid: $sha}]' >"$c/gh-prs"
-  g -C "$c/projects/demo" remote set-url origin git@github.com:test/demo.git
+  work_merged
 }
 
 case_work_land_setup_leftovers() {
@@ -1184,7 +1186,7 @@ case_work_land_gh_fails() {
   work '.state = {name: "Done", type: "completed"}'
   work_agent waiting
   touch "$c/gh-fail"
-  g -C "$c/projects/demo" remote set-url origin git@github.com:test/demo.git
+  github_origin
   nsw run
   expect "exit 0" is "$status" 0
   expect "the worktree kept" test -d "$WT"
