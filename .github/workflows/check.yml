@@ -71,6 +71,14 @@ jobs:
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # main @ 2026-09-09
         with:
           diagnostic-endpoint: ""
+          # One evaluator thread. The runner's Determinate Nix evaluated flake
+          # check's outputs in parallel, and on four vCPUs that took 660 s,
+          # where forge's upstream Nix evaluates them one at a time in 96 s.
+          # At 1, Determinate Nix's executor is off and flake check is serial.
+          extra-conf: eval-cores = 1
+      # Fails the job, rather than warning in nix.conf's parse, if the
+      # installed Nix has dropped or renamed the setting.
+      - run: nix config show eval-cores
       - run: nix run .#preflight -- --flake-check only
 
   # Builds each fleet host's /etc on pull requests. `check` only evaluates,
