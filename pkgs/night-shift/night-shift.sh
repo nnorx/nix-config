@@ -679,6 +679,13 @@ finish_one() {
     [[ -z ${session:-} ]] || update "$f" '.session = $s' --arg s "$session"
   fi
   i=$(issue "$id") || rc=$?
+  # In work mode Linear completes an issue when its PR merges, and one that
+  # waited on Nick may have reported again since, after he asked it for more
+  # through `claude attach`. tidy lands it, cleaning up after the agent, as
+  # this run's next step; forgetting it here would leave all that behind.
+  if ((rc == 0)) && [[ $mode == work && $(jq -r .phase "$f") == waiting ]] && closed "$i"; then
+    return 0
+  fi
   if ((rc == 2)) || { ((rc == 0)) && closed "$i"; }; then
     # Deleted, done or canceled while the agent worked: leave it closed.
     forget "$f" "closed while running"

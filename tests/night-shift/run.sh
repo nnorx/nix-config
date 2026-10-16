@@ -1018,6 +1018,28 @@ case_work_land() {
   expect "the log says so" has "$(<"$c/out")" "TST-1: Merged in [#7](https://github.com/test/demo/pull/7). Removed its worktree"
 }
 
+# Handed off, then asked for more through claude attach: the agent reported
+# again, and the PR merged before the next run. Landed as any merged issue,
+# not forgotten as one closed while its agent worked.
+case_work_land_reported_again() {
+  work '.state = {name: "Done", type: "completed"}'
+  work_agent waiting
+  mkdir -p "$c/projects/demo/.git/night-shift"
+  printf 'handoff\nTweaked the widget.\n' >"$c/projects/demo/.git/night-shift/TST-1.md"
+  jq -nc --arg sha "$(g -C "$WT" rev-parse HEAD)" \
+    '[{number: 7, url: "https://github.com/test/demo/pull/7", headRefOid: $sha}]' >"$c/gh-prs"
+  g -C "$c/projects/demo" remote set-url origin git@github.com:test/demo.git
+  nsw run
+  expect "exit 0" is "$status" 0
+  expect "not forgotten as closed while running" lacks "$(<"$c/out")" "closed while running"
+  expect "landed" has "$(<"$c/out")" "TST-1: Merged in [#7](https://github.com/test/demo/pull/7). Removed its worktree"
+  expect "the worktree removed" test ! -e "$WT"
+  expect "the session removed" one '.tool == "claude" and .args == ["rm", "job-1"]'
+  expect "its result gone with it" test ! -e "$c/projects/demo/.git/night-shift/TST-1.md"
+  expect "the issue forgotten" test ! -e "$c/state/night-shift/TST-1.json"
+  no_linear_writes
+}
+
 # An agent can write the repository's shared refs, origin/HEAD among them,
 # which fetch leaves alone. What the next worktree is made from comes from
 # origin itself.
@@ -1344,6 +1366,7 @@ cases=(
   "work_resume_now   work: resume starts launchd's run at once"
   "work_resume_no_job work: resume with no job, or one launchctl cannot find: next run"
   "work_land         work: completed and merged per gh: all removed, nothing in Linear"
+  "work_land_reported_again work: merged after the agent reported again: landed, not forgotten"
   "work_land_gh_fails work: gh fails: all kept"
   "work_canceled     work: canceled: forgotten, worktree kept"
   "work_tick         work: _tick: three failed runs, one notification"
