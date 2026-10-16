@@ -91,8 +91,7 @@ else
   ref="git+file://$root"
 fi
 
-# Alone, flake check compares with nothing, and CI checks it out without
-# origin/main.
+# Alone, flake check compares with nothing.
 if [[ $flake_check != only && -z $base ]]; then
   base=$(git merge-base "${head:-HEAD}" origin/main) ||
     {
