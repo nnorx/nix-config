@@ -429,19 +429,25 @@ holds the rules, each with its reasons beside it.
   path that does not depend on it.
 
 The rule set. Every threshold below was checked against core5's store on
-2026-10-13, and none fired; `tests/alert-rules.nix` checks each rule against
-series of its own, firing and not.
+2026-10-13, and the four added in NNO-68 (`ScrapeDown`, `AdGuardStatsMissing`,
+`InterfaceErrors`, `RevisionCheckStale`) against all it held on 2026-10-15,
+4 days; none fired. `tests/alert-rules.nix` checks each rule against series of
+its own, firing and not.
 
 | Alert | Fires when | Severity |
 |---|---|---|
 | `HostDown` | A host's node_exporter scrape (`up`) is 0 for 5 minutes | critical |
+| `ScrapeDown` | Any other scrape but the alerting stack's own is 0 for 10 minutes: Unbound's or Kea's exporter, or every target of a probe job | warning |
 | `WanDown` | gate's `wan` has no carrier, no lease or no default route, or both public resolvers fail ICMP probes from core5, for 2 minutes | critical |
 | `ResolverFailing` | A resolver fails its DNS probe, or more than 5% of its answers over 15 minutes are SERVFAIL, of at least 100, for 5 minutes | critical |
+| `AdGuardStatsMissing` | A resolver's read of AdGuard's statistics (`fleet_adguard_up`) fails for 30 minutes | warning |
 | `ConntrackPressure` | gate's conntrack table is over 80% of its limit for 10 minutes | warning |
 | `DhcpPoolLow` | A segment's pool is over 90% leased for 15 minutes | warning |
 | `DiskFilling` | A filesystem is over 85% full, or predicted full within 3 days at its last 6 hours' rate, for an hour | warning |
 | `HostHot` | A thermal zone stays above 75°C for 15 minutes | warning |
+| `InterfaceErrors` | An interface counts receive or transmit errors in every 10 minutes for 30 | warning |
 | `RevisionBehind` | See "The wrong boot" below | warning |
+| `RevisionCheckStale` | main's head was last read more than 6 hours ago, or not at all in 6 hours | warning |
 | `WireGuardPeerSilent` | A WireGuard peer has not completed a handshake in 90 days | info |
 | `Watchdog` | Always | none: routed to healthchecks.io only |
 
@@ -477,13 +483,52 @@ Where the table needed a decision:
   main's head, read from GitHub every 30 minutes, and judges only while that
   read is under 6 hours old: a stale head would flag every host that upgraded
   past it.
+- **`ScrapeDown`** is what keeps a rule from going quiet when its source
+  does: with Unbound's exporter down, `ResolverFailing`'s ratio has nothing to
+  read, and with Kea's, `DhcpPoolLow`. Unbound's and Kea's jobs keep
+  `instance`, the host's name, so `HostDown` holds them back when the whole
+  host is down. The probe jobs are judged by job alone, down when every
+  target is, since every target is asked of core5's one blackbox exporter and
+  probe-ping's `instance` is a public resolver's address; the alert names
+  core5. A probe that fails still answers its scrape. node_exporter is
+  `HostDown`'s, and the store, vmalert and Alertmanager are left out: with one
+  of them down the alert is not evaluated or not delivered, and the
+  watchdog's silence says so from outside. 10 minutes is past a restart; in
+  the store's first 4 days, Unbound's and Kea's exporters missed two minutes'
+  scrapes at most.
+- **`AdGuardStatsMissing`** is its own rule rather than part of `ScrapeDown`,
+  since the read reaches the store through node_exporter rather than as a
+  scrape of its own, and its 30 minutes are longer: the counts feed only the
+  dashboards. AdGuard not serving is the DNS probe's, in `ResolverFailing`.
+- **`InterfaceErrors`** reads receive and transmit errors, frames that
+  arrived damaged or could not be sent, by host and interface, and not drops,
+  which count ordinary things such as frames for a protocol nothing here
+  speaks. Every interface counted no errors over everything core5's store
+  held on 2026-10-15, so the threshold is any error, held for 30 minutes of
+  10-minute windows: a failing cable, port or driver keeps that up, and a
+  link reseated or renegotiating, a burst of seconds, does not.
+- **`RevisionCheckStale`** is the read of main's head failing: the 6 hours
+  `RevisionBehind` judges within, one value in the rule file for both. One
+  failed read is a GitHub hiccup, which is why the reading unit is not in
+  `fleetAlerts.failure`; a dozen in a row are not. A failed read leaves the
+  last one's file in place, which then ages. The file is in `/run`, so after
+  core5 boots it is missing until a read succeeds, and missing for 6 hours
+  counts the same.
 
 **What none of this watches.** With core5 down, nothing here runs, and the
 watchdog's silence is the one signal, from healthchecks.io, without a reason.
-fleetAlerts still covers the other Pis' upgrades. Away from core5, nothing
-alerts on gate's own Unbound (no exporter yet), on AdGuard's own counts, on a
-failed read of main's head (`RevisionBehind` goes quiet instead), or on
-interface errors and throughput, which the dashboards show and no rule reads.
+fleetAlerts still covers the other Pis' upgrades. Away from core5:
+
+- **gate's own Unbound** has no exporter, and gets none. It binds loopback
+  and serves gate alone, for DDNS, its rebuilds and time sync, so its failure
+  is better caught by what depends on it, such as a DDNS freshness fact on
+  gate, if that is ever wanted.
+- **A textfile fact whose writer stops.** node_exporter serves the last file
+  for as long as it is in place, so the revision, gate's WAN and WireGuard
+  facts, and AdGuard's counts freeze rather than go missing. Only main's head
+  carries its own read time.
+- **Throughput and drops**, which the dashboards show and no rule reads.
+- **Drive health**, an issue of its own.
 
 ## pimon
 
@@ -599,8 +644,10 @@ both are in.
    and step 2's ICMP probes, which `ResolverFailing` and `WanDown` need. The
    DNS probe asks a name Unbound answers itself, so it says whether the
    resolver answers, not whether recursion works, which the SERVFAIL ratio
-   says instead ("DNS failure ratios" above). Still to come: gate's Unbound
-   exporter, a gate PR of its own.
+   says instead ("DNS failure ratios" above). gate's own Unbound gets no
+   exporter after all: it binds loopback and serves gate alone (DDNS,
+   rebuilds, time sync), so its failure is better caught by what depends on
+   it, such as a DDNS freshness fact on gate, if that is ever wanted.
 4. **Alert rules.** vmalert and Alertmanager on core5, the ntfy receivers, the
    watchdog check in healthchecks.io, the rule set above, the GitHub timer for
    `RevisionBehind`, and the stack's units in `fleetAlerts.failure`.
