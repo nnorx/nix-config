@@ -45,6 +45,12 @@
 
   # Dev-specific shell aliases (merged with common aliases via module system)
   shell-common.aliases = {
+    # Standalone Home Manager, for the dev machines that have a
+    # homeConfigurations entry. Not in shell-common: the fleet embeds Home
+    # Manager in NixOS, and this would run a second copy over the same files.
+    # forge, embedded too, overrides it to rebuild the system.
+    hms = "nix run home-manager -- switch --flake ~/projects/nix-config";
+
     # Package manager
     pn = "pnpm";
 

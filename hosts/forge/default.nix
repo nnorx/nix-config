@@ -96,9 +96,10 @@
   services.power-profiles-daemon.enable = true;
   services.fwupd.enable = true;
 
-  # `hms` elsewhere runs standalone Home Manager, which here would find the
-  # WSL `homeConfigurations.nick` by username and fight the embedded copy over
-  # the same files. On this host Home Manager is part of the system, so `hms`
+  # `hms` on the other dev machines runs standalone Home Manager
+  # (home/dev-tools.nix), which here would find the WSL
+  # `homeConfigurations.nick` by username and fight the embedded copy over the
+  # same files. On this host Home Manager is part of the system, so `hms`
   # rebuilds the system from the local checkout instead: the way to try a
   # branch before it reaches main.
   #

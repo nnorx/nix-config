@@ -78,7 +78,6 @@ in
     gl = "git log --oneline -20";
 
     # Nix shortcuts
-    hms = "nix run home-manager -- switch --flake ~/projects/nix-config";
     nfu = "nix flake update";
     nff = "nix fmt";
     ngc = "nix-collect-garbage --delete-older-than 30d";
