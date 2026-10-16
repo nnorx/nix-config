@@ -269,6 +269,14 @@
       };
       wanIface = "wan";
 
+      # The tagged trunk to the Flex switch, whose untagged VLAN is servers,
+      # and the untagged port bridged into trusted. Named here, beside
+      # `wanIface`, so hosts/gate reads one copy of each: a second copy is what
+      # does not follow a rename, as `sshInterfaces` above shows.
+      # modules/net-assertions.nix holds each role to a name in `nics`.
+      trunkIface = "lan0";
+      wiredIface = "lan1";
+
       # The WireGuard interface, carrying the `vpn` segment. Not in
       # `sshInterfaces`: that would open SSH to every peer, and only some may
       # have it, so hosts/gate/wireguard.nix opens it per peer instead.

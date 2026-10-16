@@ -23,15 +23,26 @@
 # allows for. Routing rather than relaying keeps core5 as the source address,
 # which is where the lights send their answers.
 {
+  config,
+  lib,
   pkgs,
   net,
   ...
 }:
 let
-  # As in ./routing.nix: the trunk, whose untagged VLAN is servers, and the iot
-  # sub-interface on it.
-  trunk = "lan0";
-  iot = "${trunk}.${toString net.segments.iot.id}";
+  # The trunk, whose untagged VLAN is servers, and the iot sub-interface on it.
+  # The sub-interface is looked up among the VLANs ./routing.nix declares
+  # rather than named again here, so this follows however that file names it.
+  trunk = net.hosts.gate.trunkIface;
+  iot =
+    lib.findFirst
+      (
+        name:
+        config.networking.vlans.${name}.interface == trunk
+        && config.networking.vlans.${name}.id == net.segments.iot.id
+      )
+      (throw "hosts/gate/govee.nix: ./routing.nix declares no VLAN for iot on ${trunk}")
+      (builtins.attrNames config.networking.vlans);
 
   homeAssistant = net.hosts.core5.ip;
   inherit (net.ports) goveeScan goveeReply goveeCommand;
