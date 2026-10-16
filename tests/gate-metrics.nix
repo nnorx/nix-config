@@ -69,8 +69,8 @@ in
 
         virtualisation.interfaces = {
           wan.vlan = wire.wan;
-          lan0.vlan = wire.trunk;
-          lan1.vlan = wire.wired;
+          ${net.hosts.gate.trunkIface}.vlan = wire.trunk;
+          ${net.hosts.gate.wiredIface}.vlan = wire.wired;
         };
 
         networking = {
@@ -198,7 +198,7 @@ in
         assert one(text, "node_nf_conntrack_entries_limit") == 262144
 
     with subtest("per-interface throughput and errors"):
-        for device in ("wan", "lan0", "lan0.${toString seg.iot.id}", "br-trusted", "${net.hosts.gate.vpnIface}"):
+        for device in ("wan", "${net.hosts.gate.trunkIface}", "${net.hosts.gate.trunkIface}.${toString seg.iot.id}", "br-trusted", "${net.hosts.gate.vpnIface}"):
             for name in ("receive_bytes", "transmit_bytes", "receive_errs", "transmit_errs"):
                 one(text, f"node_network_{name}_total", device=device)
 

@@ -115,8 +115,8 @@ in
 
         virtualisation.interfaces = {
           wan.vlan = wire.wan;
-          lan0.vlan = wire.trunk;
-          lan1.vlan = wire.wired;
+          ${net.hosts.gate.trunkIface}.vlan = wire.trunk;
+          ${net.hosts.gate.wiredIface}.vlan = wire.wired;
         };
 
         # Kea requires carrier on every interface it serves, and serving

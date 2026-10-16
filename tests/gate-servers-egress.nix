@@ -105,8 +105,8 @@ assert !(builtins.any (h: (h.ip or null) == addressOf.stranger) (builtins.attrVa
 
         virtualisation.interfaces = {
           wan.vlan = wire.wan;
-          lan0.vlan = wire.trunk;
-          lan1.vlan = wire.wired;
+          ${net.hosts.gate.trunkIface}.vlan = wire.trunk;
+          ${net.hosts.gate.wiredIface}.vlan = wire.wired;
         };
 
         # Kea requires carrier on every interface it serves, and leases are

@@ -47,8 +47,8 @@ let
   seg = net.segments;
 
   # Interface names, bound once each and used throughout.
-  trunk = "lan0"; # tagged trunk to the Flex switch; untagged = servers
-  wired = "lan1"; # untagged trusted, a dedicated run to one machine
+  trunk = net.hosts.gate.trunkIface; # tagged trunk to the Flex switch; untagged = servers
+  wired = net.hosts.gate.wiredIface; # untagged trusted, a dedicated run to one machine
   trustedBr = "br-trusted"; # tagged trusted + `wired`, so they share a domain
   wan = net.hosts.gate.wanIface; # bound here too, since a forward rule names it
   tunnel = net.hosts.gate.vpnIface; # WireGuard, set up in ./wireguard.nix

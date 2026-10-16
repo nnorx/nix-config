@@ -110,6 +110,29 @@ let
     ) hosts
   );
 
+  # A NIC role is a name udev gives a port, from `nics`. One that names no key
+  # there names an interface that never exists, and the failure would come at
+  # runtime: an address unit waiting on a device, a firewall rule matching
+  # nothing.
+  nicRoles = [
+    "wanIface"
+    "trunkIface"
+    "wiredIface"
+  ];
+  nicChecks = lib.concatLists (
+    lib.mapAttrsToList (
+      name: host:
+      map (role: {
+        assertion = host ? nics && host.nics ? ${host.${role}};
+        message = ''
+          net.hosts.${name}.${role} is "${host.${role}}", which is not a key of
+          net.hosts.${name}.nics. Interfaces get their names from that list, so
+          nothing would be called this.
+        '';
+      }) (builtins.filter (role: host ? ${role}) nicRoles)
+    ) hosts
+  );
+
   # A peer address is both its tunnel address and its identity in gate's
   # firewall, so two peers sharing one would share each other's access, and
   # WireGuard would route replies to whichever key it saw last.
@@ -377,6 +400,7 @@ in
   assertions =
     segmentChecks
     ++ hostChecks
+    ++ nicChecks
     ++ peerChecks
     ++ deviceChecks
     ++ goveeChecks
