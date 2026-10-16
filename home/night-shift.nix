@@ -107,9 +107,9 @@ let
         "Bash(open:*)"
         "Bash(launchctl:*)"
         # Its own settings, in the worktree: commands in the sandbox cannot
-        # write them, and neither may Claude's editing tools.
+        # write them, and neither may Claude's editing tools. Edit rules cover
+        # every editing tool, Write included; a Write rule is never matched.
         "Edit(**/.claude/settings*.json)"
-        "Write(**/.claude/settings*.json)"
         # Claude's own web tools, which the sandbox's allowedDomains do not
         # limit: a fetch can carry anything readable to any host in its URL.
         # A deny holds in auto mode, and removes the tools outright.
