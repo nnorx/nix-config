@@ -157,7 +157,7 @@ show_commits() {
 }
 
 publish() {
-  local base="" force=() branch number="" state="" pr_base="" action
+  local base="" force=() branch number="" state="" pr_base="" action tip now
   while [[ $# -gt 0 ]]; do
     case $1 in
       --base)
@@ -194,12 +194,16 @@ publish() {
   fi
 
   git fetch --quiet origin "$base"
-  [[ $(git rev-list --count "origin/$base..HEAD") -gt 0 ]] ||
+  # The commit the review is of, and the one pushed: an agent still at work
+  # in its worktree could commit while the question waits, and that commit
+  # must not go out unread, as `merge` holds GitHub to its head.
+  tip=$(git rev-parse HEAD)
+  [[ $(git rev-list --count "origin/$base..$tip") -gt 0 ]] ||
     die "$branch has no commits beyond origin/$base"
 
   echo "Branch: $branch -> $base ($action)"
-  git log --oneline "origin/$base..HEAD"
-  git diff --stat "origin/$base...HEAD" | tail -n 1
+  git log --oneline "origin/$base..$tip"
+  git diff --stat "origin/$base...$tip" | tail -n 1
   if [[ -n $(git status --porcelain --untracked-files=no) ]]; then
     echo "!! Uncommitted changes, which will not be pushed."
   fi
@@ -207,25 +211,37 @@ publish() {
     local touched line
     ! lfsconfig_moved "$base" ||
       die "the .lfsconfig here is not origin/$base's, and it decides where LFS objects are pushed; read it, and remove it or publish by hand"
-    touched=$(watched "origin/$base...HEAD")
+    touched=$(watched "origin/$base...$tip")
     if [[ -n $touched ]]; then
       echo "!! An agent changed files that run code on this machine; read these first:"
       while IFS= read -r line; do echo "     $line"; done <<<"$touched"
     fi
   fi
   show
-  show_commits "origin/$base..HEAD"
-  confirm "Push $branch and $action?" "$base" HEAD \
-    git diff --color=always "origin/$base...HEAD" ||
+  show_commits "origin/$base..$tip"
+  confirm "Push $branch and $action?" "$base" "$tip" \
+    git diff --color=always "origin/$base...$tip" ||
     die "nothing published"
 
+  now=$(git rev-parse HEAD)
+  [[ $now == "$tip" ]] ||
+    die "nothing published: $branch moved from ${tip:0:7} to ${now:0:7} during the review." \
+      "Run pr-handoff again to review the new head."
+
   # With hooks off in an agent's worktree (below), the pre-push hook that
-  # uploads a repository's LFS objects does not run, so this does.
+  # uploads a repository's LFS objects does not run, so this does. The
+  # .lfsconfig is checked again first: one the agent left during the review
+  # would otherwise choose where they go.
   if agent_worktree && git lfs env >/dev/null 2>&1 &&
-    git grep -q -e 'filter=lfs' HEAD -- ':(top,glob)**/.gitattributes'; then
-    git lfs push origin "$branch"
+    git grep -q -e 'filter=lfs' "$tip" -- ':(top,glob)**/.gitattributes'; then
+    ! lfsconfig_moved "$base" ||
+      die "nothing published: an .lfsconfig that is not origin/$base's appeared during the review"
+    git lfs push origin "$tip"
   fi
-  git push "${force[@]}" -u origin "$branch"
+  # By commit, not by name, so nothing that lands on the branch now goes too.
+  # -u sets no upstream for a commit, so that is set after.
+  git push "${force[@]}" origin "$tip:refs/heads/$branch"
+  git branch --quiet --set-upstream-to "origin/$branch" "$branch" || true
   if [[ -n $number ]]; then
     gh pr edit "$number" --title "$head" --body-file "$body" >/dev/null
     gh pr view "$number" --json url -q .url
