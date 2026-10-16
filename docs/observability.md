@@ -106,15 +106,15 @@ time a container restarts, and each name is a new set of series.
 | core4, lifeline: 4 CPUs, about 10 filesystems, 3 interfaces each | about 900 each |
 | core5: the same, and Docker's bridges and veths, 7 interfaces | about 1,050 |
 | gate: 4 CPUs, about 10 filesystems, 11 interfaces | about 1,150 |
-| Unbound exporters on core4, lifeline and gate | about 750 |
+| Unbound exporters on core4 and lifeline | about 500 |
 | Kea exporter, five subnets | about 150 |
 | Blackbox probes, WAN and DNS | about 150 |
 | VictoriaMetrics, vmalert and Alertmanager scraping themselves | about 1,300 |
-| **Total** | **about 6,350** |
+| **Total** | **about 6,100** |
 
-At 30 seconds, 6,350 series are 18.3 million samples a day, 6.7 billion a year,
-and at 0.65 bytes each **about 4.3 GB for 12 months**. The budget is 10 GB: room
-for the series to double, or for the interval to drop to 15 seconds (8.7 GB),
+At 30 seconds, 6,100 series are 17.6 million samples a day, 6.4 billion a year,
+and at 0.65 bytes each **about 4.2 GB for 12 months**. The budget is 10 GB: room
+for the series to double, or for the interval to drop to 15 seconds (8.3 GB),
 and about a hundredth of the free disk either way. Compressed, that is
 about 12 MB a day of new data. Merges rewrite it several times over, a write
 amplification the sample did not measure, but even tenfold it is a few
@@ -166,7 +166,7 @@ pimon's loopback agent on core5 already does:
 | Port | Name | Listens on |
 |---|---|---|
 | 9100 | `nodeExporter` | Every host's LAN address; gate's servers gateway |
-| 9167 | `unboundExporter` | core4, lifeline; gate's servers gateway |
+| 9167 | `unboundExporter` | core4, lifeline |
 | 9547 | `keaExporter` | gate's servers gateway |
 | 9115 | `blackboxExporter` | core5 loopback |
 | 8428 | `victoriaMetrics` | core5 loopback |
@@ -326,7 +326,7 @@ The queries, which the DNS and fleet dashboards draw:
 - **Round trip to them**:
   `probe_icmp_duration_seconds{job="probe-ping", phase="rtt"}`.
 
-**Still unseen.** gate's own Unbound has no exporter yet.
+**Still unseen.** gate's own Unbound, deliberately (step 3 below).
 
 ### The metrics login
 
