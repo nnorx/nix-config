@@ -5,102 +5,28 @@
 # `nix build .#checks.x86_64-linux.gate-dns`. It needs KVM, which forge's
 # daemon has; CI's vm-tests job runs it on pull requests.
 #
-# The router is hosts/gate/routing.nix itself, on VM NICs given gate's
-# interface names, so the ruleset under test is the one gate renders. What it
-# leaves out is everything that needs gate's hardware or secrets: WireGuard,
-# DDNS, deploy-guard and Kea, none of which these rules depend on. The fleet's
-# resolvers are one VM holding both their addresses and answering a filtered
-# name the way AdGuard blocks it, and "the internet" is one VM holding the
-# public resolvers' addresses and answering the same name differently, so an
-# answer says which side it came from.
+# The topology is ./lib/gate-topology.nix's: gate is hosts/gate/routing.nix
+# itself, the fleet's resolvers are one VM, and "the internet" is another,
+# here also listening for DoT and DoQ. These rules depend on none of what it
+# leaves out of gate, Kea included.
 { net }:
 let
-  seg = net.segments;
+  topology = import ./lib/gate-topology.nix { inherit net; };
+  inherit (topology) isp filteredName;
   publicResolver = builtins.head net.publicResolvers;
-  filteredName = "filtered.example";
 
-  # The link between gate and its upstream, standing in for the ISP's DHCP.
-  # RFC 5737 documentation addresses: nothing in the fleet, so they belong
-  # here rather than in lib/net.nix.
-  isp = {
-    gate = "203.0.113.2";
-    upstream = "203.0.113.1";
-  };
-
-  # Test VLANs, which are QEMU's virtual wires, not 802.1Q tags.
-  wire = {
-    wan = 1;
-    trunk = 2;
-    wired = 3;
-  };
-
-  # A client on a tagged segment, as a device behind the AP is.
+  # A client on a tagged segment, at the first address of its pool.
   client =
     name:
     { pkgs, ... }:
     {
-      virtualisation.interfaces.trunk.vlan = wire.trunk;
-      networking = {
-        useDHCP = false;
-        vlans.${name} = {
-          id = seg.${name}.id;
-          interface = "trunk";
-        };
-        interfaces.${name}.ipv4.addresses = [
-          {
-            address = seg.${name}.pool.first;
-            inherit (seg.${name}) prefixLength;
-          }
-        ];
-        defaultGateway = {
-          address = seg.${name}.gateway;
-          interface = name;
-        };
-      };
+      imports = [ (topology.onSegment name net.segments.${name}.pool.first) ];
       environment.systemPackages = [
         pkgs.dnsutils
         pkgs.knot-dns
-        (probe pkgs)
+        (topology.probe pkgs)
       ];
     };
-
-  # Connects to a port and says how it went and how long that took: "refused"
-  # is a TCP reset or an ICMP port-unreachable, which is what gate is meant to
-  # send. For UDP, which has no handshake, "timeout" means nothing came back.
-  probe =
-    pkgs:
-    pkgs.writers.writePython3Bin "probe" { } ''
-      import socket
-      import sys
-      import time
-
-      proto, host, port = sys.argv[1], sys.argv[2], int(sys.argv[3])
-      kind = socket.SOCK_STREAM if proto == "tcp" else socket.SOCK_DGRAM
-      s = socket.socket(socket.AF_INET, kind)
-      s.settimeout(5)
-      start = time.monotonic()
-      try:
-          s.connect((host, port))
-          if proto == "udp":
-              s.send(b"probe")
-              s.recv(1)
-          result = "open"
-      except ConnectionRefusedError:
-          result = "refused"
-      except socket.timeout:
-          result = "timeout"
-      print(result, int((time.monotonic() - start) * 1000))
-    '';
-
-  # Answers `filteredName` with `answer`, on every address it holds.
-  dns = answer: {
-    enable = true;
-    resolveLocalQueries = false;
-    settings = {
-      no-resolv = true;
-      address = "/${filteredName}/${answer}";
-    };
-  };
 in
 {
   name = "gate-dns";
@@ -108,77 +34,17 @@ in
   node.specialArgs = { inherit net; };
 
   nodes = {
-    gate =
-      { lib, ... }:
-      {
-        imports = [ ../hosts/gate/routing.nix ];
+    gate = topology.router { };
 
-        virtualisation.interfaces = {
-          wan.vlan = wire.wan;
-          ${net.hosts.gate.trunkIface}.vlan = wire.trunk;
-          ${net.hosts.gate.wiredIface}.vlan = wire.wired;
-        };
+    inherit (topology) fleet;
 
-        # Kea requires carrier on every interface it serves, and serving
-        # leases is not what is under test. Clients here are static.
-        services.kea.dhcp4.enable = lib.mkForce false;
-
-        networking = {
-          useDHCP = false;
-          interfaces.wan.ipv4.addresses = [
-            {
-              address = isp.gate;
-              prefixLength = 24;
-            }
-          ];
-          defaultGateway = {
-            address = isp.upstream;
-            interface = "wan";
-          };
-        };
-      };
-
-    # core4 and lifeline, untagged on the trunk as they are on the switch.
-    fleet = {
-      virtualisation.interfaces.trunk.vlan = wire.trunk;
-      networking = {
-        useDHCP = false;
-        firewall.enable = false;
-        interfaces.trunk.ipv4.addresses = map (h: {
-          address = net.hosts.${h}.ip;
-          inherit (seg.servers) prefixLength;
-        }) net.resolvers;
-        defaultGateway = {
-          address = seg.servers.gateway;
-          interface = "trunk";
-        };
-      };
-      # What AdGuard answers for a blocked name.
-      services.dnsmasq = dns "0.0.0.0";
-    };
-
-    # The far side of `wan`: every public resolver, plus a DoT and DoQ
-    # listener that records whatever reaches it, so a refusal can be shown to
-    # be gate's rather than the far end's.
+    # The internet, plus a DoT and DoQ listener that records whatever reaches
+    # it, so a refusal can be shown to be gate's rather than the far end's.
     internet =
       { pkgs, ... }:
       {
-        virtualisation.interfaces.wan.vlan = wire.wan;
-        networking = {
-          useDHCP = false;
-          firewall.enable = false;
-          interfaces.wan.ipv4.addresses = [
-            {
-              address = isp.upstream;
-              prefixLength = 24;
-            }
-          ]
-          ++ map (address: {
-            inherit address;
-            prefixLength = 32;
-          }) net.publicResolvers;
-        };
-        services.dnsmasq = dns isp.upstream;
+        imports = [ topology.internet ];
+        services.dnsmasq = topology.answering isp.upstream;
         systemd.services = {
           listen-853-tcp = {
             wantedBy = [ "multi-user.target" ];

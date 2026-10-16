@@ -5,49 +5,23 @@
 # `nix build .#checks.x86_64-linux.gate-metrics`. It needs KVM, which forge's
 # daemon has; CI's vm-tests job runs it on pull requests.
 #
-# gate is hosts/gate/routing.nix and ./metrics.nix themselves, with
-# modules/node-exporter.nix, on VM NICs given gate's interface names. Its WAN
-# lease comes from a DHCP server on the far side, as the ISP's does, so the
-# lease metrics read a real dhcpcd lease. WireGuard is a stand-in for
+# The topology is ./lib/gate-topology.nix's, with ./metrics.nix and
+# modules/node-exporter.nix added to gate. Its WAN lease comes from a DHCP
+# server on the internet, as the ISP's does, so the lease metrics read a real
+# dhcpcd lease, and it serves leases with Kea. WireGuard is a stand-in for
 # hosts/gate/wireguard.nix, whose keys are in sops: the same interface and
 # peers' public keys, so the handshake metric is read from a real interface,
 # though no peer can complete one.
 { net }:
 let
+  topology = import ./lib/gate-topology.nix { inherit net; };
+  inherit (topology) isp;
   seg = net.segments;
   keys = import ../lib/wireguard-keys.nix;
   gateAddress = seg.${net.hosts.gate.metricsSegment}.gateway;
   node = "http://${gateAddress}:${toString net.ports.nodeExporter}/metrics";
   kea = "http://${gateAddress}:${toString net.ports.keaExporter}/metrics";
-
-  # The ISP side, RFC 5737 documentation addresses as in ./gate-dns.nix.
-  isp = {
-    upstream = "203.0.113.1";
-    first = "203.0.113.10";
-    last = "203.0.113.20";
-  };
-  ispPrefix = "203.0.113.";
-
-  wire = {
-    wan = 1;
-    trunk = 2;
-    wired = 3;
-  };
-
-  # A host untagged on the trunk, as the Pis are on the switch.
-  onServers = ip: {
-    virtualisation.interfaces.trunk.vlan = wire.trunk;
-    networking = {
-      useDHCP = false;
-      firewall.enable = false;
-      interfaces.trunk.ipv4.addresses = [
-        {
-          address = ip;
-          inherit (seg.servers) prefixLength;
-        }
-      ];
-    };
-  };
+  ispPrefix = isp.prefix;
 in
 {
   name = "gate-metrics";
@@ -62,29 +36,19 @@ in
       { lib, ... }:
       {
         imports = [
-          ../hosts/gate/routing.nix
+          (topology.router { dhcp = true; })
           ../hosts/gate/metrics.nix
           ../modules/node-exporter.nix
         ];
 
-        virtualisation.interfaces = {
-          wan.vlan = wire.wan;
-          ${net.hosts.gate.trunkIface}.vlan = wire.trunk;
-          ${net.hosts.gate.wiredIface}.vlan = wire.wired;
-        };
-
-        networking = {
-          useDHCP = false;
-          interfaces.wan.useDHCP = true;
-          wireguard.interfaces.${net.hosts.gate.vpnIface} = {
-            ips = [ "${seg.vpn.gateway}/${toString seg.vpn.prefixLength}" ];
-            generatePrivateKeyFile = true;
-            privateKeyFile = "/var/lib/wireguard/key";
-            peers = lib.mapAttrsToList (name: key: {
-              publicKey = key;
-              allowedIPs = [ "${seg.vpn.peers.${name}}/32" ];
-            }) keys.peers;
-          };
+        networking.wireguard.interfaces.${net.hosts.gate.vpnIface} = {
+          ips = [ "${seg.vpn.gateway}/${toString seg.vpn.prefixLength}" ];
+          generatePrivateKeyFile = true;
+          privateKeyFile = "/var/lib/wireguard/key";
+          peers = lib.mapAttrsToList (name: key: {
+            publicKey = key;
+            allowedIPs = [ "${seg.vpn.peers.${name}}/32" ];
+          }) keys.peers;
         };
 
         # gate's sshd binds by address, with modules/ssh.nix's sysctl; the
@@ -94,46 +58,26 @@ in
 
     # The ISP: a DHCP server on the far side of `wan`.
     internet = {
-      virtualisation.interfaces.wan.vlan = wire.wan;
-      networking = {
-        useDHCP = false;
-        firewall.enable = false;
-        interfaces.wan.ipv4.addresses = [
-          {
-            address = isp.upstream;
-            prefixLength = 24;
-          }
-        ];
-      };
+      imports = [ topology.internet ];
       services.dnsmasq = {
         enable = true;
         resolveLocalQueries = false;
         settings = {
           port = 0;
           interface = "wan";
-          dhcp-range = "${isp.first},${isp.last},255.255.255.0,10m";
+          dhcp-range = "${isp.leases.first},${isp.leases.last},255.255.255.0,10m";
           dhcp-option = [ "option:router,${isp.upstream}" ];
         };
       };
     };
 
-    core5 = onServers net.hosts.${net.metricsCollector}.ip;
+    core5 = topology.onServers [ net.hosts.${net.metricsCollector}.ip ];
 
     # Another host on servers, as the switch or the AP is: refused.
-    other = onServers net.hosts.core4.ip;
+    other = topology.onServers [ net.hosts.core4.ip ];
 
     # A DHCP client on iot, so one pool has a lease in it.
-    iot = {
-      virtualisation.interfaces.trunk.vlan = wire.trunk;
-      networking = {
-        useDHCP = false;
-        vlans.iot = {
-          id = seg.iot.id;
-          interface = "trunk";
-        };
-        interfaces.iot.useDHCP = true;
-      };
-    };
+    iot = topology.onSegment "iot" null;
   };
 
   testScript = ''
