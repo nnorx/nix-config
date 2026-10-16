@@ -233,9 +233,10 @@ from the config.
 - Commands may write only in the worktree, under `~/.cache/night-shift`, and
   in Claude's temporary directory, and reach only the hosts listed in
   `home/night-shift.nix` and the config.
-- No Unix sockets, Apple Events or MCP servers. Hooks are off, and so is
-  every plugin but the one the agents use, since hooks, LSP servers and
-  helper commands run outside the sandbox.
+- No Unix sockets, Apple Events, MCP servers or web tools. WebFetch is not
+  limited to those hosts, and could carry anything readable anywhere. Hooks
+  are off, and so is every plugin but the one the agents use, since hooks,
+  LSP servers and helper commands run outside the sandbox.
 - A repository whose settings change the sandbox, or name a helper command
   such as `apiKeyHelper`, is refused.
 

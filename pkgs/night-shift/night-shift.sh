@@ -1672,10 +1672,11 @@ work_check() {
     echo "issue fields: all known to Linear"
   fi
   if jq -e '.sandbox.enabled and (.sandbox.filesystem.denyRead | index("~/Library/Keychains"))
-      and .disableAllHooks == true' "${NIGHT_SHIFT_SETTINGS:-/dev/null}" >/dev/null 2>&1; then
-    echo "sandbox: on, with the keychain hidden and hooks off"
+      and .disableAllHooks == true and (.permissions.deny | index("WebFetch") and index("WebSearch"))' \
+    "${NIGHT_SHIFT_SETTINGS:-/dev/null}" >/dev/null 2>&1; then
+    echo "sandbox: on, with the keychain hidden, hooks off and no web tools"
   else
-    echo "sandbox: '${NIGHT_SHIFT_SETTINGS:-}' is missing, does not hide ~/Library/Keychains, or leaves hooks on"
+    echo "sandbox: '${NIGHT_SHIFT_SETTINGS:-}' is missing, does not hide ~/Library/Keychains, leaves hooks on, or allows web tools"
   fi
   if command -v claude >/dev/null; then
     echo "claude: $(claude --version </dev/null)"

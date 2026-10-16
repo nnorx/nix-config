@@ -110,6 +110,11 @@ let
         # write them, and neither may Claude's editing tools.
         "Edit(**/.claude/settings*.json)"
         "Write(**/.claude/settings*.json)"
+        # Claude's own web tools, which the sandbox's allowedDomains do not
+        # limit: a fetch can carry anything readable to any host in its URL.
+        # A deny holds in auto mode, and removes the tools outright.
+        "WebFetch"
+        "WebSearch"
       ];
 
     # The repo's .mcp.json may list Linear's server, which acts as Nick and
