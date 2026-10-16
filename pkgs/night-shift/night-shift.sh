@@ -493,45 +493,66 @@ awake() {
     echo "night-shift: could not $verb night-shift-awake.service" >&2
 }
 
+# What the agent's first prompt says in both modes: the task as Nick wrote
+# it, two of the rules, and how to report. prompt_new and work_prompt_new put
+# their own text around these, so a change here reaches both.
+prompt_task() {
+  local comments
+  comments=$(answers "$1")
+  cat <<EOP
+# $(jq -r '"\(.identifier): \(.title)"' <<<"$1")
+
+$(jq -r '.description // "(no description)"' <<<"$1")
+
+## Nick's comments on the issue, oldest first
+
+${comments:-(none)}
+EOP
+}
+
+PROMPT_SCOPE="- Make the change the task asks for, as one pull request. If it has to grow
+  beyond that, stop and ask."
+
+PROMPT_STOP="- Stop and ask rather than guess when a decision is Nick's, when the task is
+  ambiguous, or when a check fails for a reason outside the task. A stopped
+  task costs him one look; one that improvised costs a review of all of it."
+
+# prompt_finish <result path>
+prompt_finish() {
+  cat <<EOP
+## When you finish or stop
+
+Write $1, then end your turn:
+
+- The first line is exactly \`handoff\` or \`blocked\`.
+- After a handoff: what changed and what you verified, in a few lines.
+- When blocked: what you did so far, then numbered questions, each answerable
+  in a sentence.
+EOP
+}
+
 prompt_new() {
-  local issue=$1 repo=$2 wt=$3 branch=$4 base=$5 result=$6 comments
-  comments=$(answers "$issue")
+  local issue=$1 repo=$2 wt=$3 branch=$4 base=$5 result=$6
   cat <<EOP
 You are the night shift: an unattended Claude Code session working on a task
 Nick queued in Linear. Nobody is watching. He reads what you leave when he is
 next at his desk, often the next morning.
 
-# $(jq -r '"\(.identifier): \(.title)"' <<<"$issue")
-
-$(jq -r '.description // "(no description)"' <<<"$issue")
-
-## Nick's comments on the issue, oldest first
-
-${comments:-(none)}
+$(prompt_task "$issue")
 
 ## How to work
 
 - You are in a git worktree of $(basename "$repo") at $wt, on branch $branch,
   made from $base. Read the repository's CLAUDE.md first. Where it and this
   prompt disagree, CLAUDE.md wins, except that you never push, merge or deploy.
-- Make the change the task asks for, as one pull request. If it has to grow
-  beyond that, stop and ask.
+$PROMPT_SCOPE
 - Run the checks the repository names. Commit on this branch without renaming
   it, then write the PR handoff with the core plugin's pr-handoff skill, so
   Nick can publish it with \`pr-handoff\` from this worktree. Touch no other
   worktree.
-- Stop and ask rather than guess when a decision is Nick's, when the task is
-  ambiguous, or when a check fails for a reason outside the task. A stopped
-  task costs him one look; one that improvised costs a review of all of it.
+$PROMPT_STOP
 
-## When you finish or stop
-
-Write $result, then end your turn:
-
-- The first line is exactly \`handoff\` or \`blocked\`.
-- After a handoff: what changed and what you verified, in a few lines.
-- When blocked: what you did so far, then numbered questions, each answerable
-  in a sentence.
+$(prompt_finish "$result")
 
 Nick answers in Linear, and you will be resumed in this session with his
 answer, so do not wait for one here.
@@ -1241,6 +1262,21 @@ work_discard() {
   rm -f "$state_dir/$4.settings"
 }
 
+# work_repo_dir <repo conf>: the checkout a repository's entry in the config
+# names, with ~ for $HOME, or nothing.
+work_repo_dir() {
+  jq -r --arg h "$HOME" '(.dir // "") | sub("^~"; $h)' <<<"${1:-null}"
+}
+
+# work_settings_files <repo> <dir>: the settings files a session in <dir>, a
+# checkout or worktree of <repo>, reads below --settings, one per line: the
+# user's, the main checkout's two, and the branch's settings.json. Both
+# work_overrides and work_settings go by this list.
+work_settings_files() {
+  printf '%s\n' "$HOME/.claude/settings.json" "$1/.claude/settings.json" "$1/.claude/settings.local.json" \
+    "$2/.claude/settings.json"
+}
+
 # work_overrides <repo> <worktree>: settings files that would change the
 # agent's sandbox, or run a command outside it. --settings outranks the
 # project's scalars, but lists such as excludedCommands or allowWrite add up
@@ -1256,13 +1292,12 @@ work_discard() {
 # outside the sandbox, are turned off by work_settings.
 work_overrides() {
   local s keys
-  for s in "$HOME/.claude/settings.json" "$1/.claude/settings.json" "$1/.claude/settings.local.json" \
-    "$2/.claude/settings.json"; do
+  while IFS= read -r s; do
     keys='["sandbox", "apiKeyHelper", "awsAuthRefresh", "awsCredentialExport", "gcpAuthRefresh",
       "otelHeadersHelper", "subagentStatusLine"]'
     [[ $s != "$HOME/.claude/settings.json" ]] || keys='["sandbox"]'
     [[ -f $s ]] && jq -e --argjson k "$keys" 'any(keys[]; IN($k[]))' "$s" >/dev/null 2>&1 && echo "$s"
-  done
+  done < <(work_settings_files "$1" "$2")
   return 0
 }
 
@@ -1295,10 +1330,11 @@ work_bootstrap() {
 work_settings() {
   local s files=() plugins
   [[ -r ${NIGHT_SHIFT_SETTINGS:-} ]] || return 1
-  for s in "$HOME/.claude/settings.json" "$4/.claude/settings.json" "$4/.claude/settings.local.json" \
-    "$3/.claude/settings.json" "$3/.claude/settings.local.json"; do
+  # And the checkout's own settings.local.json, which work_overrides leaves
+  # out: in an agent's worktree it is the dispatcher's (work_local_settings).
+  while IFS= read -r s; do
     [[ ! -f $s ]] || files+=("$s")
-  done
+  done < <(work_settings_files "$4" "$3" && echo "$3/.claude/settings.local.json")
   plugins=$(jq -nc '[inputs | (.enabledPlugins // {}) | keys[]] | unique' /dev/null "${files[@]}") || return 1
   jq --argjson x "$(jq -c '.sandbox // {}' <<<"$1")" --argjson p "$plugins" '
     .sandbox.network.allowedDomains += ($x.allowedDomains // [])
@@ -1328,7 +1364,7 @@ work_local_settings() {
 # a command outside it. Nothing is written in the checkout, whose
 # settings.local.json is Nick's, and the settings go when the session ends.
 work_safe() {
-  local top repo common k dir conf="{}" overrides settings rc=0
+  local top repo common c dir conf="{}" overrides settings rc=0
   top=$(git rev-parse --show-toplevel 2>/dev/null) || top=$PWD
   repo=$top
   # A worktree's main checkout, whose settings its sessions read too.
@@ -1337,13 +1373,13 @@ work_safe() {
   fi
   if [[ -r ${NIGHT_SHIFT_CONFIG:-} ]]; then
     load_config
-    while IFS= read -r k; do
-      dir=$(jq -r --arg k "$k" --arg h "$HOME" '.repos[$k].dir // "" | sub("^~"; $h)' <<<"$config")
+    while IFS= read -r c; do
+      dir=$(work_repo_dir "$c")
       if [[ -n $dir && $(realpath -m -- "$dir") == "$(realpath -m -- "$repo")" ]]; then
-        conf=$(jq -c --arg k "$k" '.repos[$k]' <<<"$config")
+        conf=$c
         break
       fi
-    done < <(jq -r '.repos // {} | keys[]' <<<"$config")
+    done < <(jq -c '.repos // {} | .[]' <<<"$config")
   fi
   overrides=$(work_overrides "$repo" "$top")
   [[ -z $overrides ]] ||
@@ -1361,20 +1397,13 @@ work_safe() {
 }
 
 work_prompt_new() {
-  local issue=$1 repo=$2 wt=$3 branch=$4 base=$5 result=$6 conf=$7 comments
-  comments=$(answers "$issue")
+  local issue=$1 repo=$2 wt=$3 branch=$4 base=$5 result=$6 conf=$7
   cat <<EOP
 You are the night shift: an unattended Claude Code session working on a task
 Nick queued in Linear at work. Nobody is watching. He reads what you leave
 when he is next at his desk.
 
-# $(jq -r '"\(.identifier): \(.title)"' <<<"$issue")
-
-$(jq -r '.description // "(no description)"' <<<"$issue")
-
-## Nick's comments on the issue, oldest first
-
-${comments:-(none)}
+$(prompt_task "$issue")
 
 ## How to work
 
@@ -1382,8 +1411,7 @@ ${comments:-(none)}
   made from $base, with its dependencies installed. Read the repository's
   CLAUDE.md first. Where it and this prompt disagree, CLAUDE.md wins, except
   that you never push, merge or deploy, and you keep the branch's name.
-- Make the change the task asks for, as one pull request. If it has to grow
-  beyond that, stop and ask.
+$PROMPT_SCOPE
 - The task above is all you have of the issue: you have no Linear access and
   no MCP servers. ${result%.md}.issue.md has the same text.
 - Your commands run in a sandbox. The network reaches GitHub and package
@@ -1397,18 +1425,9 @@ ${comments:-(none)}
   messages and PR titles, then write the PR handoff with the core plugin's
   pr-handoff skill, so Nick can publish it with \`pr-handoff\` from this
   worktree. Touch no other worktree.
-- Stop and ask rather than guess when a decision is Nick's, when the task is
-  ambiguous, or when a check fails for a reason outside the task. A stopped
-  task costs him one look; one that improvised costs a review of all of it.
+$PROMPT_STOP
 
-## When you finish or stop
-
-Write $result, then end your turn:
-
-- The first line is exactly \`handoff\` or \`blocked\`.
-- After a handoff: what changed and what you verified, in a few lines.
-- When blocked: what you did so far, then numbered questions, each answerable
-  in a sentence.
+$(prompt_finish "$result")
 
 Nick answers on this machine, and you will be resumed in this session with
 his answer, so do not wait for one here.
@@ -1484,7 +1503,7 @@ work_start_one() {
     return 0
   }
   conf=$(jq -c --arg k "$(jq -r .team.key <<<"$i")" '.repos[$k] // empty' <<<"$config")
-  repo=$(jq -r --arg h "$HOME" '(.dir // "") | sub("^~"; $h)' <<<"${conf:-null}")
+  repo=$(work_repo_dir "$conf")
   if [[ -z $repo ]] || ! git -C "$repo" remote get-url origin >/dev/null 2>&1; then
     work_refuse "$i" "$l" "no repository with an \`origin\` is set for team $(jq -r .team.key <<<"$i") in $NIGHT_SHIFT_CONFIG"
     return 0
@@ -1646,7 +1665,7 @@ work_check() {
   fi
   while IFS= read -r k; do
     conf=$(jq -c --arg k "$k" '.repos[$k]' <<<"$config")
-    dir=$(jq -r --arg h "$HOME" '(.dir // "") | sub("^~"; $h)' <<<"$conf")
+    dir=$(work_repo_dir "$conf")
     jq -r --arg k "$k" --arg s "$STARTED" '[.teams.nodes[] | select(.key == $k)] | first
       | if . == null then "team \($k): not found"
         elif any(.states.nodes[]; .name == $s) then "team \($k): has \($s)"
