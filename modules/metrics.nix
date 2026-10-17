@@ -2,7 +2,8 @@
 # scraping node_exporter on every host in net.metricsTargets, Unbound's exporter
 # on each resolver, Kea's on gate and the probes in ./blackbox.nix, and Grafana
 # in front of it, with the dashboards in ./dashboards.nix. The alerts over it
-# are in ./alerting.nix.
+# are in ./alerting.nix. A host's drives join from ./smartctl.nix, which the
+# host imports with their names.
 # docs/observability.md has the decisions and their reasons; this file has only
 # what implementing them needed.
 #

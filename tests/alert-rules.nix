@@ -51,6 +51,20 @@ let
     inherit instance;
   };
 
+  # A drive on core5, as modules/smartctl.nix scrapes it: by its kernel name,
+  # with no serial number.
+  drive = device: {
+    job = "smartctl";
+    instance = "core5";
+    inherit device;
+  };
+  driveFailing = device: {
+    instance = "core5";
+    inherit device;
+    severity = "critical";
+    summary = "${device} on core5 says it is failing: a critical warning, a failed SMART verdict, spare under its threshold, or new media errors.";
+  };
+
   # Kea's series for one segment's subnet and its one pool, as the exporter
   # writes both.
   kea =
@@ -373,6 +387,109 @@ let
             device = "wan";
             severity = "warning";
             summary = "wan on gate has counted receive or transmit errors for 30 minutes.";
+          }
+        ])
+      ];
+    }
+
+    # DriveFailing, one drive for each way to fail, from 3 minutes in: a
+    # critical warning (reliability degraded), a failed SMART verdict, spare
+    # under the drive's threshold, and one new media error, which counts for
+    # an hour. The fifth is healthy, with 5 media errors from before the store
+    # first saw it, which increase() would have counted as new, and the
+    # temperature bit set for one reading.
+    {
+      interval = "1m";
+      input_series = [
+        (series "smartctl_device_critical_warning" (drive "nvme0n1") "0x3 4x80")
+        (series "smartctl_device_smart_status" (drive "nvme1n1") "1x3 0x80")
+        (series "smartctl_device_available_spare" (drive "nvme2n1") "100x3 9x80")
+        (series "smartctl_device_available_spare_threshold" (drive "nvme2n1") "10x83")
+        (series "smartctl_device_media_errors" (drive "nvme3n1") "2x3 3x80")
+        (series "smartctl_device_critical_warning" (drive "nvme4n1") "0x5 2 0x77")
+        (series "smartctl_device_smart_status" (drive "nvme4n1") "1x83")
+        (series "smartctl_device_available_spare" (drive "nvme4n1") "100x83")
+        (series "smartctl_device_available_spare_threshold" (drive "nvme4n1") "10x83")
+        (series "smartctl_device_media_errors" (drive "nvme4n1") "5x83")
+      ];
+      alert_rule_test = [
+        (expect "7m" "DriveFailing" "fleet" [ ])
+        (expect "10m" "DriveFailing" "fleet" (
+          map driveFailing [
+            "nvme0n1"
+            "nvme1n1"
+            "nvme2n1"
+            "nvme3n1"
+          ]
+        ))
+        (expect "75m" "DriveFailing" "fleet" (
+          map driveFailing [
+            "nvme0n1"
+            "nvme1n1"
+            "nvme2n1"
+          ]
+        ))
+      ];
+    }
+
+    # DriveWearing: one drive passes 80% at 10 minutes, and holds there past
+    # the hour; another sits at 50.
+    {
+      interval = "1m";
+      input_series = [
+        (series "smartctl_device_percentage_used" (drive "nvme0n1") "79x10 81x80")
+        (series "smartctl_device_percentage_used" (drive "nvme1n1") "50x90")
+      ];
+      alert_rule_test = [
+        (expect "65m" "DriveWearing" "fleet" [ ])
+        (expect "75m" "DriveWearing" "fleet" [
+          {
+            instance = "core5";
+            device = "nvme0n1";
+            severity = "warning";
+            summary = "nvme0n1 on core5 has used over 80% of its rated endurance.";
+          }
+        ])
+      ];
+    }
+
+    # DriveUnread: core5 watches two drives and has read both, then one stops
+    # being read from 10 minutes on, as an exporter restarted into a sandbox
+    # that refuses the device would. gate watches one drive and has never
+    # read it. lifeline's exporter reads its one drive throughout.
+    {
+      interval = "1m";
+      input_series = [
+        (series "smartctl_devices" (node "core5" // { job = "smartctl"; }) "2x60")
+        (series "smartctl_device_smartctl_exit_status" (drive "nvme0n1") "0x60")
+        (series "smartctl_device_smartctl_exit_status" (drive "nvme1n1") "0x9")
+        (series "smartctl_devices" (node "gate" // { job = "smartctl"; }) "1x60")
+        (series "smartctl_devices" (node "lifeline" // { job = "smartctl"; }) "1x60")
+        (series "smartctl_device_smartctl_exit_status" {
+          job = "smartctl";
+          instance = "lifeline";
+          device = "sda";
+        } "0x60")
+      ];
+      alert_rule_test = [
+        (expect "12m" "DriveUnread" "fleet" [ ])
+        (expect "20m" "DriveUnread" "fleet" [
+          {
+            instance = "gate";
+            severity = "warning";
+            summary = "smartctl_exporter on gate has not read every drive it watches, so their health is unknown.";
+          }
+        ])
+        (expect "45m" "DriveUnread" "fleet" [
+          {
+            instance = "core5";
+            severity = "warning";
+            summary = "smartctl_exporter on core5 has not read every drive it watches, so their health is unknown.";
+          }
+          {
+            instance = "gate";
+            severity = "warning";
+            summary = "smartctl_exporter on gate has not read every drive it watches, so their health is unknown.";
           }
         ])
       ];

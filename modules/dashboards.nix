@@ -221,6 +221,47 @@ let
           unit = "s";
           targets = [ { expr = ''probe_icmp_duration_seconds{job="probe-ping", phase="rtt"}''; } ];
         })
+        # The drives' own health logs (modules/smartctl.nix), one row of three:
+        # what DriveFailing and DriveWearing read. Temperature is the hottest
+        # thermal zone's, above, through hwmon.
+        (panel {
+          title = "Drive spare";
+          unit = "percent";
+          width = 8;
+          # The drive's threshold beside it: under it is DriveFailing.
+          targets = [
+            {
+              expr = "smartctl_device_available_spare";
+              legendFormat = "{{instance}} {{device}}";
+            }
+            {
+              expr = "smartctl_device_available_spare_threshold";
+              legendFormat = "{{instance}} {{device}} threshold";
+            }
+          ];
+        })
+        (panel {
+          title = "Drive endurance used";
+          unit = "percent";
+          width = 8;
+          targets = [
+            {
+              expr = "smartctl_device_percentage_used";
+              legendFormat = "{{instance}} {{device}}";
+            }
+          ];
+        })
+        (panel {
+          title = "Drive media errors";
+          width = 8;
+          # The count over the drive's life, so a step, not the level, is news.
+          targets = [
+            {
+              expr = "smartctl_device_media_errors";
+              legendFormat = "{{instance}} {{device}}";
+            }
+          ];
+        })
       ];
 
   # Each resolver's health, one line per resolver, from Unbound's exporter and
