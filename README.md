@@ -114,6 +114,7 @@ scripts/               preflight, the check every change gets; dns-top-domains
 | [privacy.md](docs/privacy.md) | What leaves the house, per host and service, and what could stop |
 | [device-identity.md](docs/device-identity.md) | Naming devices in rules without publishing their MACs: the design |
 | [ipv6.md](docs/ipv6.md) | IPv6 on gate: probing the ISP, the design, and the PRs in order |
+| [power.md](docs/power.md) | A UPS for the rack: what it carries, which host talks to it, the shutdown order, and the PRs in order |
 
 ## Deploying
 
