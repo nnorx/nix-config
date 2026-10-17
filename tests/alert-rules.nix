@@ -382,7 +382,9 @@ let
   # DiskFilling, over hours: a root 90% full, seen again through /nix/store,
   # is one alert; a root half full and filling at 100 MB a minute is another;
   # /run gaining a megabyte a minute is not, though at that rate it would be
-  # full in under a day.
+  # full in under a day. Nor is gate's /boot taking a new kernel and initrd
+  # at once, 57 MB of its 1 GB, which the 6 hours' fit draws as a slope that
+  # fills it in a day.
   disk =
     let
       fs =
@@ -405,10 +407,25 @@ let
           fs "lifeline" "/" "ext4" 100000000000 "10000000000x180"
           ++ fs "lifeline" "/nix/store" "ext4" 100000000000 "10000000000x180"
           ++ fs "core4" "/" "ext4" 100000000000 "50000000000-100000000x180"
-          ++ fs "core5" "/run" "tmpfs" 1000000000 "1000000000-1000000x180";
+          ++ fs "core5" "/run" "tmpfs" 1000000000 "1000000000-1000000x180"
+          ++ fs "gate" "/boot" "vfat" 1000000000 "941000000x59 884000000x120";
         alert_rule_test = [
           (expect "30m" "DiskFilling" "fleet" [ ])
           (expect "90m" "DiskFilling" "fleet" [
+            {
+              instance = "core4";
+              mountpoint = "/";
+              severity = "warning";
+              summary = "/ on core4 is over 85% full, or at its rate will be full within 3 days.";
+            }
+            {
+              instance = "lifeline";
+              mountpoint = "/";
+              severity = "warning";
+              summary = "/ on lifeline is over 85% full, or at its rate will be full within 3 days.";
+            }
+          ])
+          (expect "170m" "DiskFilling" "fleet" [
             {
               instance = "core4";
               mountpoint = "/";

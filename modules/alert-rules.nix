@@ -167,13 +167,20 @@ in
           # and drops out. tmpfs counts for fullness but not for the trend: a
           # few megabytes written to /run read as a steep rate, and on core5
           # predicted it full once in the 3 days before this. The rate is the
-          # last 6 hours', so the nightly upgrade's burst of writes is a
-          # fraction of it, and either has to hold for an hour.
+          # last 6 hours', and either has to hold for an hour. A single write
+          # still reads as a slope while it stays in the window: an upgrade
+          # that adds a kernel, 57 MB to gate's 1 GB /boot or 2.8 GB to
+          # lifeline's 59 GB root, predicted each full in under 3 days. So the
+          # trend counts only on a filesystem already over half full, as in
+          # node_exporter's own mixin.
           alert = "DiskFilling";
           expr = ''
             max by (instance, mountpoint) (
               1 - node_filesystem_avail_bytes{mountpoint!="/nix/store"} / node_filesystem_size_bytes{mountpoint!="/nix/store"} > 0.85
-              or predict_linear(node_filesystem_avail_bytes{mountpoint!="/nix/store", fstype!="tmpfs"}[6h], 3 * 86400) < 0
+              or (
+                predict_linear(node_filesystem_avail_bytes{mountpoint!="/nix/store", fstype!="tmpfs"}[6h], 3 * 86400) < 0
+                and 1 - node_filesystem_avail_bytes / node_filesystem_size_bytes > 0.5
+              )
             )
           '';
           for = "1h";
