@@ -8,6 +8,7 @@
     ./common.nix # Common profile (shell, git, editor, basic CLI tools)
     ./dev-tools.nix # Dev tools (Node, Rust, Docker, etc.)
     ./ssh.nix # keychain-managed ssh-agent (dev hosts only)
+    ./fleet-deploy.nix # Deploys main to the Pis by day
     ./claude.nix # Claude Code settings + personal skills marketplace
     ./pr-handoff.nix # Publishes the PRs Claude prepares
     ./agents-status.nix # What each background agent's branch needs next

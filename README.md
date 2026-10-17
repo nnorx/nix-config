@@ -148,6 +148,20 @@ To deploy from a workstation, or to target a host explicitly:
 sudo nixos-rebuild switch --flake github:nnorx/nix-config#core4 --accept-flake-config --refresh
 ```
 
+To deploy main to the Pis by day rather than waiting for the night, run
+`fleet-deploy` from a checkout on an admin machine
+([`home/fleet-deploy.sh`](home/fleet-deploy.sh)). It goes through each Pi's
+deploy login, one host at a time and lifeline first. Before each host it shows
+preflight's brief against what that host runs, and asks to go ahead, wanting the
+host's name typed where the brief says `be there`. It waits for `cache.yml` to
+push main, starts the nightly upgrade, and offers the reboot that a new kernel
+needs. The first host that does not end on main stops the run.
+
+```bash
+fleet-deploy                  # every Pi; or name them: fleet-deploy core5
+fleet-deploy status           # each Pi's deploy login: revision, staged kernel, hold
+```
+
 If a Pi resolves through itself and cannot reach GitHub, override DNS first:
 
 ```bash
@@ -171,7 +185,7 @@ Two consequences follow:
   release them once gate is deployed:
 
   ```bash
-  ssh -i ~/.ssh/id_ed25519_deploy deploy@lifeline hold    # and `release`
+  fleet-deploy hold             # every Pi, or name them; and `release`
   ```
 
   A hold lasts until it is released, across deploys and reboots. A held night
