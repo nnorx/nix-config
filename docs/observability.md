@@ -451,6 +451,7 @@ and not.
 | `HostHot` | A thermal zone stays above 75°C for 15 minutes | warning |
 | `DriveFailing` | A drive's health log reports a critical warning, a failed SMART verdict, spare under the drive's own threshold, or a media error newer than an hour, for 5 minutes | critical |
 | `DriveWearing` | A drive reports over 80% of its rated endurance used, for an hour | warning |
+| `DriveUnread` | A host's smartctl_exporter has read fewer drives than it was given, for 15 minutes | warning |
 | `InterfaceErrors` | An interface counts receive or transmit errors in every 10 minutes for 30 | warning |
 | `RevisionBehind` | See "The wrong boot" below | warning |
 | `RevisionCheckStale` | main's head was last read more than 6 hours ago, or not at all in 6 hours | warning |
@@ -525,7 +526,8 @@ Where the table needed a decision:
   last one's file in place, which then ages. The file is in `/run`, so after
   core5 boots it is missing until a read succeeds, and missing for 6 hours
   counts the same.
-- **`DriveFailing`** and **`DriveWearing`** are under "Drive health" below.
+- **`DriveFailing`**, **`DriveWearing`** and **`DriveUnread`** are under
+  "Drive health" below.
 
 **What none of this watches.** With core5 down, nothing here runs, and the
 watchdog's silence is the one signal, from healthchecks.io, without a reason.
@@ -602,6 +604,13 @@ here has it on core5:
   rate that used the rest, which is years on a drive that took years to get
   there, and time to buy a replacement rather than react to `DriveFailing`.
   It only rises, so it stays firing and repeats every 30 days.
+- **`DriveUnread`**, warning, for 15 minutes. The exporter publishes nothing
+  for a drive it has never read, while its scrape still answers, so a sandbox
+  that refuses the device would leave the two rules above and `ScrapeDown`
+  quiet, and the drive would read as healthy. It does count the drives it was
+  given (`smartctl_devices`), and every drive it has read has an exit status,
+  so the rule compares the two by host. The 15 minutes cover a restart, which
+  empties the exporter's cache until its first read.
 
 The Fleet dashboard has the three in a row: spare beside its threshold,
 endurance used, and media errors.
@@ -609,7 +618,9 @@ endurance used, and media errors.
 gate's drive is its own issue, since the exporter there opens a port on gate.
 The NAS will import the same module for its disks, which first needs the
 exporter on an address core5 can scrape, the way node_exporter binds, and the
-assertion that holds it to the collector relaxed.
+assertion that holds it to the collector relaxed. Its disks are not its root,
+so one that drops off its bus goes on reading as it last did, with no
+`HostDown` to say otherwise; the NAS will need its own check for that.
 
 ## pimon
 

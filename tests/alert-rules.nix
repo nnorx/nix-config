@@ -452,6 +452,48 @@ let
         ])
       ];
     }
+
+    # DriveUnread: core5 watches two drives and has read both, then one stops
+    # being read from 10 minutes on, as an exporter restarted into a sandbox
+    # that refuses the device would. gate watches one drive and has never
+    # read it. lifeline's exporter reads its one drive throughout.
+    {
+      interval = "1m";
+      input_series = [
+        (series "smartctl_devices" (node "core5" // { job = "smartctl"; }) "2x60")
+        (series "smartctl_device_smartctl_exit_status" (drive "nvme0n1") "0x60")
+        (series "smartctl_device_smartctl_exit_status" (drive "nvme1n1") "0x9")
+        (series "smartctl_devices" (node "gate" // { job = "smartctl"; }) "1x60")
+        (series "smartctl_devices" (node "lifeline" // { job = "smartctl"; }) "1x60")
+        (series "smartctl_device_smartctl_exit_status" {
+          job = "smartctl";
+          instance = "lifeline";
+          device = "sda";
+        } "0x60")
+      ];
+      alert_rule_test = [
+        (expect "12m" "DriveUnread" "fleet" [ ])
+        (expect "20m" "DriveUnread" "fleet" [
+          {
+            instance = "gate";
+            severity = "warning";
+            summary = "smartctl_exporter on gate has not read every drive it watches, so their health is unknown.";
+          }
+        ])
+        (expect "45m" "DriveUnread" "fleet" [
+          {
+            instance = "core5";
+            severity = "warning";
+            summary = "smartctl_exporter on core5 has not read every drive it watches, so their health is unknown.";
+          }
+          {
+            instance = "gate";
+            severity = "warning";
+            summary = "smartctl_exporter on gate has not read every drive it watches, so their health is unknown.";
+          }
+        ])
+      ];
+    }
   ];
 
   # DiskFilling, over hours: a root 90% full, seen again through /nix/store,

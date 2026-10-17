@@ -244,6 +244,27 @@ in
           annotations.summary = "{{ $labels.device }} on {{ $labels.instance }} has used over 80% of its rated endurance.";
         }
         {
+          # A drive the exporter was given but has never read publishes no
+          # series at all, while the scrape still answers, so the two rules
+          # above and ScrapeDown are all quiet: a sandbox that refuses the
+          # device reads as a healthy drive. smartctl_devices counts the
+          # drives it was given, and every drive it has read has an exit
+          # status, whether or not its log carries a verdict. By host, since
+          # an unread drive has no series to carry its name. 15 minutes for a
+          # restart, which empties the exporter's cache until its first read.
+          alert = "DriveUnread";
+          expr = ''
+            max by (instance) (smartctl_devices)
+              > (
+                count by (instance) (smartctl_device_smartctl_exit_status)
+                or max by (instance) (smartctl_devices) * 0
+              )
+          '';
+          for = "15m";
+          labels.severity = "warning";
+          annotations.summary = "smartctl_exporter on {{ $labels.instance }} has not read every drive it watches, so their health is unknown.";
+        }
+        {
           # Frames that arrived damaged or could not be sent, which a healthy
           # link does not count. Not drops, which count ordinary things such
           # as frames for a protocol nothing here speaks. Every interface on
