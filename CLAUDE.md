@@ -97,8 +97,9 @@ before changing it.
 ## Deploying and merging
 
 Deploys and merges are Nick's. Do not run `nixos-rebuild switch` or `boot`,
-`nrs`, `nrb`, `hms`, `deploy-guard`, or anything under `sudo`, on any host,
-forge included.
+`nrs`, `nrb`, `hms`, `deploy-guard`, `fleet-deploy`, or anything under `sudo`,
+on any host, forge included. To deploy a merge to the Pis by day, Nick runs
+`fleet-deploy`, which waits for `cache.yml` itself.
 
 Publishing is Nick's too. gh's login lives outside the sandbox, so commands
 cannot push, open a PR or comment, and that is deliberate: a token in reach

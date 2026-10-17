@@ -363,7 +363,8 @@
                   # GNU time, for each evaluation's peak memory.
                   time
                   # The rest for the night-shift dispatcher's tests
-                  # (tests/night-shift/run.sh), which run it as forge does.
+                  # (tests/night-shift/run.sh), which run it as forge does,
+                  # and fleet-deploy's (tests/fleet-deploy/run.sh).
                   gawk
                   gnugrep
                   # flock, and script for the case that needs a terminal. On

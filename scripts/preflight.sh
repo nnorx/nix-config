@@ -12,7 +12,9 @@
 #      unattended, acts as Nick in Linear and deletes worktrees and branches,
 #      and nothing else checks its guards once a change lands. Second, since
 #      it needs no evaluation and takes seconds, so a broken guard shows
-#      before the minutes the steps below take.
+#      before the minutes the steps below take. Then fleet-deploy,
+#      home/fleet-deploy.sh, against stubbed hosts, nix and cache
+#      (tests/fleet-deploy/run.sh), for the same reasons: it deploys the Pis.
 #   3. `nix flake check --all-systems --no-build`. --all-systems, or nix skips
 #      the aarch64 hosts on an x86 machine; --no-build, so this stays an
 #      evaluation and never a multi-hour Pi kernel build.
@@ -132,6 +134,9 @@ if [[ $flake_check != only ]]; then
   # From the checkout under --head too: the working tree's dispatcher, not the
   # commit's.
   "$BASH" tests/night-shift/run.sh
+
+  step "fleet-deploy"
+  "$BASH" tests/fleet-deploy/run.sh
 fi
 
 work=$(mktemp -d)
