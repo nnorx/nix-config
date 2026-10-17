@@ -71,20 +71,19 @@ jobs:
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # main @ 2026-09-09
         with:
           diagnostic-endpoint: ""
-          # flake check took 660 s here and 96 s on forge's upstream Nix. Run
-          # serially (eval-cores = 1) it still took 733 s, nearly all of it
-          # in the gate VM tests, about two minutes each, which are the only
-          # outputs it fully evaluates. The runner's Determinate Nix has lazy
-          # trees on, and --no-build is read-only, so a source tree such as
-          # nixpkgs may be hashed again wherever a test's machines refer to
-          # it. Both off, to match forge.
-          extra-conf: |
-            eval-cores = 1
-            lazy-trees = false
-      # Fails the job, rather than warning in nix.conf's parse, if the
-      # installed Nix has dropped or renamed either setting.
-      - run: nix config show eval-cores && nix config show lazy-trees
-      - run: nix run .#preflight -- --flake-check only
+      # flake check runs under upstream Nix from this flake's own nixpkgs,
+      # the Nix forge has, rather than the runner's Determinate Nix.
+      # preflight uses the nix on PATH, so the shell decides which.
+      #
+      # Determinate Nix's read-only flake check (--no-build) took 11 to 12
+      # minutes here, against 96 s on forge, nearly all of it in the gate
+      # VM tests at about two minutes each, while a vm-tests job evaluates
+      # the same test in seconds. Neither eval-cores = 1 nor lazy-trees =
+      # false changed it. It also only checks that hosts and packages are
+      # derivations, where upstream evaluates them, so CI checked less than
+      # preflight does on forge. Only the evaluator changes: the daemon is
+      # still the runner's.
+      - run: nix shell --inputs-from . nixpkgs#nix --command nix run .#preflight -- --flake-check only
 
   # Builds each fleet host's /etc on pull requests. `check` only evaluates,
   # and some failures only happen at build time: shellcheck on every
