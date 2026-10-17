@@ -1,0 +1,11 @@
+# shellcheck shell=bash
+# launchctl, for tests/night-shift/run.sh: `night-shift resume` starting the
+# launchd job. Logs {tool: "launchctl", args} to $NS_CASE/log.jsonl. Fails as
+# launchctl does for a job it cannot find when the file launchctl-fail exists.
+set -euo pipefail
+
+printf '%s\0' "$@" | jq -Rsc '{tool: "launchctl", args: (split("\u0000") | .[:-1])}' >>"$NS_CASE/log.jsonl"
+if [[ -f $NS_CASE/launchctl-fail ]]; then
+  echo "Could not find service \"${2##*/}\" in domain for user gui: $(id -u)" >&2
+  exit 113
+fi

@@ -1,7 +1,8 @@
 # The night shift: Nick queues issues in Linear, and background Claude Code
 # agents on forge work them into PR handoffs while he is away from the desk.
-# hosts/forge/night-shift.sh is the dispatcher; docs/night-shift.md is how to
-# set it up and use it.
+# pkgs/night-shift/night-shift.sh is the dispatcher, shared with the Mac's
+# work mode (home/night-shift.nix); docs/night-shift.md is how to set it up
+# and use it.
 #
 # A user timer, so it runs only while forge is awake and Nick is logged in,
 # with Persistent catching up after sleep. Each run takes finished work back to
@@ -34,6 +35,9 @@
 }:
 let
   user = "nick";
+  # Minutes between runs: the timer's, and the dispatcher's measure of how
+  # much work one run can count (quiet in night-shift.sh). A divisor of 60.
+  interval = 10;
   home = config.users.users.${user}.home;
   secrets = [
     "linear-api-key"
@@ -52,27 +56,12 @@ let
   hidden =
     policy.strict.filesystem.denyRead
     ++ map (c: c.path) policy.strict.credentials.files
-    ++ [
-      "/run/secrets.d"
-      "~/.ssh"
-      "~/.claude/.credentials.json"
-      "~/.config/gh"
-      "~/.git-credentials"
-      "~/.local/share/kwalletd"
-    ];
+    ++ [ "/run/secrets.d" ]
+    ++ policy.credentialPaths;
 
-  night-shift = pkgs.writeShellApplication {
-    name = "night-shift";
-    runtimeInputs = [
+  night-shift = pkgs.callPackage ../../pkgs/night-shift {
+    extraRuntimeInputs = [
       config.nix.package
-      pkgs.git
-      pkgs.jq
-      pkgs.curl
-      pkgs.coreutils
-      pkgs.gnused
-      pkgs.gawk
-      pkgs.gnugrep # -P, for the hidden-character check on drafts
-      pkgs.util-linux # flock
       pkgs.bubblewrap # preflight on an agent's branch, confined
       config.systemd.package # systemd-run, to start claude outside the unit
     ];
@@ -81,11 +70,11 @@ let
       NIGHT_SHIFT_KEY_FILE = config.sops.secrets.linear-api-key.path;
       NIGHT_SHIFT_NTFY_FILE = config.sops.secrets.ntfy-url.path;
       NIGHT_SHIFT_PROJECTS = "${home}/projects";
+      NIGHT_SHIFT_INTERVAL = toString (interval * 60);
       NIGHT_SHIFT_MAX = "2";
       NIGHT_SHIFT_STALL_HOURS = "4";
       NIGHT_SHIFT_FAILED_RUNS = "3";
     };
-    text = builtins.readFile ./night-shift.sh;
   };
 in
 {
@@ -140,7 +129,7 @@ in
     wantedBy = [ "timers.target" ];
     unitConfig.ConditionUser = user;
     timerConfig = {
-      OnCalendar = "*:0/10";
+      OnCalendar = "*:0/${toString interval}";
       Persistent = true;
     };
   };

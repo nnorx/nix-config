@@ -1,0 +1,14 @@
+{
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": true,
+    "allowUnsandboxedCommands": false,
+    "network": { "allowedDomains": ["github.com"], "allowAllUnixSockets": false },
+    "filesystem": { "denyRead": ["~/.ssh", "~/Library/Keychains"], "allowWrite": ["~/.cache/night-shift"] }
+  },
+  "env": { "GIT_TERMINAL_PROMPT": "0" },
+  "permissions": { "deny": ["Bash(git push:*)"] },
+  "enableAllProjectMcpServers": false,
+  "disableAllHooks": true,
+  "enabledPlugins": { "core@nnorx": true }
+}

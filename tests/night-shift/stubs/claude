@@ -3,15 +3,21 @@
 # as {tool: "claude", args, cwd}. `agents --json --all` prints the roster,
 # $NS_CASE/roster.json, or [] without one. `--bg -n <name>` adds a running
 # session to the roster, the way claude lists one it started, so the
-# dispatcher's next look finds it. `stop <id>` marks that session stopped, as
-# claude's roster soon does; with the file stop-slow, the roster still lists
-# it as before for the next two looks. rm and --resume only log.
+# dispatcher's next look finds it, and fails when the file claude-fail
+# exists. `stop <id>` marks that session stopped, as claude's roster soon
+# does; with the file stop-slow, the roster still lists it as before for the
+# next two looks. rm and --resume only log. A call given --settings leaves a
+# copy of them at $NS_CASE/settings-given.json, for a case to read once the
+# caller has removed the file.
 set -euo pipefail
 
 dir=$NS_CASE
 roster=$dir/roster.json
 printf '%s\0' "$@" | jq -Rsc --arg cwd "$PWD" '{tool: "claude", args: (split("\u0000") | .[:-1]), cwd: $cwd}' >>"$dir/log.jsonl"
 [[ -f $roster ]] || echo '[]' >"$roster"
+for ((i = 1; i < $#; i++)); do
+  [[ ${!i} != --settings ]] || { j=$((i + 1)); cp "${!j}" "$dir/settings-given.json"; }
+done
 
 case ${1-} in
   agents)
@@ -30,6 +36,10 @@ case ${1-} in
     mv "$roster.tmp" "$roster"
     ;;
   --bg)
+    [[ ! -f $dir/claude-fail ]] || {
+      echo "claude stub: told to fail" >&2
+      exit 1
+    }
     name=""
     while (($#)); do
       [[ $1 != -n ]] || name=$2
