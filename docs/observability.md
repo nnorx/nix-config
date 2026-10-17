@@ -443,7 +443,7 @@ its own, firing and not.
 | `AdGuardStatsMissing` | A resolver's read of AdGuard's statistics (`fleet_adguard_up`) fails for 30 minutes | warning |
 | `ConntrackPressure` | gate's conntrack table is over 80% of its limit for 10 minutes | warning |
 | `DhcpPoolLow` | A segment's pool is over 90% leased for 15 minutes | warning |
-| `DiskFilling` | A filesystem is over 85% full, or predicted full within 3 days at its last 6 hours' rate, for an hour | warning |
+| `DiskFilling` | A filesystem is over 85% full, or over half full and predicted full within 3 days at its last 6 hours' rate, for an hour | warning |
 | `HostHot` | A thermal zone stays above 75°C for 15 minutes | warning |
 | `InterfaceErrors` | An interface counts receive or transmit errors in every 10 minutes for 30 | warning |
 | `RevisionBehind` | See "The wrong boot" below | warning |
@@ -465,7 +465,12 @@ Where the table needed a decision:
   out the reservations below it, which the subnet's includes.
 - **`DiskFilling`** predicts every filesystem but tmpfs, whose few megabytes
   written to `/run` read as a steep rate; it still counts for fullness.
-  `/nix/store` is the root mounted again, and is left out.
+  `/nix/store` is the root mounted again, and is left out. The prediction
+  counts only once a filesystem is over half full. A 6 hours' fit draws one
+  write as a slope for as long as it stays in the window, up to 18 times
+  the write over 3 days, so the upgrade to a new kernel predicted gate's
+  1 GB `/boot` full from 57 MB, and lifeline's root from 2.8 GB with 48 GB
+  free. Both were under a fifth full.
 - **`HostHot`** has one figure, since node_exporter exports no trip points:
   75°C, under the Pis' 80°C throttle. gate's CPU throttles at 105°C, but the
   same figure stands there: its case is fanless and shares the heat with an
