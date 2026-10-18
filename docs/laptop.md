@@ -141,6 +141,19 @@ from here; and generate forge's WireGuard key, as "Remote access" below
 describes. Set Konsole's font to Cascadia Code NF, and clone this repo to
 `~/projects/nix-config`.
 
+Then install Claude Code, which comes from Anthropic's installer into
+`~/.local/bin`, not from Nix:
+
+```bash
+curl -fsSL https://claude.ai/install.sh | bash
+```
+
+Open a new shell afterwards: `home/shell-common.nix` puts `~/.local/bin` on
+PATH only if it exists when the shell starts. Skip the installer's advice to
+add it to `~/.zshrc`, which Home Manager owns. Then run `claude` once in each
+repository the night shift works in, sign in, and accept the trust prompt.
+Until then, every issue it starts lands in `Needs you` with claude's reason.
+
 The time zone is deliberately not declared, so it can change when the laptop
 travels. It starts as UTC; set it once with
 `timedatectl set-timezone America/New_York` or in System Settings, and again

@@ -586,6 +586,38 @@ add_worktree() {
   git -C "$1" -c core.hooksPath=/dev/null worktree add --quiet --no-track -b "$2" "$3" "$4"
 }
 
+# discard_start <repo> <worktree> <branch> <commit>: undoes a start whose
+# agent never ran, so queuing the issue again makes them afresh. Like
+# land_one, it removes only what holds nothing: the branch still at the
+# <commit> start_one made it from, the worktree still on it, and nothing in
+# it uncommitted, tracked or not, which git's remove refuses without --force.
+# Prints why it kept them, or nothing.
+discard_start() {
+  local tip out
+  tip=$(git -C "$1" rev-parse --verify --quiet "refs/heads/$3^{commit}" || true)
+  if [[ $tip != "$4" ]]; then
+    echo "\`$3\` is no longer at the commit it was made from."
+  elif [[ $(git -C "$2" symbolic-ref --quiet HEAD || true) != "refs/heads/$3" ]]; then
+    echo "it is no longer on \`$3\`."
+  elif ! out=$(git -C "$1" worktree remove "$2" 2>&1); then
+    echo "git would not remove it: $out"
+  elif ! out=$(git -C "$1" branch -D "$3" 2>&1); then
+    echo "deleting \`$3\` failed: $out"
+  fi
+}
+
+# first_line <text>: its first line with anything on it, for a comment's code
+# span: at most about 200 characters, terminal escapes and control characters
+# dropped, and backticks made quotes, which would otherwise end the span.
+# Never more than the one line, since the rest can be long.
+first_line() {
+  sed -E $'s/\e\\[[0-9;?]*[ -/]*[@-~]//g' <<<"$1" | tr -d '\000-\010\013-\037\177' | tr '`' "'" |
+    awk '!done && NF {
+      sub(/^[ \t]+/, ""); sub(/[ \t]+$/, "")
+      print (length($0) > 200 ? substr($0, 1, 200) "..." : $0); done = 1
+    }'
+}
+
 # fetch_base <repo>: fetches origin, then prints "<branch> <commit>" for the
 # branch origin's HEAD names, as origin itself answers. Not from
 # refs/remotes/origin/HEAD: commands in the sandbox can write the shared refs
@@ -808,7 +840,7 @@ resume_agent() {
 
 # One queued issue: start an agent on it, or resume the one it had.
 start_one() {
-  local id=$1 i ident queuer f label repo fb base sha name wt branch session="" result
+  local id=$1 i ident queuer f label repo fb base sha name wt branch session="" result err said kept
   i=$(issue "$id")
   [[ $(jq -r .state.name <<<"$i") == "$QUEUED" ]] || return 0
   ident=$(jq -r .identifier <<<"$i")
@@ -872,11 +904,26 @@ start_one() {
     fi
     result=$(result_path "$repo" "$ident")
     write_issue "$i" "$result"
-    if ! (cd "$wt" && cl --bg -n "$name" --permission-mode auto </dev/null \
-      "$(prompt_new "$i" "$repo" "$wt" "$branch" "$base" "$result")") >/dev/null; then
-      stop_issue "$i" "$NEEDS" "Not started: \`claude --bg\` failed in \`$wt\`." "Did not start"
+    # stdout is claude's own chatter; stderr says why it failed, no claude or
+    # a directory never trusted say, so the comment carries its first line.
+    if ! err=$(cd "$wt" && cl --bg -n "$name" --permission-mode auto </dev/null \
+      "$(prompt_new "$i" "$repo" "$wt" "$branch" "$base" "$result")" 2>&1 >/dev/null); then
+      said=$(first_line "$err")
+      if [[ -n $said ]]; then
+        said="Not started: \`claude --bg\` failed in \`$wt\`, saying \`$said\`."
+      else
+        said="Not started: \`claude --bg\` failed in \`$wt\`, saying nothing."
+      fi
+      kept=$(discard_start "$repo" "$wt" "$branch" "$sha")
+      if [[ -z $kept ]]; then
+        said+=" The worktree and \`$branch\` are removed, so moving it to $QUEUED again starts afresh."
+      else
+        said+=" Kept the worktree and \`$branch\`, since $kept"
+      fi
+      stop_issue "$i" "$NEEDS" "$said" "Did not start"
       return 0
     fi
+    [[ -z $err ]] || echo "$err" >&2
     # May be empty if the roster lags; finish_one and a resume ask again.
     read -r _ session _ <<<"$(agent "$name" "$wt")" || true
     # since: when the agent last heard from Nick, so a resume passes on
@@ -1459,7 +1506,7 @@ EOP
 # One issue assigned to Nick with his label: start an agent on it, resume the
 # one it had, or say why not, once.
 work_start_one() {
-  local id=$1 i ident f l why conf repo fb base sha name wt branch slugged settings result session="" overrides setup
+  local id=$1 i ident f l why conf repo fb base sha name wt branch slugged settings result session="" overrides setup err said
   i=$(issue "$id")
   ! closed "$i" || return 0
   ident=$(jq -r .identifier <<<"$i")
@@ -1559,12 +1606,15 @@ work_start_one() {
   write_issue "$i" "$result"
   # No MCP servers: the repo's own include Linear's, through which a session
   # acting as Nick could add the label to an issue and queue it.
-  if ! (cd "$wt" && cl --bg -n "$name" --settings "$settings" --strict-mcp-config --permission-mode auto </dev/null \
-    "$(work_prompt_new "$i" "$repo" "$wt" "$branch" "$base" "$result" "$conf")") >/dev/null; then
+  # As in start_one, the report carries the first line of claude's stderr.
+  if ! err=$(cd "$wt" && cl --bg -n "$name" --settings "$settings" --strict-mcp-config --permission-mode auto </dev/null \
+    "$(work_prompt_new "$i" "$repo" "$wt" "$branch" "$base" "$result" "$conf")" 2>&1 >/dev/null); then
     work_discard "$repo" "$wt" "$branch" "$ident"
-    work_refuse "$i" "$l" "\`claude --bg\` failed, and the worktree is removed"
+    said=$(first_line "$err")
+    work_refuse "$i" "$l" "\`claude --bg\` failed${said:+, saying \`$said\`,} and the worktree is removed"
     return 0
   fi
+  [[ -z $err ]] || echo "$err" >&2
   read -r _ session _ <<<"$(agent "$name" "$wt")" || true
   jq -n --arg id "$id" --arg ident "$ident" --arg repo "$repo" --arg worktree "$wt" \
     --arg branch "$branch" --arg name "$name" --arg session "$session" --arg now "$(now)" \

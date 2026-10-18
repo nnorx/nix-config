@@ -36,6 +36,11 @@ Queued ──▶ Running ──▶ Handoff ready ──▶ (you publish and merg
 
 ### On forge
 
+Claude Code comes from Anthropic's installer, not from this repo, so a
+reinstall has none until it is installed again. Install it, run `claude` in each
+repository once, and accept the trust prompt, as the end of laptop.md's
+["From WSL again"](laptop.md#from-wsl-again) describes.
+
 The key and the ntfy topic go in `secrets/forge.yaml`; evaluation fails until
 both are there. From the repo, in your own terminal, inside `nix shell
 nixpkgs#sops nixpkgs#jq` if either is missing. At `read`, paste the key; it does
