@@ -7,5 +7,5 @@
 # machine keeps it at ~/.ssh/id_ed25519_deploy.
 {
   wsl = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAYiJWeV2AgJ8vCS963Si2/vAqjhzpmkYQYVv2fBkGfl nick@wsl-deploy";
-  forge = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKql0aheFnbHfy5RtiaFj5NMky6uJlUsilLSqCn4W6FD nick@forge-deploy";
+  forge = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIY+ilRvw0P+mGowBSxTHpLlj5z0AtFYPqnPBF7gBdsI nick@forge-deploy";
 }

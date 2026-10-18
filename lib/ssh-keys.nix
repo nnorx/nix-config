@@ -6,5 +6,5 @@
 # and the runbooks use, so only the contents differ.
 {
   wsl = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOWn55IgZrXad1zsHldJtVCMWr7oc1G26afVoJ51gyX/ nick@wsl";
-  forge = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBHLsmtuQEznk32cltlRuWC9xto9wrsjzZzDoWGJCiRp nick@forge";
+  forge = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILnjT5b+MHWtoWyJp/9n2RN6UWyskUusiduM4jqKcKOq nick@forge";
 }
