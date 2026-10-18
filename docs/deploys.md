@@ -115,7 +115,9 @@ git push origin refs/tags/deploy/<host>/<stamp>
 
 The message says what was deployed and from where: the revision, the revision
 the host ran, and the brief's verdict for that host. It is public, so it
-carries nothing preflight's brief would not.
+carries nothing preflight's brief would not. The tag's name and date are
+public too, and say when each host was deployed, as a merge's time already
+says when it merged.
 
 fleet-deploy signs only a commit on main. A Pi does not check that itself,
 since it would need main's history, and the signature already says Nick chose
@@ -149,7 +151,7 @@ accepted, so a tag moved onto another signed object, replayed under another
 name, or deleted to expose an older one, cannot take it backwards.
 
 A tag rule on `refs/tags/deploy/**` that refuses updates and deletion keeps the
-history intact as well. That is a GitHub setting, and under "For Nick".
+history intact as well. That is a GitHub setting, under "Decided with Nick".
 
 ## Signing
 
@@ -540,23 +542,22 @@ generation ([recovery.md](recovery.md), "Picking an older generation"). Then
     and gate's `nrs` and `nrb` verifying first. gate changes only when Nick
     deploys it, with the brief's verdict for gate in the pull request.
 
-The tag rule under "For Nick" belongs before step 5.
+The tag rule under "Decided with Nick" belongs before step 5.
 
-## For Nick
+## Decided with Nick
 
-1. **A tag rule on `refs/tags/deploy/**`.** Recommended: refuse updates and
-   deletion, and leave creation open. The Pi checks every tag's signature, so
-   an unsigned one only alerts, while a rule on creation would need an
-   exception for fleet-deploy's push. With deletion refused, removing a bad
-   tag starts with a deliberate change to the rule.
-2. **A third, offline signer.** keys.md keeps the `nick` age key as an offline
-   third recipient beside the two hardware keys. The same is possible here: a
-   file signing key, generated offline and kept like `nick`, listed in
-   `lib/signing-keys.nix`, for when both hardware keys are lost. This record
-   recommends against it: the deploy by hand under "Rotation and recovery"
-   already covers that case without a key that signs with no touch, and
-   losing both hardware keys costs the admin login too, which needs the
-   console either way.
+1. **A tag rule on `refs/tags/deploy/**`: updates and deletion refused,
+   creation open.** The Pi checks every tag's signature, so an unsigned one
+   only alerts, while a rule on creation would need an exception for
+   fleet-deploy's push. With deletion refused, removing a bad tag starts with
+   a deliberate change to the rule. Nick sets it, as a GitHub setting, before
+   step 5.
+2. **No third, offline signer.** keys.md keeps the `nick` age key as an
+   offline third recipient beside the two hardware keys, and a file signing
+   key kept the same way was weighed for when both hardware keys are lost. The
+   deploy by hand under "Rotation and recovery" already covers that case
+   without a key that signs with no touch, and losing both hardware keys costs
+   the admin login too, which needs the console either way.
 
 ## What would reopen this
 
