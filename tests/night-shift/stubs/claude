@@ -3,12 +3,14 @@
 # as {tool: "claude", args, cwd}. `agents --json --all` prints the roster,
 # $NS_CASE/roster.json, or [] without one. `--bg -n <name>` adds a running
 # session to the roster, the way claude lists one it started, so the
-# dispatcher's next look finds it, and fails when the file claude-fail
-# exists. `stop <id>` marks that session stopped, as claude's roster soon
-# does; with the file stop-slow, the roster still lists it as before for the
-# next two looks. rm and --resume only log. A call given --settings leaves a
-# copy of them at $NS_CASE/settings-given.json, for a case to read once the
-# caller has removed the file.
+# dispatcher's next look finds it. It fails when the file claude-fail
+# exists, saying on stderr what the file holds, or a line of its own when
+# it is empty; first it runs the script claude-before, when that exists,
+# where it was called. `stop <id>` marks that session stopped, as claude's
+# roster soon does; with the file stop-slow, the roster still lists it as
+# before for the next two looks. rm and --resume only log. A call given
+# --settings leaves a copy of them at $NS_CASE/settings-given.json, for a case
+# to read once the caller has removed the file.
 set -euo pipefail
 
 dir=$NS_CASE
@@ -36,8 +38,13 @@ case ${1-} in
     mv "$roster.tmp" "$roster"
     ;;
   --bg)
+    [[ ! -f $dir/claude-before ]] || "$BASH" "$dir/claude-before"
     [[ ! -f $dir/claude-fail ]] || {
-      echo "claude stub: told to fail" >&2
+      if [[ -s $dir/claude-fail ]]; then
+        cat "$dir/claude-fail" >&2
+      else
+        echo "claude stub: told to fail" >&2
+      fi
       exit 1
     }
     name=""

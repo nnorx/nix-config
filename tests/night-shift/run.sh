@@ -353,6 +353,58 @@ case_start_battery() {
   expect "and not kept awake" none '.tool == "systemctl" and .args[1] == "start"'
 }
 
+# claude --bg fails, as with no claude installed or a directory never
+# trusted: its first line with anything on it reaches the comment, and what
+# start_one made goes.
+bg_fails() {
+  repo demo
+  issue issue-1
+  WT=$c/projects/demo/.claude/worktrees/$NAME
+  printf '\n  Error: workspace not trusted  \nRun claude here once and accept the prompt.\n' >"$c/claude-fail"
+  ns run
+}
+
+case_start_bg_fails() {
+  bg_fails
+  expect "exit 0" is "$status" 0
+  expect "moved to Needs you" is "$(state issue-1)" "Needs you"
+  expect "a comment with claude's first line" has "$(comments issue-1)" "Not started: \`claude --bg\` failed in \`$WT\`, saying \`Error: workspace not trusted\`."
+  expect "and none of the rest" lacks "$(comments issue-1)" "accept the prompt"
+  expect "saying what went" has "$(comments issue-1)" "The worktree and \`$BRANCH\` are removed"
+  expect "the worktree removed" test ! -e "$WT"
+  expect "and git's record of it" lacks "$(g -C "$c/projects/demo" worktree list --porcelain)" "$WT"
+  expect "the branch deleted" not branch_exists "$BRANCH"
+  expect "no state file" test ! -e "$c/state/night-shift/TST-1.json"
+  expect "a push saying so" one '.tool == "ntfy" and .body == "TST-1: Did not start"'
+}
+
+case_start_bg_fails_requeued() {
+  bg_fails
+  rm "$c/claude-fail"
+  jq '.state = {name: "Queued", type: "unstarted"}' "$c/linear/issues/issue-1.json" >"$c/tmp/issue.json"
+  mv "$c/tmp/issue.json" "$c/linear/issues/issue-1.json"
+  ns run
+  expect "exit 0" is "$status" 0
+  expect "started" is "$(state issue-1)" Running
+  expect "in a new worktree" is "$(g -C "$WT" symbolic-ref --short HEAD 2>&1)" "$BRANCH"
+  expect "a state file, phase running" is "$(jq -r .phase "$c/state/night-shift/TST-1.json" 2>&1)" running
+}
+
+# Something committed on the branch before claude failed: nothing goes.
+case_start_bg_fails_committed() {
+  cat >"$c/claude-before" <<'EOF'
+echo widget >widget.txt
+git add widget.txt
+git commit -q -m "fix the widget"
+EOF
+  bg_fails
+  expect "exit 0" is "$status" 0
+  expect "moved to Needs you" is "$(state issue-1)" "Needs you"
+  expect "a comment saying why it was kept" has "$(comments issue-1)" "Kept the worktree and \`$BRANCH\`, since \`$BRANCH\` is no longer at the commit it was made from."
+  expect "the worktree kept" test -f "$WT/widget.txt"
+  expect "the branch kept" branch_exists "$BRANCH"
+}
+
 # --- 4. finish_one ---------------------------------------------------------------
 
 # A running agent on TST-1, started <started>, that wrote <result>, if given.
@@ -1089,7 +1141,7 @@ case_work_bg_fails() {
   touch "$c/claude-fail"
   nsw run
   expect "exit 0" is "$status" 0
-  expect "refused, saying why" has "$(cat "$c/state/night-shift/TST-1.report.md" 2>&1)" "\`claude --bg\` failed, and the worktree is removed"
+  expect "refused, saying why" has "$(cat "$c/state/night-shift/TST-1.report.md" 2>&1)" "\`claude --bg\` failed, saying \`claude stub: told to fail\`, and the worktree is removed"
   expect "the worktree removed" test ! -e "$c/projects/demo/.claude/worktrees/$NAME"
   expect "the branch deleted" not branch_exists "$WBRANCH"
   expect "its settings removed" test ! -e "$c/state/night-shift/TST-1.settings"
@@ -1326,6 +1378,9 @@ cases=(
   "start             start: worktree with no upstream, issue text, claude --bg, Running, kept awake"
   "start_created_queued start: created into Queued by you: started"
   "start_battery     start: on battery: started, forge let sleep"
+  "start_bg_fails    start: claude --bg fails: its first line in the comment, all removed, Needs you"
+  "start_bg_fails_requeued start: claude --bg failed, then queued again: started"
+  "start_bg_fails_committed start: claude --bg fails after a commit on the branch: all kept"
   "finish_handoff    finish: handoff: Handoff ready, archived, waiting, forge let sleep"
   "finish_blocked    finish: blocked: Needs you"
   "finish_quiet      finish: no result past the stall hours of work: Needs you"
