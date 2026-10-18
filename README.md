@@ -111,6 +111,7 @@ scripts/               preflight, the check every change gets; dns-top-domains
 | [laptop.md](docs/laptop.md) | Installing forge, enabling Secure Boot, preparing for Windows |
 | [observability.md](docs/observability.md) | The metrics and alerting design: store, collection, alerts, access |
 | [night-shift.md](docs/night-shift.md) | Agents on forge, and in a sandbox on the work Mac, working issues queued in Linear |
+| [fleet-agent.md](docs/fleet-agent.md) | A read-only agent that answers an alert with a diagnosis: the design |
 | [privacy.md](docs/privacy.md) | What leaves the house, per host and service, and what could stop |
 | [device-identity.md](docs/device-identity.md) | Naming devices in rules without publishing their MACs: the design |
 | [ipv6.md](docs/ipv6.md) | IPv6 on gate: probing the ISP, the design, and the PRs in order |
