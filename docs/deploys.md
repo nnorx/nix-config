@@ -52,9 +52,9 @@ hardware key, and the host checking that choice before it runs it.
 ## What it defends against
 
 A revision Nick did not sign does not reach a Pi. Writing to the repository,
-by any account, token or workflow, is not enough to choose what a Pi runs:
-that takes a signature from a hardware key in Nick's hand, checked on the Pi
-against signers built into the system it already runs.
+by any account, token or workflow, is not enough to choose which revision a
+Pi runs: that takes a signature from a hardware key in Nick's hand, checked on
+the Pi against signers built into the system it already runs.
 
 GitHub and the binary cache are trusted as hosts, as for every other fetch:
 GitHub to serve a commit as it is, and the cache to serve a path as it was
