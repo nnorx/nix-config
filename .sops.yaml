@@ -17,7 +17,7 @@ keys:
   - &core5 age1hzxc26p7yhxyqvse9jngllwmrxd6scvvqdazlmj2w82qan85pcpq6vh686
   - &lifeline age1xyckqjvll0wrd5alqycvga0k77tpk7utln6qwv2xckjdksqppqvsh0fg80
   - &gate age18ddpgl5yw9jqp8sy5lj0p7aft7qk49fklthmh9f3zvtznp433cus52x3ja
-  - &forge age1368rrzdjucuvuvwskhnfrn7gjdfvrxmuncsmjn4l4epafrshaaasr9cwge
+  - &forge age1sjy4pkhpwwxy6jnhy7ctfvyh43pz6ru2mz54eqz070klvrf3y4ysnlp7gf
 
 creation_rules:
   - path_regex: secrets/core4\.yaml$
