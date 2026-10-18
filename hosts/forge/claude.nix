@@ -26,6 +26,12 @@
 # every command (checked 2026-10-08 with bwrap itself); a file-by-file deny
 # would leave the generation directories reachable by name. Read rules take
 # both paths, since they match the path asked for.
+#
+# Nick's credentials (credentialPaths in lib/claude-sandbox.nix) are denied
+# here as well as in home/claude.nix's user settings. Here no repository's
+# settings can carve read access back out, and the deny holds however Claude
+# Code combines the two scopes' lists. Their Read rules take each path and
+# what is under it, since some are files.
 { pkgs, lib, ... }:
 let
   policy = import ../../lib/claude-sandbox.nix {
@@ -40,16 +46,26 @@ in
     format.generate "claude-managed-settings.json"
       {
         sandbox = policy.strict // {
-          credentials.files = policy.strict.credentials.files ++ [
-            {
-              path = secretsDir;
+          credentials.files =
+            policy.strict.credentials.files
+            ++ [
+              {
+                path = secretsDir;
+                mode = "deny";
+              }
+            ]
+            ++ map (path: {
+              inherit path;
               mode = "deny";
-            }
-          ];
+            }) policy.credentialPaths;
         };
         permissions.deny = [
           "Read(/${secretsDir}/**)"
           "Read(//run/secrets/**)"
-        ];
+        ]
+        ++ lib.concatMap (p: [
+          "Read(${p})"
+          "Read(${p}/**)"
+        ]) policy.credentialPaths;
       };
 }
