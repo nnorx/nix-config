@@ -251,6 +251,7 @@ Which logins take a touch:
 | The Pis' deploy login | Yes | Deploying stays Nick's. One connection per host per deploy, through ControlMaster, rather than one per verb |
 | The recovery ISO and the Pi installers | Yes | Built from the same list, and rare |
 | fleet-ssh's diagnostics | No | Claude sessions run it all day |
+| The alert agent's `triage` login ([fleet-agent.md](fleet-agent.md)) | No | It runs unattended, and its forced command only reads |
 | core5's pushes to `homelab-state` | No | Unattended, with a host credential |
 
 **The two paths are two logins.** sshd tells logins apart by key, as the deploy
@@ -267,6 +268,12 @@ login already does.
 
 A diagnostics key, leaked, reads what an ordinary user can on each host, and
 has no sudo to try.
+
+[fleet-agent.md](fleet-agent.md) plans a third login, `triage`, for the alert
+agent. It is narrower than `diag`: a forced command with fixed verbs and
+masked output, since a model reading device-chosen text should not get a
+shell. `diag` stays the general read-only shell for fleet-ssh in Claude
+sessions. Each takes its own key, file-backed and touch-free.
 
 ### How many keys
 
