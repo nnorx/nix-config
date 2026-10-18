@@ -67,6 +67,16 @@ before changing it.
   stays out of this repo" in `docs/network.md`.
 - Neither belongs in tool output either, since transcripts persist. Mask
   addresses and hostnames in logs before showing them.
+- Public text describes the design, never an open gap. Docs, comments, commit
+  messages, PR bodies and `.git/pr-handoff/` files say how a thing is meant to
+  work, and name a credential by what it is for ("opens the weekly flake-update
+  pull request"). They leave out what is weak now: current protection or
+  permission settings, what a token, session or file could be used for today,
+  which way in is easiest, and "today X is not protected" phrasing. A gap found
+  while working goes in `.git/linear-comments/comment-<id>.md`, which is never
+  published, for Nick to paste into Linear. `pr-handoff` pushes every commit
+  on a branch, not only the squash, so wording that reached a commit means
+  rewriting the branch before it is published.
 - Secrets are Nick's to read and write. The sandbox denies the sops age key
   (`lib/claude-sandbox.nix`), so `sops` fails here by design; do not work
   around it.
