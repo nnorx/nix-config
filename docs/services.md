@@ -600,16 +600,18 @@ as its first commit.
    `grants` follow it. gate's rules render as before, which the brief shows as
    gate unchanged: `routine`. Depends only on step 2.
 4. **`unbound: answer the services' names on the resolvers`.** The static
-   zone on core4 and lifeline, from a sops template, and `dns-top-domains`
-   counting the names as local. A VM test beside `tests/dns-metrics.nix`, with
-   a stand-in domain: a service's name answers its host's address, an unknown
-   name is NXDOMAIN, and so is the challenge's name at the resolver. Both
+   zone on core4 and lifeline, from a sops template, `dns-top-domains`
+   counting the names as local, and keys.md's row for `services-domain`. A VM
+   test beside `tests/dns-metrics.nix`, with a stand-in domain: a service's
+   name answers its host's address, an unknown name is NXDOMAIN, and so is the
+   challenge's name at the resolver. Both
    resolvers restart Unbound that night, an hour apart: `review`. The names
    point at core5, where nothing listens on 443 yet, which is harmless.
 5. **`core5: grafana behind caddy`.** The proxy module and its lego unit,
    imported on core5, with the domain and the token declared there; Grafana on
    loopback; 443 opened on core5's LAN interface and 3030 closed; the README's
-   Grafana address; privacy.md's rows. A VM test of the proxy with a stand-in
+   Grafana address; privacy.md's rows, and keys.md's for `services-dns-token`.
+   A VM test of the proxy with a stand-in
    certificate: an allowed source reaches Grafana, any other gets a 403, and
    3030 answers on loopback alone. The first certificate is issued on core5
    that night. Firewall on core5: `be there`. If issuance fails, Caddy does not
