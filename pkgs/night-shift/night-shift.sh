@@ -383,6 +383,19 @@ cl() {
   fi
 }
 
+# cl_bg <args...>: `cl --bg ...` with its stdout discarded, printing its stderr
+# once it returns, with its status. The stderr goes through a file, not a
+# pipe: a daemon that claude --bg leaves running could inherit a pipe and
+# hold the caller's $(...) open for as long as it lives.
+cl_bg() {
+  local f rc=0
+  f=$(mktemp) || return 1
+  cl --bg "$@" 2>"$f" >/dev/null || rc=$?
+  cat "$f"
+  rm -f "$f"
+  return "$rc"
+}
+
 closed() {
   [[ $(jq -r .state.type <<<"$1") == completed || $(jq -r .state.type <<<"$1") == canceled ]]
 }
@@ -816,8 +829,8 @@ resume_agent() {
       sleep 2
     done
   fi
-  if ! out=$(cd "$wt" && cl --bg --resume "$session" </dev/null \
-    "$("$prompt" "$i" "$(jq -r .since "$f")" "$result")" 2>&1 >/dev/null); then
+  if ! out=$(cd "$wt" && cl_bg --resume "$session" </dev/null \
+    "$("$prompt" "$i" "$(jq -r .since "$f")" "$result")"); then
     stop_issue "$i" "$NEEDS" "Could not resume the session in \`$wt\`." "Did not resume"
     return 1
   fi
@@ -906,8 +919,8 @@ start_one() {
     write_issue "$i" "$result"
     # stdout is claude's own chatter; stderr says why it failed, no claude or
     # a directory never trusted say, so the comment carries its first line.
-    if ! err=$(cd "$wt" && cl --bg -n "$name" --permission-mode auto </dev/null \
-      "$(prompt_new "$i" "$repo" "$wt" "$branch" "$base" "$result")" 2>&1 >/dev/null); then
+    if ! err=$(cd "$wt" && cl_bg -n "$name" --permission-mode auto </dev/null \
+      "$(prompt_new "$i" "$repo" "$wt" "$branch" "$base" "$result")"); then
       said=$(first_line "$err")
       if [[ -n $said ]]; then
         said="Not started: \`claude --bg\` failed in \`$wt\`, saying \`$said\`."
@@ -1607,8 +1620,8 @@ work_start_one() {
   # No MCP servers: the repo's own include Linear's, through which a session
   # acting as Nick could add the label to an issue and queue it.
   # As in start_one, the report carries the first line of claude's stderr.
-  if ! err=$(cd "$wt" && cl --bg -n "$name" --settings "$settings" --strict-mcp-config --permission-mode auto </dev/null \
-    "$(work_prompt_new "$i" "$repo" "$wt" "$branch" "$base" "$result" "$conf")" 2>&1 >/dev/null); then
+  if ! err=$(cd "$wt" && cl_bg -n "$name" --settings "$settings" --strict-mcp-config --permission-mode auto </dev/null \
+    "$(work_prompt_new "$i" "$repo" "$wt" "$branch" "$base" "$result" "$conf")"); then
     work_discard "$repo" "$wt" "$branch" "$ident"
     said=$(first_line "$err")
     work_refuse "$i" "$l" "\`claude --bg\` failed${said:+, saying \`$said\`,} and the worktree is removed"
