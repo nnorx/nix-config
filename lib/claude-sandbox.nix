@@ -4,7 +4,8 @@
 #   home/claude.nix         user settings: the sandbox on Linux, with Nick's
 #                           credentials denied too, and a Read deny on every
 #                           machine, the Mac included
-#   hosts/forge/claude.nix  managed settings, which no other scope outranks
+#   hosts/forge/claude.nix  managed settings, which no other scope outranks,
+#                           with Nick's credentials denied there as well
 #
 # and two more read it: the night shift's preflight on forge
 # (hosts/forge/night-shift.nix) and its sandbox on a Mac (home/night-shift.nix).
@@ -24,8 +25,9 @@ in
   inherit keyDirs;
 
   # Nick's credentials other than the age key. Every session's sandbox on
-  # Linux denies them (home/claude.nix), as do the two places that run code an
-  # agent wrote: preflight on an agent's branch on forge
+  # Linux denies them (home/claude.nix, and on forge its managed settings too,
+  # hosts/forge/claude.nix), as do the two places that run code an agent
+  # wrote: preflight on an agent's branch on forge
   # (hosts/forge/night-shift.nix) and the night shift's sandbox on a Mac
   # (home/night-shift.nix). On macOS the login keychain is a file read by the
   # client, so hiding ~/Library/Keychains is what keeps the gh token, git's
@@ -66,7 +68,8 @@ in
   #   every command unsandboxed.
   # allowUnsandboxedCommands: no retrying a failed command outside it.
   # credentials.files: the age key, denied to every process a shell command
-  #   starts. Linux sessions add credentialPaths (home/claude.nix). A permission rule matches command text, so `nix shell
+  #   starts. Linux sessions add credentialPaths (home/claude.nix, and forge's
+  #   managed settings). A permission rule matches command text, so `nix shell
   #   nixpkgs#sops -c sops -d`, `bash -c` or `builtins.readFile` all walk past
   #   a deny on `sops` or `Read`. The kernel enforces this one, whatever the
   #   process is called.
