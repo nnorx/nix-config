@@ -131,6 +131,11 @@ before recovering, or make `sudo systemctl stop nixos-upgrade.timer` the first
 command once you have a shell. Otherwise that night's upgrade undoes the
 recovery.
 
+[deploys.md](deploys.md) is the design that separates the two: each Pi
+follows a tag Nick signs per deploy rather than main, so a recovered Pi
+re-applies the revision it last accepted, and a deploy by hand over the admin
+login stays the way forward whatever its signers.
+
 The cheap way to never meet this: register a host's sops recipient **before**
 its first activation, not after, and confirm `/run/secrets-for-users/` is
 populated on a host you can still sudo on before trusting it on one you cannot.
