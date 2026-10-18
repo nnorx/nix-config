@@ -70,8 +70,19 @@ let
     };
 
     # The sandbox does not cover Claude's own Read tool, and the Mac has no
-    # sandbox; this rule costs nothing there.
-    permissions.deny = map (dir: "Read(${dir}/**)") policy.keyDirs;
+    # sandbox; the key's rule costs nothing there. Nick's other credentials
+    # are denied on Linux, where the sandbox below hides them from commands
+    # too. On the Mac that list takes in most of ~/Library, which the night
+    # shift hides (home/night-shift.nix) and an interactive session has no
+    # sandbox to match. A path may be a file, so each gets both rules.
+    permissions.deny =
+      map (dir: "Read(${dir}/**)") policy.keyDirs
+      ++ lib.optionals pkgs.stdenv.isLinux (
+        lib.concatMap (p: [
+          "Read(${p})"
+          "Read(${p}/**)"
+        ]) policy.credentialPaths
+      );
 
     # Keys under `env` rather than all of it, so variables set by hand
     # survive. Here rather than in the Linux half below, whose `//` would
@@ -141,8 +152,27 @@ let
       # Tried on a scratch flake. See also .gitmodules.
       filesystem.allowWrite = [ sandboxNixCache ];
 
-      # A list, so recursiveUpdate would replace the shared one rather than
-      # add to it.
+      # Nick's credentials (lib/claude-sandbox.nix), denied the way the age
+      # key is. On Linux a credentials deny and filesystem.denyRead become the
+      # same bubblewrap mounts; the split keeps what is a secret apart from
+      # what is a way out, the sockets in denyRead. ~/.ssh/agent stays there
+      # as well, as in forge's managed settings. Paths that do not exist are
+      # skipped.
+      #
+      # No session needs them. git reaches GitHub over HTTPS and needs no
+      # login, since pushes are Nick's (pr-handoff, outside the sandbox), and
+      # plain ssh reaches nothing from inside. fleet-ssh, excluded below, runs
+      # outside and still reads ~/.ssh, and Claude Code reads its own login in
+      # its own process, not through a command.
+      #
+      # Lists, so recursiveUpdate would replace the shared ones rather than
+      # add to them.
+      credentials.files =
+        policy.strict.credentials.files
+        ++ map (path: {
+          inherit path;
+          mode = "deny";
+        }) policy.credentialPaths;
       filesystem.denyRead = policy.strict.filesystem.denyRead ++ config.claude-sandbox.extraDenyRead;
 
       # Plain ssh ignores the sandbox's proxy, so it reaches nothing from

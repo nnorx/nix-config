@@ -83,8 +83,8 @@ the repo's `.git/night-shift/`. If one of them fails, the issue lands in
   and for nix-config, preflight's verdict on the branch, worked out by the
   dispatcher rather than taken from the agent. Evaluating the branch runs code
   the agent wrote, with the network on, so that preflight runs under
-  bubblewrap with Claude's sandbox denies and your credentials hidden
-  (`hidden` in `hosts/forge/night-shift.nix`). Publish with the command in the
+  bubblewrap with what every Claude session's sandbox denies hidden, your
+  credentials among it (`hidden` in `hosts/forge/night-shift.nix`). Publish with the command in the
   comment, `cd <worktree> && pr-handoff`.
 - **Needs you:** the agent's questions are in the comment. Answer in a comment
   and move the issue back to `Queued`; the same session resumes with your

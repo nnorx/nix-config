@@ -45,9 +45,9 @@ let
   ];
 
   # Hidden from preflight on an agent's branch, which evaluates code the agent
-  # wrote. Claude's sandbox policy, taken from the same file so the two cannot
-  # drift, plus forge's sops secrets (claude.nix) and Nick's credentials:
-  # evaluation runs with the network on, so nothing it could read and send
+  # wrote. What every session's sandbox denies, taken from the same file so
+  # the two cannot drift: the shared policy, forge's sops secrets (claude.nix)
+  # and Nick's credentials, which home/claude.nix adds. Evaluation runs with the network on, so nothing it could read and send
   # may be readable.
   policy = import ../../lib/claude-sandbox.nix {
     inherit lib;
