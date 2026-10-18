@@ -12,6 +12,8 @@ it stands, see [network.md](network.md).
 router. That was not the plan going in, where the Nest was to be kept unreset
 as a revert path, and it raises what a bad deploy costs: the recovery USB and
 `deploy-guard` are now the only ways back. See [recovery.md](recovery.md).
+gate deploys by hand; [deploys.md](deploys.md) designs how its deploys, and
+the Pis', come to run only revisions Nick has signed.
 
 ## Still open
 
