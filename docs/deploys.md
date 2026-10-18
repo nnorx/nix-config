@@ -448,7 +448,7 @@ search for "tonight", "that night" and "main's head", find these.
 | [observability.md](observability.md), "The wrong boot" and the alert table; [fleet-agent.md](fleet-agent.md), the evidence table | `RevisionBehind` against main's head | Against each host's deploy tag, and the 7-day reminder against main |
 | [privacy.md](privacy.md), "Flake fetches" | `nrs`, `nrb` and the upgrade fetch `github:nnorx/nix-config` | Each fetch names a revision, and the upgrade also lists and fetches its tags. GitHub sees the same |
 | [pi-install.md](pi-install.md), first deploy | `nixos-rebuild build` and `boot` from `github:nnorx/nix-config#lifeline` | Unchanged. A new Pi accepts nothing until fleet-deploy signs its first tag, and meanwhile re-applies what it runs |
-| [device-identity.md](device-identity.md) step 5, [power.md](power.md), [fleet-agent.md](fleet-agent.md)'s milestones, [privacy.md](privacy.md)'s order | "Merging deploys it that night" for steps not yet done | "Deploying it", where the step is still ahead when that record's pull request is written |
+| [device-identity.md](device-identity.md) step 5, [power.md](power.md), [fleet-agent.md](fleet-agent.md)'s milestones, [services.md](services.md)'s order, [privacy.md](privacy.md)'s order | "Merging deploys it that night" for steps not yet done | "Deploying it", where the step is still ahead when that record's pull request is written |
 
 `pkgs/night-shift/night-shift.sh` and `tests/night-shift/run.sh` read the
 default branch to make worktrees from, [ipv6.md](ipv6.md) tests a branch by
@@ -534,8 +534,8 @@ generation ([recovery.md](recovery.md), "Picking an older generation"). Then
 10. **`CLAUDE.md`, `README` and the runbooks.** Everything in the table above
     that is prose: CLAUDE.md's "Deploying and merging", the README's
     "Deploying", recovery.md, home-assistant.md, keys.md, observability.md,
-    fleet-agent.md and privacy.md. `routine`. Only after step 6, since until
-    then merging still deploys core4 and core5.
+    fleet-agent.md, services.md and privacy.md. `routine`. Only after step 6,
+    since until then merging still deploys core4 and core5.
 11. **gate, with the guided gate flow.** `deploy-ref` on gate without a timer,
     and gate's `nrs` and `nrb` verifying first. gate changes only when Nick
     deploys it, with the brief's verdict for gate in the pull request.
