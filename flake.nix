@@ -114,6 +114,9 @@
       # The Pis' deploy login's keys, one per admin machine (lib/deploy-keys.nix)
       deployPubKeys = builtins.attrValues (import ./lib/deploy-keys.nix);
 
+      # The diag login's keys, one per admin machine (lib/diag-keys.nix)
+      diagPubKeys = builtins.attrValues (import ./lib/diag-keys.nix);
+
       # LAN topology — single source of truth for addressing (see lib/net.nix)
       net = import ./lib/net.nix;
 
@@ -175,6 +178,7 @@
             hostname
             sshPubKeys
             deployPubKeys
+            diagPubKeys
             net
             ;
           unstable = unstableFor.${system};
@@ -317,6 +321,7 @@
             "gate-iot-egress"
             "gate-servers-egress"
             "deploy-agent"
+            "diag-login"
             "dns-metrics"
             "forge-dns"
             "unbound-root-zone"

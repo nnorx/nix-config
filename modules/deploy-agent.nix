@@ -19,8 +19,8 @@
 # needed. A stolen deploy key can deploy main early, reboot a Pi when nothing
 # is running that a reboot would cut off, or hold its upgrades.
 #
-# fleet-ssh logs in as the host's own user with id_ed25519_pis, so it cannot
-# reach this login, and deploying stays Nick's.
+# fleet-ssh logs in as `diag` (modules/diag-login.nix) with its own key, so it
+# cannot reach this login, and deploying stays Nick's.
 #
 # The upgrade keeps its own rules. Outside the reboot window in
 # modules/baseline.nix, a change to the kernel, its modules or the initrd is

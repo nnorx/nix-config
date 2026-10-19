@@ -47,27 +47,50 @@ let
       };
     };
 
-  # ssh to the fleet for Claude Code. Its sandbox has no route to the network
-  # that plain ssh will take, so home/claude.nix excludes this one command from
-  # the sandbox, and it runs with Nick's full access. What keeps that safe is
-  # that nothing about the local side is an argument: the host must be one of
-  # the names above, the options are fixed, and ProxyCommand and LocalCommand,
-  # which would run an arbitrary local command, are off. Everything after the
-  # host goes to the remote side, where sudo wants a password.
+  # ssh to the fleet for Claude Code, as each host's `diag` login
+  # (modules/diag-login.nix), which is outside wheel and has no sudo. Its
+  # sandbox has no route to the network that plain ssh will take, so
+  # home/claude.nix excludes this one command from the sandbox, and it runs
+  # with Nick's local access. What keeps that safe is that nothing about the
+  # local side is an argument: the host must be one of the names above, the
+  # options are fixed, and ProxyCommand and LocalCommand, which would run an
+  # arbitrary local command, are off. Everything after the host goes to the
+  # remote side. What bash and the loader act on before the first line
+  # (BASH_ENV, LD_PRELOAD) is beyond this script; that rests on Claude Code
+  # not taking `VAR=x fleet-ssh` for fleet-ssh.
   #
-  # keychain's environment file names the agent, because the process Claude
-  # Code runs under never sourced a login shell. After a reboot the agent is
-  # empty until `ssh-add`, and BatchMode turns that into a refusal rather than
-  # a prompt that would hang. That file is sourced, so its path comes from
-  # nothing a caller can set: the home directory is fixed here and the
-  # hostname read from the kernel, not $HOME and $HOSTNAME. What bash and the
-  # loader act on before the first line (BASH_ENV, LD_PRELOAD) is beyond this
-  # script; that rests on Claude Code not taking `VAR=x fleet-ssh` for
-  # fleet-ssh.
+  # It signs with ~/.ssh/id_ed25519_diag (lib/diag-keys.nix), a file key with
+  # no passphrase, and offers it and nothing else: IdentityAgent none, so no
+  # agent's keys are offered or used, and IdentitiesOnly, so no default key
+  # file is either. It works the same after a reboot, with nobody there.
   #
-  # -F reads the config this file writes and skips the system's. Debian's
-  # /etc/ssh/ssh_config, on WSL, sets GSSAPIAuthentication, which nixpkgs'
-  # OpenSSH does not know, so every call warned.
+  # Its own config, from the store, through -F. That skips both ~/.ssh/config
+  # and the system's. IdentityFile adds up across every config ssh reads and
+  # the command line, so reading the entries `ssh <host>` uses, or
+  # config.local, which they include, would offer their keys too. And
+  # Debian's /etc/ssh/ssh_config, on WSL, sets GSSAPIAuthentication, which
+  # nixpkgs' OpenSSH does not know, so every call warned. Host keys are
+  # checked against ~/.ssh/known_hosts, ssh's default, which `ssh <host>`
+  # keeps, and gate-vpn keeps its HostKeyAlias.
+  fleetSshConfig = pkgs.writeText "fleet-ssh-config" (
+    lib.concatStrings (
+      lib.mapAttrsToList (
+        name: host:
+        "Host ${name}\n"
+        + lib.concatMapStrings (line: "  ${line}\n") (
+          [
+            "HostName ${host.address}"
+            "User diag"
+            "IdentityFile ${config.home.homeDirectory}/.ssh/id_ed25519_diag"
+            "IdentitiesOnly yes"
+            "IdentityAgent none"
+          ]
+          ++ lib.optional (host ? hostKeyAlias) "HostKeyAlias ${host.hostKeyAlias}"
+        )
+      ) fleet
+    )
+  );
+
   fleetSsh = pkgs.writeShellApplication {
     name = "fleet-ssh";
     runtimeInputs = [ pkgs.openssh ];
@@ -86,13 +109,8 @@ let
           exit 64
           ;;
       esac
-      agent="${config.home.homeDirectory}/.keychain/$(</proc/sys/kernel/hostname)-sh"
-      if [ -r "$agent" ]; then
-        # shellcheck disable=SC1090
-        . "$agent"
-      fi
       exec ssh \
-        -F "${config.home.homeDirectory}/.ssh/config" \
+        -F ${fleetSshConfig} \
         -o BatchMode=yes \
         -o ConnectTimeout=10 \
         -o ProxyCommand=none \
@@ -204,7 +222,7 @@ let
           fi
           case $why in
             *"command not found"*) why="no host-status yet; it arrives with this host's next deploy" ;;
-            *"Permission denied"*) why="unreachable: $why (agent empty? ssh-add ~/.ssh/id_ed25519_pis)" ;;
+            *"Permission denied"*) why="refused: $why (no diag login there yet, or no ~/.ssh/id_ed25519_diag here)" ;;
             *) why="unreachable: ''${why:-no output}" ;;
           esac
           printf '%-9s %s\n' "$host" "$why"
@@ -228,7 +246,8 @@ in
   ];
 
   # `ssh core4`, `ssh gate` and so on, from any admin machine. The login user
-  # is the hostname, as hosts/common makes it.
+  # is the hostname, as hosts/common makes it. fleet-ssh reads none of this:
+  # it has its own config, above.
   #
   # IdentitiesOnly, because otherwise ssh offers every key the agent holds
   # before the one named here, and the hosts allow three attempts

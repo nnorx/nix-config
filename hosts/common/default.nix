@@ -18,6 +18,7 @@ in
   imports = [
     ../../modules/baseline.nix
     ../../modules/ssh.nix
+    ../../modules/diag-login.nix
     ../../modules/firewall.nix
     ../../modules/fail2ban.nix
     ../../modules/net-assertions.nix

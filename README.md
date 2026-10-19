@@ -219,7 +219,9 @@ ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_pis -C nick@<machine>
 
 Add the `.pub` line to `lib/ssh-keys.nix` and merge. The Pis pick it up that
 night, and gate needs `nrs`. Revoking a machine is deleting its line the same
-way.
+way. sshd reads keys from the lists in `lib/` alone, never from a login's own
+`~/.ssh/authorized_keys` (`modules/ssh.nix`), so deleting a line is the whole
+of revoking that key, for every login.
 
 A machine that deploys the Pis by day also gets a key for their deploy login
 (`modules/deploy-agent.nix`), which can start the nightly upgrade, reboot, or
@@ -232,6 +234,18 @@ ssh-add ~/.ssh/id_ed25519_pis ~/.ssh/id_ed25519_deploy
 ```
 
 Its `.pub` line goes in `lib/deploy-keys.nix`, and is revoked the same way.
+
+Every admin machine also gets a key for the `diag` login
+(`modules/diag-login.nix`), which fleet-ssh uses for the read-only diagnostics
+Claude sessions run: a user outside wheel, with no sudo. It has no passphrase,
+since fleet-ssh reads the file rather than an agent, and
+`lib/claude-sandbox.nix` hides `~/.ssh` from commands:
+
+```bash
+ssh-keygen -t ed25519 -N '' -f ~/.ssh/id_ed25519_diag -C nick@<machine>-diag
+```
+
+Its `.pub` line goes in `lib/diag-keys.nix`, and is revoked the same way.
 
 **Images keep the list they were built with.** A rescue USB or SD image made
 before a change still trusts the old keys: after revoking one, rebuild and
