@@ -36,6 +36,8 @@ jobs:
           # Full history, so preflight has origin/main and the commit it
           # compares against.
           fetch-depth: 0
+          # preflight never fetches, so no git credentials are kept.
+          persist-credentials: false
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # main @ 2026-09-09
         with:
           diagnostic-endpoint: ""
@@ -68,6 +70,8 @@ jobs:
           # Full history: Determinate Nix refuses a shallow clone as a
           # git+file flake, since it cannot count its commits (revCount).
           fetch-depth: 0
+          # Nothing after checkout uses git credentials: none are kept.
+          persist-credentials: false
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # main @ 2026-09-09
         with:
           diagnostic-endpoint: ""
@@ -120,6 +124,9 @@ jobs:
       cancel-in-progress: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Nothing after checkout uses git credentials: none are kept.
+          persist-credentials: false
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # main @ 2026-09-09
         with:
           diagnostic-endpoint: ""
@@ -168,6 +175,9 @@ jobs:
       tests: ${{ steps.list.outputs.tests }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Nothing after checkout uses git credentials: none are kept.
+          persist-credentials: false
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # main @ 2026-09-09
         with:
           diagnostic-endpoint: ""
@@ -204,6 +214,9 @@ jobs:
       cancel-in-progress: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Nothing after checkout uses git credentials: none are kept.
+          persist-credentials: false
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # main @ 2026-09-09
         with:
           diagnostic-endpoint: ""
