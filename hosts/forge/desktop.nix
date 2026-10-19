@@ -1,5 +1,10 @@
 # Plasma 6 on Wayland, audio, and games.
-{ pkgs, unstable, ... }:
+{
+  lib,
+  pkgs,
+  unstable,
+  ...
+}:
 {
   services.desktopManager.plasma6.enable = true;
   services.displayManager.sddm = {
@@ -91,6 +96,19 @@
 
   # From unstable, where browser security releases land first.
   environment.systemPackages = [ unstable.brave ];
+
+  # The browser for a user who has chosen none: /etc/xdg/mimeapps.list, which
+  # each user's ~/.config/mimeapps.list outranks. Not Home Manager's
+  # xdg.mimeApps, which makes the user's file a store link that System
+  # Settings cannot save to. brave-browser.desktop is the entry menus show and
+  # System Settings writes; com.brave.Browser.desktop is a hidden copy for the
+  # portal's app ID.
+  xdg.mime.defaultApplications = lib.genAttrs [
+    "text/html"
+    "application/xhtml+xml"
+    "x-scheme-handler/http"
+    "x-scheme-handler/https"
+  ] (_: "brave-browser.desktop");
 
   # Managed policies, which brave://policy lists. Brave on Linux reads every
   # JSON file in /etc/brave/policies/managed: brave-core sets
