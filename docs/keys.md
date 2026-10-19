@@ -264,8 +264,10 @@ login already does.
    machine, from `lib/diag-keys.nix`, kept at `~/.ssh/id_ed25519_diag`, each
    `restrict`ed to no pty and no forwarding. fleet-ssh uses that key and
    nothing else does: its own config, from the store, offers it alone, with
-   no agent. host-status works as `diag`. Built, in `modules/diag-login.nix`
-   and `home/ssh.nix`.
+   no agent. host-status works as `diag`. Nothing it starts outlives its
+   login (logind's `KillOnlyUsers`), and it does not use the nix daemon,
+   which only wheel may. Built, in `modules/diag-login.nix` and
+   `home/ssh.nix`.
 2. The host's user takes only `ed25519-sk` keys, from `lib/ssh-keys.nix`.
 3. CLAUDE.md's fleet-ssh section, and `deploy-agent.nix`'s note on which login
    fleet-ssh uses, describe the `diag` login. Built with the first.

@@ -160,5 +160,19 @@ in
       with subtest("each key opens only its own login"):
           ssh("/etc/diag-key", "${user}", "true", code=255)
           ssh("/etc/admin-key", "diag", "true", code=255)
+
+      with subtest("diag's processes end with its login, the host user's do not"):
+          background = "nohup sleep 600 >/dev/null 2>&1 </dev/null &"
+          diag(background)
+          ssh("/etc/admin-key", "${user}", background)
+          server.wait_until_fails("pgrep -u diag -x sleep", timeout=30)
+          server.succeed("pgrep -u ${user} -x sleep")
+
+      with subtest("only wheel uses the nix daemon"):
+          query = "nix-store --query --hash /run/current-system"
+          diag(query, code=None)
+          # The client sees only a reset connection; the daemon says why.
+          server.succeed("journalctl -u nix-daemon --no-pager | grep -q \"user 'diag' is not allowed\"")
+          ssh("/etc/admin-key", "${user}", query)
     '';
 }

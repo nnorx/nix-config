@@ -22,4 +22,18 @@
 
   # Added to the host's own user in modules/ssh.nix; the lists merge.
   services.openssh.settings.AllowUsers = [ "diag" ];
+
+  # Nothing diag starts outlives its login. KillOnlyUsers has logind kill a
+  # session's processes when it ends, for the users listed, whatever
+  # KillUserProcesses says, so the host's own user keeps what it leaves
+  # running. Deleting a key's line then ends everything that key started at
+  # its logout, rather than at the next reboot.
+  services.logind.settings.Login.KillOnlyUsers = "diag";
+
+  # Only wheel uses the nix daemon (root always may). diag reads the host and
+  # builds nothing, and a build runs as the daemon's own users, so whatever
+  # holds diag to its own reach would not hold the build. Nothing on the
+  # servers runs nix as anyone else: the upgrades and deploy-guard run as
+  # root, and deploy-agent writes request files.
+  nix.settings.allowed-users = [ "@wheel" ];
 }
