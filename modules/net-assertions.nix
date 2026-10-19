@@ -395,6 +395,155 @@ let
       A firewall rule opened for one of them would open the others.
     '';
   }) portNames;
+
+  # The web UIs (docs/services.md, "The registry"). The resolvers, each
+  # proxy, the firewall and core5's probes read it, each on its own host, so a
+  # wrong entry fails every host here, with a message, rather than the one
+  # that reads it with a trace.
+  #
+  # `upstream` and `grantable` are optional, and each reader supplies the
+  # default, so a key outside these two lists is refused: a misspelt
+  # `grantable = false` would otherwise read as true.
+  serviceKeys = [
+    "host"
+    "port"
+    "segments"
+    "probe"
+    "backup"
+  ];
+  serviceOptionalKeys = [
+    "upstream"
+    "grantable"
+  ];
+
+  # The segments that reach a host without a gate rule of their own: its own,
+  # and trusted for a host on servers, through gate's "trusted reaches
+  # servers". A service for iot or work is a gate rule, to design when one is
+  # wanted.
+  reachesHost =
+    host:
+    lib.optional (host ? segment) host.segment
+    ++ lib.optional ((host.segment or null) == "servers") "trusted";
+
+  # RFC 1123's rule for a host name label, which is what the name becomes.
+  isDnsLabel = name: builtins.match "[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?" name != null;
+
+  serviceChecks = lib.concatLists (
+    lib.mapAttrsToList (
+      name: svc:
+      let
+        keys = builtins.attrNames svc;
+        missing = lib.subtractLists keys serviceKeys;
+        unknown = lib.subtractLists (serviceKeys ++ serviceOptionalKeys) keys;
+        host = hosts.${svc.host or ""} or { };
+        reaching = reachesHost host;
+        segs = svc.segments or [ ];
+      in
+      [
+        {
+          assertion = isDnsLabel name;
+          message = ''
+            net.services has an entry "${name}", which is not a DNS label. The name
+            is the service's label under the domain, so it must be lowercase
+            letters, digits and hyphens, neither starting nor ending with a
+            hyphen, and at most 63 characters. Rename the entry.
+          '';
+        }
+        {
+          assertion = missing == [ ] && unknown == [ ];
+          message = ''
+            net.services.${name} ${
+              lib.concatStringsSep " and " (
+                lib.optional (missing != [ ]) "lacks ${lib.concatStringsSep ", " missing}"
+                ++ lib.optional (unknown != [ ]) "has ${lib.concatStringsSep ", " unknown}, which no reader knows"
+              )
+            }.
+            An entry carries ${lib.concatStringsSep ", " serviceKeys}, and may carry
+            ${lib.concatStringsSep " and " serviceOptionalKeys}. Every reader ignores
+            any other key, so a misspelt optional one would read as its default.
+          '';
+        }
+        {
+          assertion = host ? ip;
+          message = ''
+            net.services.${name}.host is "${svc.host or "?"}", which is not a host with
+            an address in net.hosts. The service's name answers that address, and
+            its proxy runs on that host. gate has neither, so set `host` to the
+            host the service runs on.
+          '';
+        }
+        {
+          assertion = net.ports ? ${svc.port or ""};
+          message = ''
+            net.services.${name}.port is "${svc.port or "?"}", which is not a name in
+            net.ports. The proxy reaches the service at that port on loopback,
+            and the firewall keeps it closed, both by name. Add the port to
+            net.ports or name the one it has there.
+          '';
+        }
+        {
+          # Left to the check above when the host is wrong.
+          assertion = !(host ? ip) || (builtins.isList segs && lib.all (s: lib.elem s reaching) segs);
+          message = ''
+            net.services.${name}.segments is ${builtins.toJSON segs}, but only
+            ${builtins.toJSON reaching} reach ${svc.host or "?"} without a gate rule of their
+            own: the host's own segment, and trusted for a host on servers. A
+            tunnel peer is granted a service in hosts/gate/wireguard.nix, not
+            here. Drop the segment, or design its gate rule first.
+          '';
+        }
+        {
+          assertion = lib.elem (svc.upstream or "http") [
+            "http"
+            "https"
+          ];
+          message = ''
+            net.services.${name}.upstream is ${builtins.toJSON svc.upstream}, which must be
+            "http" or "https": how the proxy speaks to the service on loopback.
+            Leave it out for "http".
+          '';
+        }
+        {
+          assertion = builtins.isString (svc.probe or null) && lib.hasPrefix "/" svc.probe;
+          message = ''
+            net.services.${name}.probe is ${builtins.toJSON (svc.probe or null)}, which must be a
+            path starting with "/". core5's probe asks for it at the service's
+            name, so write the path alone, with no scheme or host.
+          '';
+        }
+        {
+          assertion = (svc.backup or null) == null || builtins.isString svc.backup;
+          message = ''
+            net.services.${name}.backup is ${builtins.toJSON svc.backup}, which must be the
+            name of the offboxPush entry that copies the service's state off its
+            host, or null for a service with none.
+          '';
+        }
+        {
+          assertion = builtins.isBool (svc.grantable or true);
+          message = ''
+            net.services.${name}.grantable is ${builtins.toJSON svc.grantable}, which must be
+            true or false. Leave it out for true.
+          '';
+        }
+      ]
+    ) net.services
+  );
+
+  # Each proxy reaches its services at their ports on loopback, so two
+  # services on one host naming the same port are one service under two
+  # names, each with its own allowlist.
+  serviceHostPorts = lib.groupBy (
+    name: "${net.services.${name}.host or "?"}:${net.services.${name}.port or "?"}"
+  ) (builtins.attrNames net.services);
+  servicePortChecks = lib.mapAttrsToList (hostPort: names: {
+    assertion = builtins.length names == 1;
+    message = ''
+      net.services ${lib.concatStringsSep ", " names} all name host and port ${hostPort}.
+      Their proxy would send each name to the same service. Give each its
+      own port in net.ports, or keep one entry.
+    '';
+  }) serviceHostPorts;
 in
 {
   assertions =
@@ -407,5 +556,7 @@ in
     ++ agentChecks
     ++ metricsChecks
     ++ rootZoneChecks
-    ++ portChecks;
+    ++ portChecks
+    ++ serviceChecks
+    ++ servicePortChecks;
 }

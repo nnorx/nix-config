@@ -489,4 +489,32 @@
     # than the one HTTP/3 uses.
     wireguard = 443;
   };
+
+  # The house's web UIs, each at https://<name>.<domain> through the proxy on
+  # its host (docs/services.md). <domain> is `services-domain` in the sops file
+  # of each host that serves or answers these names, and never here. A service
+  # joins this set in the pull request that puts it behind its proxy.
+  #
+  # Two attributes are optional: `upstream`, "http" unless set, and
+  # `grantable`, true unless set. The defaults live in the readers, each of
+  # which writes `upstream or "http"` and `grantable or true`, so an entry
+  # carries only what differs and this file stays data.
+  # modules/net-assertions.nix refuses an attribute it does not know, so a
+  # misspelt `grantable = false` fails evaluation rather than reading as the
+  # default.
+  services = {
+    grafana = {
+      host = "core5";
+      # A name in `ports`: where the service itself listens, on loopback.
+      port = "grafana";
+      # Segments that reach it. Tunnel peers are not listed here: what a
+      # peer may reach is `grants`, in hosts/gate/wireguard.nix.
+      segments = [ "trusted" ];
+      # What core5's probe asks for. It must answer without a login.
+      probe = "/api/health";
+      # The offboxPush entry that copies its state off the host, or null.
+      # Grafana's is provisioned from this repo.
+      backup = null;
+    };
+  };
 }
