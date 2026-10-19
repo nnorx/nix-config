@@ -1,9 +1,9 @@
 # Services
 
-A decision record. Nothing in it is built yet. It settles how the house's web
-UIs are reached by name over TLS, and how each is wired from one table in
-`lib/net.nix`, so that the follow-up pull requests build it rather than
-re-argue it. This file changes no host.
+A decision record. Its decisions are made ("Decided"), and nothing in it is
+built yet. It settles how the house's web UIs are reached by name over TLS,
+and how each is wired from one table in `lib/net.nix`, so that the follow-up
+pull requests build it rather than re-argue it. This file changes no host.
 
 ## The question
 
@@ -40,7 +40,7 @@ the probes and the backups. The NAS will add more, Immich first.
 
 | | Decision |
 |---|---|
-| Names | `<name>.<domain>`, one label per service, under a domain bought for this. `<domain>` is in sops on each host that needs it, never in the repo |
+| Names | `<name>.<domain>`, one label per service, under a domain bought for this, its DNS in a Cloudflare account of its own. `<domain>` is in sops on each host that needs it, never in the repo |
 | Answered by | Unbound on core4 and lifeline, as a static zone built from the registry. Not gate, and nothing in public DNS |
 | Certificates | A public CA, through the ACME DNS-01 challenge, for one wildcard, `*.<domain>`, so no service's name reaches Certificate Transparency logs |
 | ACME client | lego from nixpkgs, in a unit of the proxy module, with a new token that can edit `<domain>`'s DNS and nothing else. Not gate's DDNS token |
@@ -60,11 +60,9 @@ repo", and [device-identity.md](device-identity.md) applies: what a rule needs
 is public, and what maps the repo to the house is not.
 
 - **The domain is kept out.** A name under the DDNS zone names that zone,
-  which is identifying. A domain bought for this maps to nothing public, but
-  it is kept out too, as the issue that planned this record asked: it goes in
-  sops as `services-domain`, as the DDNS hostname does in
-  [`hosts/gate/ddns.nix`](../hosts/gate/ddns.nix). "For Nick" asks whether
-  that is needed.
+  which is identifying. A domain bought for this is kept out too, so nothing
+  in the repo leads to it: it goes in sops as `services-domain`, as the DDNS
+  hostname does in [`hosts/gate/ddns.nix`](../hosts/gate/ddns.nix).
 - **Labels are public.** `grafana`, `home-assistant`, `unifi`,
   `adguard-core4` and `adguard-lifeline` say what the repo already says, and
   live in `lib/net.nix`, where every consumer can read them.
@@ -90,14 +88,19 @@ DNS provider's API, not through a connection to the house.
 |---|---|---|
 | `home.arpa` (RFC 8375) | No | Yes |
 | A subdomain of the DDNS zone | Yes | No |
-| A domain bought for this | Yes | No, as planned |
+| A domain bought for this | Yes | No |
 
-**A domain bought for this**, a few dollars a year, its DNS at Cloudflare
-beside the DDNS zone, holding no records. Cloudflare scopes an API token to
+**A domain bought for this**, a few dollars a year, its DNS at Cloudflare in
+an account of its own, holding no records. Cloudflare scopes an API token to
 zones, not records, so any token that can answer a challenge under the DDNS
 zone can also move the record WireGuard peers dial, and that token would sit
-on three Pis (below). A domain of its own also keeps the wildcard's CT entry
-off the DDNS zone. `home.arpa` suits only the private CA, below.
+on three Pis (below). Pointing the challenge's name at another zone by CNAME
+would keep the token off the DDNS zone, but needs a second zone anyway, so it
+gains nothing over a domain of its own. An account of its own, with its own
+login, goes one step further: a token made in it cannot be given the DDNS
+zone at all, and neither login reaches the other's zones. A domain of its own
+also keeps the wildcard's CT entry off the DDNS zone. `home.arpa` suits only the private CA,
+below.
 
 The services sit one label under it, `<name>.<domain>`, so the one wildcard
 covers all of them, and a new service never needs a new certificate.
@@ -199,8 +202,12 @@ key every client trusts on that host. Its root would go:
   user-installed CA only if it opts in. Chrome does. **The Home Assistant
   companion app does**: its network security config has trusted user
   certificates since home-assistant/android#194, in December 2019, read for
-  this record. Firefox for Android does only with a setting turned on. Android
-  then warns that the network may be monitored.
+  this record. So does Immich's, the NAS's first service: its network security
+  config has trusted user certificates since immich-app/immich#25802, in
+  February 2026, and its API requests have gone through the platform's own
+  HTTP client since #25942, read on 2026-10-18. Firefox for Android does only
+  with a setting turned on. Android then warns that the network may be
+  monitored.
 - **On iOS**, as a profile, with full trust switched on in Settings.
 - **On every other device that opens a UI**, each by hand.
 
@@ -213,8 +220,9 @@ offline key.
 zone, and the services' zone is another. Even under the DDNS zone, reusing it
 would copy gate's credential onto three Pis that upgrade themselves nightly
 and run far more than gate does, and from any of them it could move the record
-peers dial. The new token has DNS edit on `<domain>`'s zone and nothing else,
-and is `services-dns-token` in the sops file of each proxy host.
+peers dial. The new token is owned by the services' account, has DNS edit on
+`<domain>`'s zone and nothing else, and is `services-dns-token` in the sops
+file of each proxy host.
 
 A stolen copy is worth more than certificates. It edits the zone, so its
 holder can publish records for the services' names and serve them, with a
@@ -241,7 +249,7 @@ DNS for a probe to see, and costs a new key and certificate once known.
   the long-running process that faces the LAN.
 - **Not NixOS's `security.acme`**, which drives lego but writes the domain
   into the unit's command line, in the store. It is the right tool if the
-  domain is ever public ("For Nick").
+  domain is ever public ("What would reopen this").
 - **lego** is in nixpkgs and built by Hydra. The version pinned, 4.35.2, needs
   no contact address, takes the domain and the token from an environment file
   that sops renders, writes under a fixed file name whatever the domain,
@@ -440,7 +448,7 @@ Two ways out:
 
 **The second.** It is still the one place a peer's reach is written, which is
 what CLAUDE.md's invariant protects, so the invariant's wording moves with it,
-in CLAUDE.md and the README ("For Nick").
+in CLAUDE.md and the README, in the grants PR (step 3).
 
 ```nix
 vpn = {
@@ -657,8 +665,12 @@ loopback, and a grant if a peer needs it.
 
 ## What Nick does by hand
 
-- **Buy the domain**, and put its DNS at Cloudflare with no records.
-- **Make the token**: an API token with DNS edit on that zone alone.
+- **Make the account**: a Cloudflare account for the services alone, with its
+  own login, email address and second factor, kept in the password manager.
+  The DDNS zone's login is not added to it as a member.
+- **Buy the domain**, and put its DNS in that account with no records.
+- **Make the token**: an API token owned by that account, with DNS edit on
+  the zone alone.
 - **Write both secrets**, before step 4, from the repo, in your own terminal.
   The domain's shape is checked before anything is written, and the token's
   read does not echo. The block has no comments, since interactive zsh runs a
@@ -692,25 +704,24 @@ loopback, and a grant if a peer needs it.
 
 Nothing is installed on any device, which is the public CA's point.
 
-## For Nick
+## Decided
 
-1. **Public CA or private?** The record chooses public, for every device that
-   opens Home Assistant. If only forge and your phone will ever open these
-   UIs, the private CA costs two devices and wins on everything else: names in
-   the repo, nothing leaving the house, no credential on a Pi. Which?
-2. **A domain of its own, or a subdomain of the DDNS zone?** The record says
-   its own, since any token for the DDNS zone can move the record peers dial.
-3. **Does the domain need to be secret?** A domain bought for this, with no
-   public record pointing at the house, arguably identifies nothing. If it may
-   go in `lib/net.nix`, the four splices become ordinary evaluation, lego
-   becomes NixOS's `security.acme`, and preflight sees a change of name. The
-   record keeps it in sops, as the issue said. Keep it there?
-4. **`grants` into `lib/net.nix`.** It moves what CLAUDE.md's invariant points
-   at ("What a WireGuard peer may reach is `grants` in
-   `hosts/gate/wireguard.nix`, and nothing else"), keeping it one place.
-   Agreed?
-5. **Home Assistant for the phone, and Grafana for forge**, through the
-   tunnel, as "Access" decides. Agreed?
+Nick's answers. Each is argued in the section it names.
+
+1. **A public CA**, so every device that opens Home Assistant trusts it with
+   nothing installed ("A public CA, chosen").
+2. **A domain of its own**, not a subdomain of the DDNS zone. A token for that
+   zone could also move the record peers dial, and a CNAME to another zone
+   still needs a second zone ("The domain").
+3. **The domain kept out of the repo**, in sops as `services-domain` ("What
+   is identifying").
+4. **`grants` move into `lib/net.nix`**, still the one place a peer's reach is
+   written. CLAUDE.md's invariant and the README move with them, in the grants
+   PR ("Tunnel grants move into lib/net.nix").
+5. **The phone gets Home Assistant, and forge gets Grafana**, through the
+   tunnel ("Access").
+6. **The domain's DNS in a Cloudflare account of its own**, with its own
+   login and a token that account owns ("The domain", "The token").
 
 ## What would reopen this
 
@@ -718,8 +729,10 @@ Nothing is installed on any device, which is the public CA's point.
   gate's `wan`, or a third party in front of the house, and a design of its
   own.
 - **Who opens these UIs.** The public CA was chosen for every device that
-  opens Home Assistant ("For Nick", 1). If that comes down to forge and one
+  opens Home Assistant ("Decided", 1). If that comes down to forge and one
   phone, the private CA is cheaper.
+- **The domain going public.** It could then be in `lib/net.nix`, lego would
+  become NixOS's `security.acme`, and the four splices plain evaluation.
 - **Caddy with DNS providers in a cache**, or built in. lego's unit would then
   fold into Caddy.
 - **The NAS**, if it brings more services that speak OpenID Connect than
