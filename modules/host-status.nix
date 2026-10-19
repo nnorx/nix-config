@@ -7,8 +7,10 @@
 # check added since, so nothing on the host can notice. Its revision is still
 # what it is, and fleet-status compares it with main from outside.
 #
-# Read-only, needs no root, and prints nothing that identifies the network:
-# one tab-separated `key value` line per fact.
+# Read-only, and prints nothing that identifies the network: one
+# tab-separated `key value` line per fact. It needs no root and no wheel, so it
+# runs as fleet-ssh's `diag` login (modules/diag-login.nix), whose
+# `systemd-journal` group is what lets it read the upgrade's journal.
 { pkgs, ... }:
 let
   host-status = pkgs.writeShellApplication {

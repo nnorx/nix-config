@@ -60,6 +60,12 @@ in
     # `ports`, so the port stays stated once.
     listenAddresses = lib.optionals (host ? ip) [ { addr = host.ip; } ];
 
+    # Keys only from the declared lists, which NixOS writes to
+    # /etc/ssh/authorized_keys.d, and never from a login's own
+    # ~/.ssh/authorized_keys. Deleting a machine's line from a lib file is
+    # then the whole of revoking its key, for every login.
+    authorizedKeysInHomedir = false;
+
     settings = {
       PasswordAuthentication = false;
       KbdInteractiveAuthentication = false;
