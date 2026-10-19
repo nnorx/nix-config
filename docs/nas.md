@@ -554,14 +554,18 @@ encrypted before it leaves, with the store's own deletion protection on.**
 - **Deletion protection**: the store keeps every deleted or overwritten
   object as a prior version for 30 days, through versioning with a
   lifecycle rule, or object lock where it offers that. The NAS's credential
-  is scoped to the one bucket. A credential stolen from the NAS can then hide
-  data, but not destroy it, for 30 days, which `BackupStale` and the drills
-  are there to notice inside.
+  is scoped to the one bucket, and within it may list, read, write and
+  delete objects, and nothing else: it cannot delete or overwrite a prior
+  version, and cannot change the bucket's versioning, lifecycle, lock or
+  access settings. Those belong to the store's account, with Nick. A
+  credential stolen from the NAS can then hide data, but not destroy it, for
+  30 days, which `BackupStale` and the drills are there to notice inside.
 - **Pruning**: monthly, from the NAS, with the same credential. What it
   deletes lingers as prior versions for the 30 days, then ages out.
 - **The store**, with no provider named here: one restic supports natively
   (S3-compatible, or one of restic's own backends), with versioning or object
-  lock, a credential scopable to one bucket, and its price per terabyte
+  lock, a credential scopable to one bucket and to object operations alone,
+  as above, and its price per terabyte
   stored and per terabyte restored, since a full restore reads it all back.
   Chosen by Nick ("For Nick").
 
@@ -899,7 +903,8 @@ everything after step 3.
   with the commands each pull request gives. The repository passwords go in
   the password manager as they are made.
 - **Make the object store account** and its bucket, versioning or object lock,
-  the lifecycle rule, and the scoped credential.
+  the lifecycle rule, and the scoped credential, checked by trying a
+  version delete with it, which must be refused.
 - **Measure forge's home**, without the excluded paths, before the first
   backup, to confirm the offsite drives' room.
 - **Export the photo cloud's and the cloud drive's archives**, and import
