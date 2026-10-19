@@ -119,6 +119,7 @@ scripts/               preflight, the check every change gets; dns-top-domains
 | [keys.md](docs/keys.md) | Every key, token and password hash: what each unlocks, rotating it, the hardware-key plan, rebuilding forge |
 | [services.md](docs/services.md) | The house's web UIs by name over TLS, wired from one registry: the design |
 | [deploys.md](docs/deploys.md) | Separating deploying from merging: a signed tag per host that the Pis verify, and the PRs in order |
+| [nas.md](docs/nas.md) | The home NAS: what runs on it and what does not, its hardware, storage, encryption, three copies of its data, Immich, and the PRs in order |
 
 ## Deploying
 

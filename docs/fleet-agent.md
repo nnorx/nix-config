@@ -32,13 +32,13 @@ and what Nick should look at.
 | Which alerts | `critical` and `warning`, active, neither inhibited nor silenced. Not `info`, not `Watchdog` |
 | Limits | One run at a time. One run per alert and host per 6 hours, 8 runs a day, 10 minutes and 25 tool calls a run |
 | Output | A follow-up ntfy push on the same topic at low priority, rendered from a structured answer and masked. The full report in a local file. No Linear drafts |
-| Where | forge first, by hand, then on a timer while awake. The NAS once it exists. Never core5 or gate |
+| Where | forge first, by hand, then on a timer while awake. Then a Raspberry Pi of its own, always on ([nas.md](nas.md)). Never core5, gate or the NAS |
 | Tools | host-status, unit state, boots and journals on every host; metrics and alerts on core5. Through a forced command, `triage-agent`, on a login of its own, `triage`, with a key of its own |
 | VictoriaMetrics | Through that forced command on core5. It stays on loopback |
 | Untrusted text | Kept from the model at the source: journals that carry text a device chose arrive as counts, never lines. Everything is masked on the host, and again before the push |
 | Harness | Claude Code headless, restricted to no built-in tools and the fleet's own MCP tools, which the wrapper checks before the run goes on |
-| Credentials | On forge, Nick's existing Claude login and a new SSH key. On the NAS, an API key in a workspace of its own with a spend limit, in sops |
-| Phone | Later: a page on the NAS, reached through the tunnel, behind a new port and a new grant |
+| Credentials | On forge, Nick's existing Claude login and a new SSH key. On its Pi, an API key in a workspace of its own with a spend limit, in sops |
+| Phone | Later: a page on its Pi, reached through the tunnel, behind a new port and a new grant |
 
 ## A run, end to end
 
@@ -47,7 +47,7 @@ core5:   vmalert ──► Alertmanager ─── push, as today ─────
                          ▲
                          │ triage@core5 alerts, every 2 minutes
                          │
-forge or the NAS:      poller ──► claude -p ──► triage-tools ──► triage@<host>
+forge or its Pi:       poller ──► claude -p ──► triage-tools ──► triage@<host>
                          │        no built-in   MCP, stdio       masked there
                          │        tools
                          └──► mask, render ──► push, low priority ───► phone
@@ -236,26 +236,25 @@ checkout, no listener.
 | Host | |
 |---|---|
 | **forge** | **First.** Has Claude Code, Nick's login, and SSH to every host at home (trusted reaches servers) and away (its `ssh` grant in `hosts/gate/wireguard.nix`). It sleeps, travels, and is down whenever its lid is shut, so it can only ever be the first home |
-| **The NAS** | **The long-term home**, on the NAS project's box: always on, x86, on servers, where it reaches every host's SSH directly |
+| **Its own Pi** | **The long-term home**: a Raspberry Pi 5 (8 GB), built like core5, always on, on servers, where it reaches every host's SSH directly, and holding no personal data ([nas.md](nas.md), "The fleet agent's Pi") |
+| The NAS | No. It holds every irreplaceable file the house has, so it runs nothing model-driven ([nas.md](nas.md), "Roles") |
 | core5 | No. It runs the alerting, so when it fails the agent fails with it, and it is the host whose failure most needs explaining |
 | gate | No. The router deploys by hand, has no fallback, and should not hold an API key or run a model's tool calls |
-| core4, lifeline | Not by default. They are always on and could run it, but they are the house's DNS, on SD cards, and deploy unattended every night. lifeline as a stopgap is a question for Nick, below |
+| core4, lifeline | No. They are always on and could run it, but they are the house's DNS, on SD cards, and deploy unattended every night |
 
 A first version on forge needs nothing new on forge but the command, and
 nothing on any host but the login. Milestones 1 and 2 are that.
 
-**Beside the night shift's preflight.** If the night shift also moves to the
-NAS, its preflight's flake check peaks near 12 GB on forge (12.1 GB on this
-record's own branch). The agent's unit then gets a `MemoryMax` of its own,
-and preflight gets one too, which it does not need on forge, so that one
-evaluation cannot take the room the agent and the NAS's services need. The
-NAS's memory has to cover both at once.
+**Alone on its Pi.** The night shift stays on forge, and later moves to an
+agents box rather than here ([nas.md](nas.md)), so no preflight shares the
+Pi's 8 GB. The agent's unit still gets a `MemoryMax`, so a run that
+misbehaves cannot take the host.
 
 **DNS.** A run calls Anthropic's API and ntfy.sh by name, and
-`ResolverFailing` on both resolvers is an incident it should explain. On the
-NAS the agent's unit resolves through `net.publicResolvers`, as core5 does
+`ResolverFailing` on both resolvers is an incident it should explain. On its
+Pi the agent's unit resolves through `net.publicResolvers`, as core5 does
 for the same reason (network.md, on pimon), with a `resolv.conf` of its own
-bound into the unit if the NAS itself uses the fleet's resolvers. On forge,
+bound into the unit if the Pi itself uses the fleet's resolvers. On forge,
 both resolvers failing at home leaves the run unable to start, which is a
 limit of milestone 2.
 
@@ -276,7 +275,7 @@ instruction in a prompt is not enforcement, and a forced command is.
   forced command through the login shell, as deploy-agent's comment says.
 - Its keys, in a new `lib/triage-keys.nix`, one per machine that runs the
   agent, each generated on its machine: `~/.ssh/id_ed25519_triage` on forge,
-  later the NAS's. `flake.nix` passes them as `triagePubKeys`, beside
+  later its Pi's. `flake.nix` passes them as `triagePubKeys`, beside
   `deployPubKeys`. Each is written
   `restrict,command="/run/current-system/sw/bin/triage-agent" <key>`:
   no pty, no forwarding of any kind, no agent, no `~/.ssh/rc`. `restrict`
@@ -529,7 +528,7 @@ a misleading diagnosis or a wasted run:
 
 **Claude Code's `-p` mode, with the flags above, on both hosts.** The same
 invocation runs under Nick's subscription on forge and under an API key on
-the NAS, so milestone 1's diagnoses are the NAS's diagnoses.
+its Pi, so milestone 1's diagnoses are the Pi's diagnoses.
 
 - **The Claude Agent SDK** is the same harness as a library, with the same
   built-in tools to switch off. It would buy control flow this does not need,
@@ -554,15 +553,15 @@ after a boot (`ssh-add ~/.ssh/id_ed25519_pis ~/.ssh/id_ed25519_deploy
 ~/.ssh/id_ed25519_triage`), so the file alone opens nothing. The timer of
 milestone 2 then runs only once Nick has loaded it, as after every boot.
 
-### The NAS: an API key
+### Its Pi: an API key
 
 A server should not hold Nick's personal login, which acts as him across the
-whole plan. The NAS gets an API key instead:
+whole plan. The Pi gets an API key instead:
 
 - **In a workspace of its own**, in the Anthropic Console, with a monthly
   spend limit, so the key can spend that much and reach nothing else: the
   workspace holds no files and no batches.
-- **In sops**, as `anthropic-api-key` in the NAS's secrets file, beside
+- **In sops**, as `anthropic-api-key` in the Pi's secrets file, beside
   `ntfy-url`, owned by the agent's system user and handed to the unit as a
   systemd credential.
 - **Read through `apiKeyHelper`** in the run's `--settings`, a command that
@@ -570,9 +569,9 @@ whole plan. The NAS gets an API key instead:
   environment, which the MCP server and the ssh it runs would inherit.
 - `--max-budget-usd 1` on each run, as a backstop under the workspace's
   limit.
-- The NAS's own triage key has no passphrase, since the service runs
+- The Pi's own triage key has no passphrase, since the service runs
   unattended. It lives in the unit's state directory, mode 0600, and never
-  leaves the NAS.
+  leaves the Pi.
 
 ### What a run costs
 
@@ -593,35 +592,35 @@ At 8 runs every day of a month, the most the limits allow, that is $60 on
 Opus. At the two firings of the first two weeks, it is cents. Milestone 1
 runs Opus 5.5, to learn whether the best diagnoses are worth having, and
 replays its incidents on Sonnet 5.5 to learn whether a cheaper one holds.
-The NAS's model follows from that.
+The Pi's model follows from that.
 
 ### What a stolen copy allows
 
 | Credential | Where | A stolen copy allows | Revoked by |
 |---|---|---|---|
 | forge's triage key | `~/.ssh/id_ed25519_triage`, with a passphrase | Masked, read-only diagnostics on every host, from wherever SSH reaches them | Deleting its line in `lib/triage-keys.nix`: the Pis drop it that night, gate at its next deploy |
-| The NAS's triage key | The unit's state directory | The same | The same |
+| The Pi's triage key | The unit's state directory | The same | The same |
 | Nick's Claude login | forge, already there | Claude Code as Nick against his plan, as today; triage adds nothing to it | Signing that session out |
-| The API key | The NAS's sops file | Spending up to the workspace's limit, and nothing else | Deleting it in the Console |
-| The ntfy URL | forge's sops file already, the NAS's | Posting to and reading the fleet's topic, as on every Pi today | Rotating the topic (README, "Alerts") |
+| The API key | The Pi's sops file | Spending up to the workspace's limit, and nothing else | Deleting it in the Console |
+| The ntfy URL | forge's sops file already, the Pi's | Posting to and reading the fleet's topic, as on every Pi today | Rotating the topic (README, "Alerts") |
 
 ## Later: questions from the phone
 
 Not the first milestone, and sketched here so the threat model is known
 before it is wanted.
 
-**A small page on the NAS, reached through the tunnel.** A question box, the
+**A small page on the agent's Pi, reached through the tunnel.** A question box, the
 same harness and tools, the same mask, answers shown on the page. What it
 adds:
 
 - `ports.fleetAgent` in `lib/net.nix`, a number not already in `ports`.
-- A rule in the NAS's host configuration opening that port on its LAN
+- A rule in the Pi's host configuration opening that port on its LAN
   interface from the phone's tunnel address alone
   (`net.segments.vpn.peers.phone`). gate forwards the tunnel without
   masquerading, and WireGuard binds a source address to its key, so the
   source is the phone.
 - An `agent` grant in `hosts/gate/wireguard.nix`: one entry in
-  `forwardRules`, matching the NAS's address and `ports.fleetAgent`, held by
+  `forwardRules`, matching the Pi's address and `ports.fleetAgent`, held by
   `phone`. It changes gate's firewall, so it deploys behind `deploy-guard`.
 
 What it adds to the threat model:
@@ -632,7 +631,7 @@ What it adds to the threat model:
   revoked, which is deleting its key line and deploying gate.
 - **A person's free text becomes input.** The tools are unchanged, so a
   question can ask more but never do more.
-- **A listener.** The page is the NAS's first port for the agent, open to one
+- **A listener.** The page is the Pi's first port for the agent, open to one
   address. Its own budget: a cap on questions a day apart from the alerts'.
 - **Answers leave by the tunnel**, not through ntfy.sh, but a lost phone
   shows its screen, so the mask stays as it is.
@@ -650,9 +649,9 @@ page takes its name and TLS from it.
 | 1 | forge's triage key | `lib/triage-keys.nix`, passed as `triagePubKeys` in `flake.nix` |
 | 1 | No port and no grant. SSH is open on each host's `sshInterfaces`, which forge reaches from trusted at home and through its `ssh` grant away | `lib/net.nix` and `hosts/gate/wireguard.nix` unchanged |
 | 2 | Nothing on any host. A user timer on forge, reusing `ntfy-url` | `secrets/forge.yaml` already holds it |
-| 3 | The NAS's triage key | `lib/triage-keys.nix` |
-| 3 | `anthropic-api-key` and `ntfy-url` | The NAS's sops file |
-| 3 | No inbound port. Outbound HTTPS from servers, which the Pis already use, and SSH within servers and to gate's servers gateway, where sshd already listens | The NAS's firewall unchanged; gate unchanged |
+| 3 | The Pi's triage key | `lib/triage-keys.nix` |
+| 3 | `anthropic-api-key` and `ntfy-url` | The Pi's sops file |
+| 3 | No inbound port. Outbound HTTPS from servers, which the Pis already use, and SSH within servers and to gate's servers gateway, where sshd already listens | The Pi's firewall unchanged. gate's rules gain the Pi with its address in `lib/net.nix` ([nas.md](nas.md)) |
 | 4 | `ports.fleetAgent` | `lib/net.nix` |
 | 4 | The port, from the phone's tunnel address alone | The NAS's host configuration |
 | 4 | The `agent` grant, held by `phone` | `forwardRules` and `grants` in `hosts/gate/wireguard.nix`, behind `deploy-guard` |
@@ -688,31 +687,31 @@ As issues, smallest first, each after the one before.
    trigger, and the back-off for refused logins. No host changes.
    docs/privacy.md gains a row for what leaves on each run: the masked tool
    results to Anthropic's API, and the push to ntfy.sh.
-3. **The NAS: triage, always on.** Once the NAS exists. A system service with
-   its own user, `lib/hardening.nix`, a `MemoryMax`, public resolvers for the
-   unit, the API key, and the NAS's triage key. forge's timer is switched off
-   in the same change, since two pollers would push twice; `triage` by hand
-   stays on forge.
+3. **The agent's Pi: triage, always on.** Once its Pi exists
+   ([nas.md](nas.md), "The fleet agent's Pi"), which waits for nothing else
+   in the NAS project. A system service with its own user,
+   `lib/hardening.nix`, a `MemoryMax`, public resolvers for the unit, the API
+   key, and the Pi's triage key. forge's timer is switched off in the same
+   change, since two pollers would push twice; `triage` by hand stays on
+   forge.
 4. **fleet: questions from the phone, through the tunnel.** After Nick's
    answer below. The NAS's page and its rule first, then gate's grant, as its
    own PR behind `deploy-guard`.
 
 ## For Nick
 
-1. **An API key for the NAS.** It needs an Anthropic Console account with
-   billing, a workspace for the agent and a monthly limit. $20 is about 80
-   runs on Opus 5.5 or 150 on Sonnet 5.5, against two firings in the first
+1. **An API key for the agent's Pi.** It needs an Anthropic Console account
+   with billing, a workspace for the agent and a monthly limit. $20 is about
+   80 runs on Opus 5.5 or 150 on Sonnet 5.5, against two firings in the first
    two weeks, and stops a bad month there. The alternative is Nick's
-   subscription login on the NAS, which this record advises against: a
-   stolen copy would act as Nick across his whole plan.
+   subscription login on the Pi, which this record advises against: a stolen
+   copy would act as Nick across his whole plan.
 2. **The phone's grant.** Milestone 4 reverses the phone being DNS-only.
    Whether questions from it are worth that is Nick's to weigh; forge could
    take the grant first, as it does for SSH.
-3. **A stopgap host.** If the NAS is months away, lifeline could run the
-   always-on poller: it is up all the time and the least loaded of the
-   three. It would put an API key, and a key to every host's triage login,
-   on a resolver that deploys unattended. This record waits for the NAS
-   unless Nick says otherwise.
+3. **A stopgap host.** Settled by [nas.md](nas.md): the agent gets a Pi of
+   its own, which does not wait for the NAS, so lifeline is not needed as a
+   stopgap.
 
 ## What would reopen this
 
