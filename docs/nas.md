@@ -486,8 +486,8 @@ port on `wan`.
 
 When [deploys.md](deploys.md)'s signed deploys are built, the NAS joins them
 as gate will: its own `deploy/<name>/` tags, verified before its `nrs`. That
-keeps the choice of revision Nick's either way. "For Nick" asks whether he
-would rather it upgraded nightly.
+keeps the choice of revision Nick's either way. Nick chose by hand
+("Decided").
 
 ## Backups
 
@@ -911,34 +911,32 @@ everything after step 3.
   them, after the drills.
 - **Rotate the drives** monthly, and run the drills on their schedule.
 
+## Decided
+
+Nick's answers, on 2026-10-18, each as the record already argues:
+
+- **The NAS deploys by hand**, as gate does ("Deploying it").
+- **ECC is not required** ("ECC").
+- **Immich's map is off** ("What it reaches outside the house").
+- **The drives rotate monthly**, and the object store keeps 30 days of prior
+  versions ("The rotated drives", "The object store").
+- **fleet-agent.md's milestone 4**, its item and its row in "Ports, grants
+  and logins, by milestone", moves off the NAS to the agent's Pi in the
+  grants pull request, which edits that row anyway.
+
 ## For Nick
 
 1. **Names and addresses.** The NAS's host name, which `mac-nas` in power.md
    follows, and the agent Pi's. Both addresses go in step 3.
-2. **By hand or nightly?** The record deploys the NAS by hand, as gate is, so
-   Immich's database migrates when you have checked that night's backups.
-   Nightly would keep it current without you, at the cost of a one-way
-   migration landing unattended. By hand?
-3. **Phone backups.** What makes them, and how they reach the NAS. Each way is
+2. **Phone backups.** What makes them, and how they reach the NAS. Each way is
    a new listener: an SFTP login, WebDAV, or a sync daemon. The record leaves
    it open.
-4. **Two free switch ports.** The NAS needs one, untagged, and the agent's
+3. **Two free switch ports.** The NAS needs one, untagged, and the agent's
    Pi a PoE port, within the switch's PoE budget. network.md records ports 5
    to 9 in use. Is there room? And the switch's port speed, which says
    whether a 2.5 GbE NIC on the NAS earns anything now.
-5. **The object store.** Which provider, against "The object store"'s
-   requirements, and whether 30 days of deletion protection is the window you
-   want.
-6. **Monthly rotation.** Is a monthly swap realistic? `BackupStale`'s 35 and
-   70 days follow it.
-7. **ECC.** Not required, for the reasons under "ECC". Agreed?
-8. **Immich's map.** Off, so that no tile requests leave from the phone or a
-   browser. Fine?
-9. **fleet-agent.md's milestone 4.** Its sketch, "Later: questions from the
-   phone", now puts the page on the agent's Pi, but milestone 4's own item and
-   its row in "Ports, grants and logins, by milestone" still say the NAS. This
-   pull request leaves them alone, since the grants issue edits that row. Move
-   them there?
+4. **The object store's provider**, against "The object store"'s
+   requirements.
 
 ## What would reopen this
 
