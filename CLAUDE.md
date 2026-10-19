@@ -135,10 +135,11 @@ route out of it. It logs in as the host's `diag` user
 (`modules/diag-login.nix`), which is outside wheel and has no sudo, and reads
 the system journal through `systemd-journal`. Its key is
 `~/.ssh/id_ed25519_diag`, a file key used for nothing else, with no pty and no
-forwarding. Anything that needs root is Nick's. Keep each call to that single command: a pipe, a redirect,
-`&&`, or a `$(...)` anywhere, even inside the quoted remote command, keeps the
-whole call inside the sandbox. Filter on the remote side, inside the quotes,
-and print values with `printf` and `cat` rather than substitution:
+forwarding. Anything that needs root is Nick's. Keep each call to that single
+command: a pipe, a redirect, `&&`, or a `$(...)` anywhere, even inside the
+quoted remote command, keeps the whole call inside the sandbox. Filter on the
+remote side, inside the quotes, and print values with `printf` and `cat`
+rather than substitution:
 
 ```
 fleet-ssh gate 'printf "accept_ra="; cat /proc/sys/net/ipv6/conf/wan/accept_ra; ip -6 -o addr show dev wan | wc -l'
@@ -149,8 +150,8 @@ means the command's shape, not that forge is away from home: check
 `/sys/class/net/wg-home` and the shape before concluding a host is
 unreachable, and never write "unreachable" into a handoff on that alone.
 fleet-ssh uses no agent, so it works after a reboot with nobody there.
-`fleet-ssh <host> host-status` is the first question to
-ask a host: its running revision, root device, last upgrade and failed units
+`fleet-ssh <host> host-status` is the first question to ask a host: its
+running revision, root device, last upgrade and failed units
 (`modules/host-status.nix`). Nick's `fleet-status` asks every host at once,
 but it calls fleet-ssh itself, so it reaches nothing from the sandbox.
 Away from home, with one of forge's tunnel profiles up (`/sys/class/net/wg-home`
