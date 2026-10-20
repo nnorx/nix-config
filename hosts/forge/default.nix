@@ -27,6 +27,7 @@
     ./dns.nix
     ./claude.nix
     ./night-shift.nix
+    ./hardware-keys.nix
     ../../modules/baseline.nix
     ../../modules/docker.nix
   ];
