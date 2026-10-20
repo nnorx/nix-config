@@ -140,10 +140,11 @@ loopback alone: it queries the host's own services, VictoriaMetrics and the
 resolvers among them, but not Alertmanager or vmalert, and a connection to
 anything past the host is refused at once. A diagnostic of a host's outbound
 path, from a ping to a fetch from the cache, is Nick's. Keep each call to
-that single command: a pipe, a redirect, `&&`, or a `$(...)` anywhere, even
-inside the quoted remote command, keeps the whole call inside the sandbox.
-Filter on the remote side, inside the quotes, and print values with `printf`
-and `cat` rather than substitution:
+that single command: a pipe, a redirect, `;` or `&&` outside the quoted
+remote command, or a `$(...)` anywhere, even inside it, keeps the whole call
+inside the sandbox. Inside the quotes, pipes, `;` and redirects run on the
+host as usual. So filter on the remote side, inside the quotes, and print
+values with `printf` and `cat` rather than substitution:
 
 ```
 fleet-ssh gate 'printf "accept_ra="; cat /proc/sys/net/ipv6/conf/wan/accept_ra; ip -6 -o addr show dev wan | wc -l'
