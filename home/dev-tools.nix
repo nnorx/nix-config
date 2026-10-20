@@ -49,7 +49,13 @@
     # homeConfigurations entry. Not in shell-common: the fleet embeds Home
     # Manager in NixOS, and this would run a second copy over the same files.
     # forge, embedded too, overrides it to rebuild the system.
-    hms = "nix run home-manager -- switch --flake ~/projects/nix-config";
+    #
+    # The profile's home-manager (programs.home-manager in common.nix) is
+    # built from the flake's locked input, so the CLI matches the modules.
+    # `nix run home-manager` would resolve through the flake registry to
+    # upstream master instead, fetched anew on every switch. That stays the
+    # first-run command in the README, before the profile exists.
+    hms = "home-manager switch --flake ~/projects/nix-config";
 
     # Package manager
     pn = "pnpm";
