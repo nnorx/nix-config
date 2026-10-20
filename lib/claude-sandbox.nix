@@ -88,6 +88,23 @@ in
   #   time a command starts. Abstract sockets need nothing, since commands
   #   get their own network namespace.
   #
+  #   /run/pcscd holds pcscd's socket, through which a program reaches a smart
+  #   card or a hardware key's PIV applet, the age identities in
+  #   docs/keys.md among them. pcsc-lite's polkit policy admits the active
+  #   local session, which commands belong to, so this deny is what keeps
+  #   them from the keys. It is here before pcscd is. A read deny on a path
+  #   that does not exist mounts nothing, and the sandbox works out its
+  #   mounts again for each command, so the first command after the
+  #   directory appears gets it empty (Claude Code 2.1.304).
+  #
+  #   The keys' device nodes need no deny: commands get a /dev of their own,
+  #   with no hidraw* (FIDO2) and no bus/usb (CCID, for pcscd). `ls /dev`
+  #   in a sandboxed command shows it. Should a release pass the host's /dev
+  #   through, those two belong here.
+  #
+  #   git's credential cache keeps its socket in $XDG_RUNTIME_DIR, under
+  #   /run/user, rather than in ~/.cache (home/git.nix).
+  #
   # Not a boundary on what leaves the machine: nix builds run in the daemon,
   # outside all of this (home/claude.nix, network). What holds is what
   # commands cannot read.
@@ -108,6 +125,7 @@ in
       "/tmp/.X11-unix"
       "/tmp/org.chromium.Chromium.*"
       "~/.ssh/agent"
+      "/run/pcscd"
     ];
   };
 }
