@@ -214,10 +214,13 @@ device. `nick` stays in the password manager and offline, as the third
 recipient. Day to day, sops on forge decrypts through a hardware key, with a
 touch per command.
 
-In the target state, Claude's sandbox (`lib/claude-sandbox.nix`) also denies
-pcscd's socket, `/run/pcscd`, and the FIDO2 device nodes if it exposes them, so
-a sandboxed command cannot ask a key for a touch at all. The touch policy is the
-second guard, not the only one.
+Claude's sandbox (`lib/claude-sandbox.nix`) also denies pcscd's socket,
+`/run/pcscd`, so a sandboxed command cannot ask a key for a touch at all. The
+deny came before pcscd itself, and takes effect from the first command after
+the directory appears. The device nodes need no deny: commands get a `/dev` of
+their own, with no `hidraw*` for FIDO2 and no `bus/usb` for CCID, which `ls
+/dev` in a sandboxed command shows. The touch policy is the second guard, not
+the only one.
 
 ### Signing
 
@@ -325,7 +328,8 @@ key.
 One pull request each, in this order:
 
 1. The sandbox denies `/run/pcscd`, and the FIDO2 device nodes if it exposes
-   them, before a key is ever plugged into forge.
+   them, before a key is ever plugged into forge. Built: it does not expose
+   them ("sops and backups").
 2. forge gets pcscd, age-plugin-yubikey and the FIDO2 tools.
 3. The VM test, then both hardware recipients in `.sops.yaml` and
    `sops updatekeys` on each file, run by Nick.

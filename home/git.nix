@@ -42,7 +42,21 @@
       core.autocrlf = if pkgs.stdenv.isLinux then "input" else false;
 
       # Credential helper - platform-appropriate
-      credential.helper = if pkgs.stdenv.isDarwin then "osxkeychain" else "cache --timeout=3600";
+      #
+      # On Linux the cache's socket goes in the runtime directory rather than
+      # git's default under ~/.cache, so that Claude's sandbox hides it from
+      # commands: /run/user on forge
+      # (lib/claude-sandbox.nix), and on WSL /mnt/wslg/runtime-dir, or
+      # /run/user where the distro runs systemd (home/wsl.nix). git runs the
+      # helper through the shell, so the variable expands, and the daemon
+      # makes the directory. With XDG_RUNTIME_DIR unset the helper refuses,
+      # and git prompts and caches nothing, rather than fall back to a path
+      # the sandbox shows.
+      credential.helper =
+        if pkgs.stdenv.isDarwin then
+          "osxkeychain"
+        else
+          "cache --timeout=3600 --socket=\"\${XDG_RUNTIME_DIR:?unset, so no credential cache}/git/credential-cache\"";
 
       # Better log output
       log.abbrevCommit = true;
