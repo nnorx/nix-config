@@ -653,8 +653,8 @@ page takes its name and TLS from it.
 | 3 | `anthropic-api-key` and `ntfy-url` | The Pi's sops file |
 | 3 | No inbound port. Outbound HTTPS from servers, which the Pis already use, and SSH within servers and to gate's servers gateway, where sshd already listens | The Pi's firewall unchanged. gate's rules gain the Pi with its address in `lib/net.nix` ([nas.md](nas.md)) |
 | 4 | `ports.fleetAgent` | `lib/net.nix` |
-| 4 | The port, from the phone's tunnel address alone | The NAS's host configuration |
-| 4 | The `agent` grant, held by `phone` | `forwardRules` and `grants` in `hosts/gate/wireguard.nix`, behind `deploy-guard` |
+| 4 | The port, from the phone's tunnel address alone | The agent Pi's host configuration ([nas.md](nas.md), "The fleet agent's Pi") |
+| 4 | The `agent` grant, held by `phone` | Its rule in `forwardRules` in `hosts/gate/wireguard.nix`, and the grant in `segments.vpn.grantNames` and `segments.vpn.grants` in `lib/net.nix`, behind `deploy-guard` |
 
 ## Milestones
 
@@ -695,8 +695,8 @@ As issues, smallest first, each after the one before.
    change, since two pollers would push twice; `triage` by hand stays on
    forge.
 4. **fleet: questions from the phone, through the tunnel.** After Nick's
-   answer below. The NAS's page and its rule first, then gate's grant, as its
-   own PR behind `deploy-guard`.
+   answer below. The page on the agent's Pi and its rule first, then gate's
+   grant, as its own PR behind `deploy-guard`.
 
 ## For Nick
 

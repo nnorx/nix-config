@@ -8,7 +8,8 @@
 # Peers land on the `vpn` segment. ./routing.nix carries it like any other, so
 # it already has masquerade out `wan`, the upstream-management deny and the DNS
 # redirect. What it does not have is any forward accept, which is this file:
-# DNS plus `grants` below is the whole of what a peer may reach.
+# DNS plus `segments.vpn.grants` in lib/net.nix is the whole of what a peer
+# may reach.
 {
   config,
   lib,
@@ -21,34 +22,10 @@ let
   tunnel = net.hosts.gate.vpnIface;
   wan = net.hosts.gate.wanIface;
 
-  # What each peer may reach through the tunnel beyond DNS:
-  #
-  #   adguard   the AdGuard UI on the fleet resolvers
-  #   ssh       SSH to every server, and to gate itself
-  #   internet  out `wan`, for a full-tunnel profile
-  #
-  # Nothing grants the UniFi UI, which administers the network itself. The
-  # phone gets DNS only, since it is the device most likely to be lost.
-  #
-  # DNS to the fleet resolvers is every peer's, and deliberately not a grant,
-  # because it could not be withheld. ./routing.nix redirects port 53 on this
-  # interface as on any segment, and the firewall's `ct status dnat accept`
-  # passes redirected traffic ahead of every rule here, so a peer asking
-  # 8.8.8.8 is answered by the fleet whatever this table says. A grant that
-  # cannot be refused would be worse than none.
-  #
-  # This applies through the tunnel only. At home forge is on trusted, as
-  # before, and the tunnel does not work from inside the house anyway: the WAN
-  # port is opened on `wan`, and a packet from the LAN to gate's public address
-  # arrives on a LAN interface.
-  grants = {
-    forge = [
-      "adguard"
-      "ssh"
-      "internet"
-    ];
-    phone = [ ];
-  };
+  # What each peer may reach beyond DNS is `segments.vpn.grants` in
+  # lib/net.nix, which says what each grant is and why DNS is not one. It
+  # lives there so that each proxy can read it too.
+  inherit (vpn) grants;
 
   # Peers with a key. An address in lib/net.nix without a key is reserved and
   # configures nothing.
@@ -84,8 +61,9 @@ let
 
   # The forward rule behind each grant. `internet` has none of its own: the nat
   # module's accept covers it, and peers without it are dropped ahead of that,
-  # below. The grants that mean anything are read from here, so a new grant is
-  # one entry rather than a name, a rule and a list kept in step.
+  # below. The names a peer may be granted are `grantNames` in lib/net.nix,
+  # where modules/net-assertions.nix reads them on every host, and an assertion
+  # below holds these rules to that list.
   forwardRules = {
     adguard = {
       match = "ip daddr ${nftSet resolverIps} tcp dport ${toString net.ports.adguardWeb} accept";
@@ -96,7 +74,7 @@ let
       comment = "tunnel: ssh to the servers";
     };
   };
-  knownGrants = builtins.attrNames forwardRules ++ [ "internet" ];
+  ruledGrants = builtins.attrNames forwardRules ++ [ "internet" ];
 
   withoutInternet = lib.filter (p: !(builtins.elem p (holding "internet"))) usablePeers;
 in
@@ -110,23 +88,29 @@ in
         peer by, so the peer cannot be configured without one.
       '';
     }) peers
+    # The keys are gate's, so this check is too. The rest of what `grants` must
+    # hold is modules/net-assertions.nix's.
     ++ map (p: {
       assertion = grants ? ${p};
       message = ''
-        lib/wireguard-keys.nix has a key for "${p}", but hosts/gate/wireguard.nix
-        has no `grants` entry for it. Give it one, even [ ] for DNS only, or
-        remove the key.
+        lib/wireguard-keys.nix has a key for "${p}", but net.segments.vpn.grants
+        has no entry for it. Give it one, even [ ] for DNS only, or remove the
+        key.
       '';
     }) peers
-    ++ lib.mapAttrsToList (p: gs: {
-      assertion = lib.all (g: builtins.elem g knownGrants) gs;
-      message = ''
-        hosts/gate/wireguard.nix grants "${p}" ${toString gs}, but only
-        ${toString knownGrants} mean anything. An unknown grant would otherwise
-        render no rule and fail silently closed.
-      '';
-    }) grants
     ++ [
+      {
+        # A name in `grantNames` without a rule here would let a peer hold a
+        # grant that renders nothing, failing silently closed. A rule without a
+        # name could never be granted.
+        assertion = lib.sort lib.lessThan ruledGrants == lib.sort lib.lessThan vpn.grantNames;
+        message = ''
+          net.segments.vpn.grantNames is ${toString vpn.grantNames}, but
+          hosts/gate/wireguard.nix has rules for ${toString ruledGrants}. Each
+          grant name needs its rule in that file's `forwardRules`, and each
+          rule a grant name.
+        '';
+      }
       {
         # lib/net.nix says so in prose; this says it at eval. Listed there, the
         # tunnel would also be bound twice, once by ./routing.nix from
@@ -135,8 +119,8 @@ in
         message = ''
           lib/net.nix lists ${tunnel} in gate's `sshInterfaces`, which would open
           SSH to every peer on the tunnel, the phone included. SSH over the
-          tunnel is granted per peer, in `grants` in hosts/gate/wireguard.nix.
-          Take ${tunnel} out of that list.
+          tunnel is granted per peer, in net.segments.vpn.grants. Take ${tunnel}
+          out of that list.
         '';
       }
     ];
@@ -202,7 +186,7 @@ in
       ))
 
       # Queries addressed to a resolver directly. Those addressed anywhere else
-      # are redirected, and pass as described at `grants`.
+      # are redirected, and pass as described at `grants` in lib/net.nix.
       (rulesFor usablePeers "ip daddr ${nftSet resolverIps} meta l4proto { tcp, udp } th dport 53 accept"
         "tunnel: dns to the fleet resolvers"
       )
