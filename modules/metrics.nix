@@ -26,6 +26,9 @@ let
   vmAddress = "127.0.0.1:${toString net.ports.victoriaMetrics}";
   interval = "30s";
 
+  # Made at boot by victoriametrics-delete-key, below.
+  deleteKey = "/run/victoriametrics-delete-key";
+
   # Each target at the address its exporters bind (modules/node-exporter.nix),
   # with `instance` set to the host's name rather than that address, which is
   # the label everything downstream reads, alert messages included.
@@ -78,6 +81,12 @@ in
       # Bavail), and on core5 ext4 reserves another 51 GB for root, the default
       # 5%, read with `stat -f /` on 2026-10-11.
       "-storage.minFreeDiskSpaceBytes=50GiB"
+
+      # The delete API, `/api/v1/admin/tsdb/delete_series` and Graphite's
+      # `/tags/delSeries`, takes this key, below. The flag reads a file:// value
+      # at first use and every few seconds after, and refuses every key until
+      # the file is there.
+      "-deleteAuthKey=file://%d/delete-key"
     ];
 
     prometheusConfig = {
@@ -222,7 +231,35 @@ in
   # to each service's own state.
   systemd.services.victoriametrics.serviceConfig = hardening // {
     ProtectSystem = lib.mkForce hardening.ProtectSystem;
+    LoadCredential = [ "delete-key:${deleteKey}" ];
   };
+
+  # The key VictoriaMetrics' delete API takes. Nothing deletes series in the
+  # normal run of things, so it is made here, once a boot, readable by root
+  # alone, rather than kept in sops: losing it costs nothing, and the service
+  # reads its copy as a credential. Never empty: VictoriaMetrics treats an
+  # empty key as none. To delete, as root on core5:
+  #
+  #   curl --data-urlencode authKey@/run/victoriametrics-delete-key \
+  #     --data-urlencode 'match[]=<selector>' \
+  #     http://127.0.0.1:<port>/api/v1/admin/tsdb/delete_series
+  systemd.services.victoriametrics-delete-key = {
+    description = "Make the key VictoriaMetrics' delete API takes";
+    before = [ "victoriametrics.service" ];
+    requiredBy = [ "victoriametrics.service" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      UMask = "0077";
+    };
+    script = ''
+      if [ ! -s ${deleteKey} ]; then
+        key=$(${lib.getExe pkgs.openssl} rand -hex 32)
+        printf '%s' "$key" > ${deleteKey}
+      fi
+    '';
+  };
+
   systemd.services.grafana = {
     serviceConfig = hardening // {
       ProtectSystem = lib.mkForce hardening.ProtectSystem;

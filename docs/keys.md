@@ -34,7 +34,7 @@ copy.
 | Key | Unlocks | Generated | Held | Rotate | Lost | Leaked |
 |---|---|---|---|---|---|---|
 | Admin key, `id_ed25519_pis`, one per admin machine (`lib/ssh-keys.nix`) | A shell as each host's user, which is in wheel, with sudo behind the password. Root on the recovery ISO, and passwordless sudo on a Pi installer image | On its machine, with a passphrase | That machine's `~/.ssh`, and its agent after `ssh-add`. `lib/claude-sandbox.nix` hides both from commands | README, "SSH access" | Delete its line and use the other machine's. With none left, a Pi takes a new line from main that night, and gate takes one from its console with the sudo password, or through a recovery USB built with the new key | A shell on every host, and root on any rescue image built while the line was listed. Delete the line, deploy gate, rebuild the images |
-| Diag key, `id_ed25519_diag`, one per admin machine (`lib/diag-keys.nix`) | Each server's `diag` login: a shell outside wheel, with no sudo, no pty and no forwarding, in `systemd-journal` (`modules/diag-login.nix`) | On its machine, with no passphrase, since fleet-ssh reads the file and uses no agent | That machine's `~/.ssh`, hidden from commands as above. fleet-ssh signs with it, and nothing else does | README, "SSH access" | fleet-ssh from that machine is refused. Make another and replace its line | Reading what an ordinary user can on each server, the journal included, with no sudo to try. Delete the line, deploy gate |
+| Diag key, `id_ed25519_diag`, one per admin machine (`lib/diag-keys.nix`) | Each server's `diag` login: a shell outside wheel, with no sudo, no pty and no forwarding, in `systemd-journal`, whose connections reach loopback alone (`modules/diag-login.nix`) | On its machine, with no passphrase, since fleet-ssh reads the file and uses no agent | That machine's `~/.ssh`, hidden from commands as above. fleet-ssh signs with it, and nothing else does | README, "SSH access" | fleet-ssh from that machine is refused. Make another and replace its line | Reading what an ordinary user can on each server, the journal included, and querying its services on loopback, Alertmanager and vmalert aside, with no sudo to try and no connection to anything past the host. Delete the line, deploy gate |
 | Deploy key, `id_ed25519_deploy` (`lib/deploy-keys.nix`) | The Pis' `deploy` login, a forced command: upgrade to main now, reboot when idle, hold or release the upgrade (`modules/deploy-agent.nix`) | On its machine | Its `~/.ssh` and agent, both hidden from commands as above | README, "SSH access" | Daytime deploys stop. The nightly upgrade does not use it | Deploy main early, reboot an idle Pi, or hold its upgrades until healthchecks.io notices the next day |
 | Host key, `/etc/ssh/ssh_host_ed25519_key`, one per host | The host's identity to SSH clients, and its sops age identity: its own `secrets/<host>.yaml` and nothing else | By sshd at first boot. forge's on WSL at install (laptop.md, step 1), since forge runs no sshd | The host's `/etc/ssh`, root-only | Re-derive the recipient into `.sops.yaml` and `sops updatekeys` (README, "Secrets"). Copy it across a reinstall instead (pi-install.md) | The host cannot decrypt its secrets and locks every account at its next activation (recovery.md). Recoverable while the age key is | That host's secrets, every past revision of its sops file in this repo's history included. Posing as the host to a client, given the network path |
 | Backup deploy key, `unifi-backup-deploy-key` (core5) | Read and write on the private `homelab-state` repo, for both off-box pushes (`modules/offbox-push.nix`) | By hand, then set into sops | `secrets/core5.yaml`. GitHub holds the public half as the repo's deploy key | A new pair, `sops set` into `secrets/core5.yaml`, and swap the deploy key in the repo's settings | Pushes fail and alert. Make another | Pushing to `homelab-state`, and reading backups that are ciphertext to the age key |
@@ -268,9 +268,10 @@ login already does.
    `restrict`ed to no pty and no forwarding. fleet-ssh uses that key and
    nothing else does: its own config, from the store, offers it alone, with
    no agent. host-status works as `diag`. Nothing it starts outlives its
-   login (logind's `KillOnlyUsers`), and it does not use the nix daemon,
-   which only wheel may. Built, in `modules/diag-login.nix` and
-   `home/ssh.nix`.
+   login (logind's `KillOnlyUsers`), it does not use the nix daemon,
+   which only wheel may, and the connections it opens reach loopback alone,
+   by a rule on its own traffic, and not Alertmanager's or vmalert's port
+   even there. Built, in `modules/diag-login.nix` and `home/ssh.nix`.
 2. The host's user takes only `ed25519-sk` keys, from `lib/ssh-keys.nix`.
 3. CLAUDE.md's fleet-ssh section, and `deploy-agent.nix`'s note on which login
    fleet-ssh uses, describe the `diag` login. Built with the first.
@@ -280,8 +281,10 @@ login's own `~/.ssh/authorized_keys` (`authorizedKeysInHomedir = false` in
 `modules/ssh.nix`), so deleting a line from a lib file is the whole of
 revoking that key. Built with the first.
 
-A diagnostics key, leaked, reads what an ordinary user can on each host, and
-has no sudo to try.
+A diagnostics key, leaked, reads what an ordinary user can on each host and
+queries its services on loopback. It has no sudo to try, and opens no
+connection to another host, a segment or the internet. VictoriaMetrics' delete
+API takes a key only root reads (`modules/metrics.nix`).
 
 [fleet-agent.md](fleet-agent.md) plans a third login, `triage`, for the alert
 agent. It is narrower than `diag`: a forced command with fixed verbs and

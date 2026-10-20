@@ -12,7 +12,42 @@
 #
 # No password: nothing declares one, so with `users.mutableUsers = false` the
 # account is locked, as deploy's is, and only a key opens it.
-{ diagPubKeys, ... }:
+#
+# It reads its host and reaches nothing else. A rule on diag's own traffic,
+# matched by owner in the output path, lets the connections it starts go to
+# loopback alone: it queries the host's own services, such as VictoriaMetrics'
+# query API and the resolvers, and opens nothing to another host, a segment or
+# the internet. A diagnostic of a host's outbound path is its own user's.
+# Loopback is the interface, which carries everything addressed to the host
+# itself, its own addresses included.
+{
+  config,
+  lib,
+  net,
+  diagPubKeys,
+  ...
+}:
+let
+  # Refused even on loopback, so diag neither silences an alert nor drives
+  # what pushes one. Alertmanager and vmalert run on core5 alone
+  # (modules/alerting.nix); the ports are refused on every host so that the
+  # rule is one rule everywhere. VictoriaMetrics' port stays open for queries,
+  # and its delete API takes a key (modules/metrics.nix).
+  refusedPorts = [
+    net.ports.alertmanager
+    net.ports.vmalert
+  ];
+
+  # The chain diag's traffic jumps to, in each firewall's form. Traffic on a
+  # connection already open passes, so the rule decides only what diag
+  # starts. Loopback passes, but for the ports above. Everything else is
+  # rejected rather than dropped, so a refused diagnostic fails at once,
+  # "connection refused" rather than a timeout, and TCP gets the reset a
+  # closed port sends.
+  chain = "diag-output";
+  iptablesPorts = lib.concatMapStringsSep "," toString refusedPorts;
+  nftPorts = lib.concatMapStringsSep ", " toString refusedPorts;
+in
 {
   users.users.diag = {
     isNormalUser = true;
@@ -36,4 +71,54 @@
   # servers runs nix as anyone else: the upgrades and deploy-guard run as
   # root, and deploy-agent writes request files.
   nix.settings.allowed-users = [ "@wheel" ];
+
+  # The Pis' firewall is iptables, which runs these at every start and reload
+  # of its own rules, so they take out what they put in before putting it in.
+  networking.firewall = lib.mkIf (!config.networking.nftables.enable) {
+    extraCommands = ''
+      ip46tables -D OUTPUT -m owner --uid-owner diag -j ${chain} 2>/dev/null || true
+      ip46tables -F ${chain} 2>/dev/null || true
+      ip46tables -X ${chain} 2>/dev/null || true
+      ip46tables -N ${chain}
+      ip46tables -A ${chain} -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
+      ip46tables -A ${chain} -o lo -p tcp -m multiport --dports ${iptablesPorts} -j REJECT --reject-with tcp-reset
+      ip46tables -A ${chain} -o lo -j RETURN
+      ip46tables -A ${chain} -p tcp -j REJECT --reject-with tcp-reset
+      ip46tables -A ${chain} -j REJECT
+      ip46tables -A OUTPUT -m owner --uid-owner diag -j ${chain}
+    '';
+    extraStopCommands = ''
+      ip46tables -D OUTPUT -m owner --uid-owner diag -j ${chain} 2>/dev/null || true
+      ip46tables -F ${chain} 2>/dev/null || true
+      ip46tables -X ${chain} 2>/dev/null || true
+    '';
+  };
+
+  # gate's is nftables. A table of its own, with a chain on the output hook,
+  # since the firewall module's table filters input and forwarding.
+  networking.nftables = lib.mkIf config.networking.nftables.enable {
+    tables.${chain} = {
+      family = "inet";
+      content = ''
+        chain output {
+          type filter hook output priority filter; policy accept;
+          meta skuid "diag" jump diag
+        }
+
+        chain diag {
+          ct state established,related return
+          oifname "lo" tcp dport { ${nftPorts} } reject with tcp reset
+          oifname "lo" return
+          meta l4proto tcp reject with tcp reset
+          reject
+        }
+      '';
+    };
+
+    # nft looks the name up as it loads the rules, and the build that checks
+    # them has no diag user.
+    preCheckRuleset = ''
+      sed 's/skuid "diag"/skuid "nobody"/' -i ruleset.conf
+    '';
+  };
 }
