@@ -168,6 +168,34 @@ let
     ) (lib.filterAttrs (_: seg: seg ? peers) segments)
   );
 
+  # What each tunnel peer may reach. gate renders its tunnel rules from it, and
+  # the proxies read it too (docs/services.md), so a wrong entry fails every
+  # host here rather than only the one that reads it. The check that every
+  # peer with a key has an entry is gate's, in hosts/gate/wireguard.nix,
+  # since the keys are.
+  vpn = segments.vpn;
+  grantChecks = lib.concatLists (
+    lib.mapAttrsToList (peer: held: [
+      {
+        assertion = vpn.peers ? ${peer};
+        message = ''
+          net.segments.vpn.grants has an entry for "${peer}", which has no address
+          in net.segments.vpn.peers. The address is what gate's firewall
+          identifies the peer by, so the grant would match no one.
+        '';
+      }
+      {
+        assertion = builtins.isList held && lib.all (g: lib.elem g vpn.grantNames) held;
+        message = ''
+          net.segments.vpn.grants gives "${peer}" ${builtins.toJSON held}, but only
+          ${lib.concatStringsSep ", " vpn.grantNames} mean anything: the names in
+          net.segments.vpn.grantNames. An unknown grant would otherwise render
+          no rule and fail silently closed.
+        '';
+      }
+    ]) vpn.grants
+  );
+
   # An address as one number, for comparing against a pool's ends.
   addressValue = addr: lib.foldl (acc: o: acc * 256 + lib.toInt o) 0 (octets addr);
   inPool =
@@ -488,7 +516,7 @@ let
             net.services.${name}.segments is ${builtins.toJSON segs}, but only
             ${builtins.toJSON reaching} reach ${svc.host or "?"} without a gate rule of their
             own: the host's own segment, and trusted for a host on servers. A
-            tunnel peer is granted a service in hosts/gate/wireguard.nix, not
+            tunnel peer is granted a service in net.segments.vpn.grants, not
             here. Drop the segment, or design its gate rule first.
           '';
         }
@@ -551,6 +579,7 @@ in
     ++ hostChecks
     ++ nicChecks
     ++ peerChecks
+    ++ grantChecks
     ++ deviceChecks
     ++ goveeChecks
     ++ agentChecks

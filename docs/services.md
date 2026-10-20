@@ -469,9 +469,10 @@ vpn = {
 };
 ```
 
-The `adguard` grant becomes the two AdGuard services. The assertion that every
-peer with a key has an entry stays in `hosts/gate/wireguard.nix`, since the
-keys are gate's.
+The `adguard` grant becomes the two AdGuard services. The grants that are not
+services are `segments.vpn.grantNames`, beside it, which net-assertions and
+gate's rules both read. The assertion that every peer with a key has an entry
+stays in `hosts/gate/wireguard.nix`, since the keys are gate's.
 
 ### What reads it
 

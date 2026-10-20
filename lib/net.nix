@@ -152,6 +152,50 @@
         forge = "192.168.60.10";
         phone = "192.168.60.20";
       };
+
+      # What each peer may reach through the tunnel beyond DNS, and the one
+      # place that is written: gate's forward rules read it, and so will each
+      # proxy (docs/services.md, "Tunnel grants move into lib/net.nix").
+      #
+      #   adguard   the AdGuard UI on the fleet resolvers
+      #   ssh       SSH to every server, and to gate itself
+      #   internet  out `wan`, for a full-tunnel profile
+      #
+      # Nothing grants the UniFi UI, which administers the network itself. The
+      # phone gets DNS only, since it is the device most likely to be lost.
+      #
+      # DNS to the fleet resolvers is every peer's, and deliberately not a
+      # grant, because it could not be withheld. hosts/gate/routing.nix
+      # redirects port 53 on the tunnel as on any segment, and the firewall's
+      # `ct status dnat accept` passes redirected traffic ahead of every tunnel
+      # rule, so a peer asking 8.8.8.8 is answered by the fleet whatever this
+      # table says. A grant that cannot be refused would be worse than none.
+      #
+      # This applies through the tunnel only. At home forge is on trusted, as
+      # before, and the tunnel does not work from inside the house anyway: the
+      # WAN port is opened on `wan`, and a packet from the LAN to gate's public
+      # address arrives on a LAN interface.
+      #
+      # modules/net-assertions.nix holds every entry to a peer in `peers` and
+      # every grant to a name in `grantNames`.
+      grants = {
+        forge = [
+          "adguard"
+          "ssh"
+          "internet"
+        ];
+        phone = [ ];
+      };
+
+      # The names a grant above may take. Each but `internet` is a forward rule
+      # in hosts/gate/wireguard.nix, which asserts that its rules and this list
+      # agree, so a name here without a rule fails evaluation rather than
+      # rendering nothing.
+      grantNames = [
+        "adguard"
+        "ssh"
+        "internet"
+      ];
     };
   };
 
@@ -442,7 +486,7 @@
 
     # Home Assistant's frontend and API, on core5. Phones on trusted reach it,
     # which gate's "trusted reaches servers" rule already allows. No WireGuard
-    # peer does: nothing in hosts/gate/wireguard.nix grants it.
+    # peer does: nothing in `segments.vpn.grants` grants it.
     homeAssistant = 8123;
 
     # Govee's LAN API, between Home Assistant on core5 and the lights on iot.
@@ -508,7 +552,7 @@
       # A name in `ports`: where the service itself listens, on loopback.
       port = "grafana";
       # Segments that reach it. Tunnel peers are not listed here: what a
-      # peer may reach is `grants`, in hosts/gate/wireguard.nix.
+      # peer may reach is `segments.vpn.grants`.
       segments = [ "trusted" ];
       # What core5's probe asks for. It must answer without a login.
       probe = "/api/health";

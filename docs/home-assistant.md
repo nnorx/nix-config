@@ -11,8 +11,8 @@ on port 53, so no other segment can load it. The exception is `servers` itself,
 which reaches core5 directly without crossing gate: the other Pis, the switch
 and AP, and anything plugged into a switch port left on the untagged default
 (see [network.md](network.md#switch-topology)). WireGuard peers cannot load it
-either: `grants` in [`hosts/gate/wireguard.nix`](../hosts/gate/wireguard.nix)
-has no entry for it, so there is no way in from outside the house. Adding one is
+either: `segments.vpn.grants` in [`lib/net.nix`](../lib/net.nix) has no
+entry for it, so there is no way in from outside the house. Adding one is
 its own decision, and the place to make it.
 
 ## Native, and from `unstable`

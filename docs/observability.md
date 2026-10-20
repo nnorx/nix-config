@@ -694,10 +694,10 @@ home without it, and the grant is a change to gate's firewall, behind
 `deploy-guard`, for the convenience of reading graphs from a hotel. When it is
 wanted, forge gets it, because forge is what is open when an alert arrives
 away from home and the question is why. The grant is one entry in
-`forwardRules`, matching core5's address and `ports.grafana`, held by forge.
-The phone does not get it: it is DNS-only as the device most likely to be lost,
-and the alert itself already reaches it through ntfy. Adding it later is one
-word in `grants`.
+`forwardRules`, matching core5's address and `ports.grafana`, and its name in
+`segments.vpn.grantNames`, held by forge. The phone does not get it: it is
+DNS-only as the device most likely to be lost, and the alert itself already
+reaches it through ntfy. Adding it later is one word in `segments.vpn.grants`.
 
 ## Order of the follow-up issues
 

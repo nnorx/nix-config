@@ -97,8 +97,8 @@ before changing it.
   exception, in sops, because gate is rebuilt from this repo.
 - The firewall is default-deny, and SSH is scoped per interface in
   `modules/firewall.nix`. Open a new port on a specific interface, never
-  globally. What a WireGuard peer may reach is `grants` in
-  `hosts/gate/wireguard.nix`, and nothing else.
+  globally. What a WireGuard peer may reach is `segments.vpn.grants` in
+  `lib/net.nix`, and nothing else.
 - `users.mutableUsers = false`. Activation removes undeclared users and groups,
   and renaming a host's user replaces the account rather than renaming it.
 - forge is a desktop and does not import `hosts/common`. It rebuilds itself and
