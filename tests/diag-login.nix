@@ -2,8 +2,8 @@
 # host-status in full, no sudo, the journal group and not wheel, no pty, keys
 # only from the declared lists, and the host's own user still let in beside it.
 # Then what diag reaches, in both firewalls' forms: services on loopback, but
-# not the alerting ports there, and not another host, while the host's own
-# user reaches all three.
+# not the alerting and probe ports there, and not another host, while the
+# host's own user reaches all three.
 #
 # `nix build .#checks.x86_64-linux.diag-login`. It needs KVM, which forge's
 # daemon has; CI's vm-tests job runs it on pull requests.
@@ -13,18 +13,20 @@
 # get. `server` has the Pis' iptables firewall and `router` gate's nftables.
 # nixos-upgrade.service is a stand-in, as in tests/deploy-agent.nix, run once
 # so host-status has an upgrade in the journal to report. Stand-in HTTP
-# listeners sit on each server's loopback, at VictoriaMetrics' port and the two
-# alerting ports, and on the client at VictoriaMetrics' port, so a connection
-# the rule did not refuse would succeed.
+# listeners sit on each server's loopback, at VictoriaMetrics' port, the two
+# alerting ports and the blackbox exporter's, and on the client at
+# VictoriaMetrics' port, so a connection the rule did not refuse would succeed.
 { net }:
 let
   user = "server";
 
-  # What the stand-ins listen on: one port diag may query, and two it may not.
+  # What the stand-ins listen on: one port diag may query, and three it may
+  # not, the list modules/diag-login.nix refuses.
   queryPort = net.ports.victoriaMetrics;
   refusedPorts = [
     net.ports.alertmanager
     net.ports.vmalert
+    net.ports.blackboxExporter
   ];
 
   # An HTTP server on every address, IPv4 and IPv6, at `port`.
@@ -247,7 +249,7 @@ in
               for url in loopback:
                   diag(curl + url.format(${toString queryPort}), host=host)
 
-          with subtest(f"{name}: diag is refused the alerting ports on loopback"):
+          with subtest(f"{name}: diag is refused the alerting and probe ports on loopback"):
               for url in refused:
                   out = diag(curl + url, code=7, host=host)
                   assert "Connection refused" in out, out

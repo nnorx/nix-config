@@ -82,11 +82,15 @@ in
       # 5%, read with `stat -f /` on 2026-10-11.
       "-storage.minFreeDiskSpaceBytes=50GiB"
 
-      # The delete API, `/api/v1/admin/tsdb/delete_series` and Graphite's
-      # `/tags/delSeries`, takes this key, below. The flag reads a file:// value
-      # at first use and every few seconds after, and refuses every key until
-      # the file is there.
+      # The admin APIs that change the store take this key, below: deleting
+      # series (`/api/v1/admin/tsdb/delete_series` and Graphite's
+      # `/tags/delSeries`), making and deleting snapshots (`/snapshot/*`),
+      # and forcing a merge (`/internal/force_merge`). Each flag reads a
+      # file:// value at first use and every few seconds after, and refuses
+      # every key until the file is there.
       "-deleteAuthKey=file://%d/delete-key"
+      "-snapshotAuthKey=file://%d/delete-key"
+      "-forceMergeAuthKey=file://%d/delete-key"
     ];
 
     prometheusConfig = {
@@ -234,8 +238,9 @@ in
     LoadCredential = [ "delete-key:${deleteKey}" ];
   };
 
-  # The key VictoriaMetrics' delete API takes. Nothing deletes series in the
-  # normal run of things, so it is made here, once a boot, readable by root
+  # The key VictoriaMetrics' delete, snapshot and force-merge APIs take.
+  # Nothing deletes series, makes a snapshot or forces a merge in the normal
+  # run of things, so it is made here, once a boot, readable by root
   # alone, rather than kept in sops: losing it costs nothing, and the service
   # reads its copy as a credential. Never empty: VictoriaMetrics treats an
   # empty key as none. To delete, as root on core5:
@@ -244,7 +249,7 @@ in
   #     --data-urlencode 'match[]=<selector>' \
   #     http://127.0.0.1:<port>/api/v1/admin/tsdb/delete_series
   systemd.services.victoriametrics-delete-key = {
-    description = "Make the key VictoriaMetrics' delete API takes";
+    description = "Make the key VictoriaMetrics' admin APIs take";
     before = [ "victoriametrics.service" ];
     requiredBy = [ "victoriametrics.service" ];
     serviceConfig = {
