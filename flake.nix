@@ -326,16 +326,22 @@
             "forge-dns"
             "unbound-root-zone"
             "alerting"
+            "grafana"
           ]
           (
             name:
             let
               test = import ./tests/${name}.nix;
             in
-            # Each test gets the arguments it names: most take `net`, and
-            # deploy-agent takes none.
+            # Each test gets the arguments it names: most take `net`, grafana
+            # takes `unstable` too, and deploy-agent takes none.
             pkgsFor.x86_64-linux.testers.runNixOSTest (
-              test (builtins.intersectAttrs (builtins.functionArgs test) { inherit net; })
+              test (
+                builtins.intersectAttrs (builtins.functionArgs test) {
+                  inherit net;
+                  unstable = unstableFor.x86_64-linux;
+                }
+              )
             )
           )
         // {
