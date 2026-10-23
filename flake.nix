@@ -29,7 +29,12 @@
     # Pi 5 kernel ours to compile. core5's userland comes from our nixpkgs
     # anyway, passed to its nixosSystem (see core5 below), and that does not
     # move the kernel.
-    nixos-raspberrypi.url = "github:nvmd/nixos-raspberrypi/main";
+    #
+    # `develop`, the project's default branch, is where its kernel and
+    # firmware updates land and what its cache builds. `main` is not, so a
+    # pin there keeps the Pi 5 kernel wherever that branch last stopped, and
+    # the weekly flake update has nothing to move.
+    nixos-raspberrypi.url = "github:nvmd/nixos-raspberrypi/develop";
 
     # Declarative partitioning, used once, by nixos-anywhere, to lay out forge's
     # disk. Afterwards it only generates fileSystems from the same description.
