@@ -148,11 +148,11 @@ in
           alert = "DhcpPoolLow";
           expr = ''
             ${kea.poolUsed}
-              > 0.9
+              > ${builtins.toJSON kea.poolLow}
           '';
           for = "15m";
           labels.severity = "warning";
-          annotations.summary = "The {{ $labels.segment }} segment's DHCP pool on {{ $labels.instance }} is over 90% leased.";
+          annotations.summary = "The {{ $labels.segment }} segment's DHCP pool on {{ $labels.instance }} is over ${toString kea.poolLowPercent}% leased.";
         }
         {
           # /nix/store is a second mount of the root, and ramfs reports no size

@@ -453,7 +453,7 @@ let
                 }
                 {
                   color = "red";
-                  value = 0.9;
+                  value = kea.poolLow;
                 }
               ];
             };

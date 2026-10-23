@@ -70,8 +70,11 @@ query box rather than a dashboard. Its datasource and dashboards are
 provisioned from files in the repo, so Grafana's own state holds nothing worth
 keeping: no dashboard is edited in the UI and kept there. There are three,
 Fleet, DNS and DHCP, in `modules/dashboards.nix`, and `tests/grafana.nix`
-runs every panel's queries against the store, so a typo fails the pull
-request rather than drawing nothing. Neither Grafana nor
+runs every panel's queries against the store, so an expression the store
+cannot run fails the pull request rather than drawing nothing. A misspelt
+metric or label still runs and passes there, with no exporters to answer it;
+each pull request's check on core5 after its upgrade catches that. Neither
+Grafana nor
 the metrics history joins the off-box backups (`modules/offbox-push.nix`):
 losing them to a dead drive costs graphs, not configuration.
 

@@ -27,4 +27,11 @@ rec {
     sum by (instance, segment) (${bySegment ''kea_dhcp4_addresses_assigned_total{pool!=""}''})
       / sum by (instance, segment) (${bySegment ''kea_dhcp4_addresses_total{pool!=""}''})
   '';
+
+  # How full a pool gets before DhcpPoolLow fires, and where the dashboard
+  # marks it: as a percentage for the alert's text, and as the ratio
+  # `poolUsed` is compared with. A whole number, since Nix's toString writes
+  # a float with six decimals.
+  poolLowPercent = 90;
+  poolLow = poolLowPercent / 100.0;
 }
