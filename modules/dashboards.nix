@@ -4,7 +4,11 @@
 #
 # Each dashboard is its panels in reading order. A panel gives its size only,
 # 12 columns by 8 rows unless it says otherwise, and `layout` places it.
-{ lib, pkgs }:
+{
+  lib,
+  pkgs,
+  net,
+}:
 let
   datasource = {
     type = "prometheus";
@@ -408,8 +412,132 @@ let
           targets = [ { expr = ''probe_dns_duration_seconds{job="probe-resolver", phase="request"}''; } ];
         })
       ];
+
+  # What gate's Kea is doing, one line per segment, each named as DhcpPoolLow
+  # names it (lib/kea-segments.nix), never by address. Kea counts its messages
+  # for the whole server, with no subnet, so those panels are by operation.
+  kea = import ../lib/kea-segments.nix { inherit lib net; };
+  perSegment = expr: "sum by (instance, segment) (${kea.bySegment expr})";
+  received =
+    operations:
+    "sum by (instance, operation) (${rate ''kea_dhcp4_packets_received_total{operation=~"${operations}"}''})";
+  sent =
+    operations:
+    "sum by (instance, operation) (${rate ''kea_dhcp4_packets_sent_total{operation=~"${operations}"}''})";
+  dhcpDashboard =
+    dashboard
+      {
+        uid = "dhcp";
+        title = "DHCP";
+      }
+      [
+        (panel {
+          title = "Pool used";
+          unit = "percentunit";
+          # DhcpPoolLow's own ratio, with its threshold marked.
+          targets = [
+            {
+              expr = kea.poolUsed;
+              legendFormat = "{{segment}}";
+            }
+          ];
+          fieldConfig.defaults = {
+            min = 0;
+            max = 1;
+            thresholds = {
+              mode = "absolute";
+              steps = [
+                {
+                  color = "green";
+                  value = null;
+                }
+                {
+                  color = "red";
+                  value = kea.poolLow;
+                }
+              ];
+            };
+            custom.thresholdsStyle.mode = "dashed";
+          };
+        })
+        (panel {
+          title = "Leases held and pool size";
+          # The subnet's leases, reservations included, so they can pass the
+          # pool's size; the ratio beside this is the pool's own.
+          targets = [
+            {
+              expr = perSegment ''kea_dhcp4_addresses_assigned_total{pool=""}'';
+              legendFormat = "{{segment}} leases";
+            }
+            {
+              expr = perSegment ''kea_dhcp4_addresses_total{pool!=""}'';
+              legendFormat = "{{segment}} pool";
+            }
+          ];
+        })
+        (panel {
+          title = "Messages per second";
+          # Clients asking, and Kea answering.
+          targets = [
+            {
+              expr = received "discover|request|release|inform";
+              legendFormat = "{{operation}} in";
+            }
+            {
+              expr = sent "offer|ack";
+              legendFormat = "{{operation}} out";
+            }
+          ];
+        })
+        (panel {
+          title = "Trouble per second";
+          # Requests Kea refused, and messages it could not use. A decline is
+          # a client finding its offered address already answering, and a
+          # reservation conflict an address reserved for one client and
+          # leased to another: both an address in use twice.
+          targets = [
+            {
+              expr = sent "nak";
+              legendFormat = "{{operation}} out";
+            }
+            {
+              expr = received "decline|drop|parse-failed|unknown";
+              legendFormat = "{{operation}} in";
+            }
+            {
+              expr = perSegment (rate "kea_dhcp4_reservation_conflicts_total");
+              legendFormat = "{{segment}} reservation conflicts";
+            }
+          ];
+        })
+        (panel {
+          title = "Reclaimed leases per second";
+          width = 18;
+          # Leases expiring and their addresses returning to the pool.
+          targets = [
+            {
+              expr = perSegment (rate ''kea_dhcp4_addresses_reclaimed_total{pool=""}'');
+              legendFormat = "{{segment}}";
+            }
+          ];
+        })
+        (panel {
+          title = "Exporter up";
+          type = "stat";
+          width = 6;
+          targets = [
+            {
+              expr = ''up{job="kea"}'';
+              legendFormat = "{{instance}} Kea";
+            }
+          ];
+          options = upOptions;
+          fieldConfig.defaults.mappings = upMappings;
+        })
+      ];
 in
 pkgs.linkFarm "fleet-dashboards" {
   "fleet.json" = pkgs.writeText "fleet.json" (builtins.toJSON fleetDashboard);
   "dns.json" = pkgs.writeText "dns.json" (builtins.toJSON dnsDashboard);
+  "dhcp.json" = pkgs.writeText "dhcp.json" (builtins.toJSON dhcpDashboard);
 }

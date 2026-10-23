@@ -1,9 +1,15 @@
 # Grafana on the collector answers a query through its provisioned datasource,
-# with both dashboards provisioned. core5 runs Grafana from `unstable`, which
+# with every dashboard provisioned. core5 runs Grafana from `unstable`, which
 # every flake.lock bump moves, and Grafana 13.2 moved the Prometheus datasource
-# out of its own build into a plugin: Grafana still started and served both
+# out of its own build into a plugin: Grafana still started and served the
 # dashboards, but every panel showed no data. This catches the next such move
 # in the pull request that brings it, before core5 takes it at night.
+#
+# And every panel's queries are ones the store can run: each expression in the
+# files Grafana is given goes to the store, so one it rejects fails here rather
+# than drawing nothing. A misspelt metric or label still runs and finds
+# nothing, which passes, since no exporter runs here; the dashboards' own
+# check after core5 upgrades is what catches that.
 #
 # `nix build .#checks.x86_64-linux.grafana`. It needs KVM, which forge's daemon
 # has; CI's vm-tests job runs it on pull requests.
@@ -97,32 +103,86 @@ in
       systemd.timers.fleet-main-revision.wantedBy = lib.mkForce [ ];
     };
 
-  testScript = ''
-    grafana = "http://admin:${password}@${host.ip}:${toString net.ports.grafana}"
+  testScript =
+    { nodes, ... }:
+    let
+      # The directory modules/metrics.nix points Grafana's provider at.
+      provider =
+        builtins.head
+          nodes.${collector}.services.grafana.provision.dashboards.settings.providers;
+    in
+    ''
+      import json
+      import re
+      import shlex
 
-    start_all()
-    ${collector}.wait_for_unit("victoriametrics.service")
-    ${collector}.wait_for_open_port(${toString net.ports.grafana}, "${host.ip}")
-    # One series of its own, so the query below does not wait on a scrape.
-    store = "http://127.0.0.1:${toString net.ports.victoriaMetrics}"
-    ${collector}.succeed(f"curl -sf -d 'grafana_test_metric 1' {store}/api/v1/import/prometheus")
-    ${collector}.wait_until_succeeds(
-        f"curl -sf '{store}/api/v1/query?query=grafana_test_metric' | grep -q grafana_test_metric",
-        timeout=60,
-    )
+      grafana = "http://admin:${password}@${host.ip}:${toString net.ports.grafana}"
 
-    with subtest("both dashboards are provisioned"):
-        out = ${collector}.succeed(f"curl -sf {grafana}/api/search")
-        for uid in ("fleet", "dns"):
-            assert f'"uid":"{uid}"' in out, out
+      start_all()
+      ${collector}.wait_for_unit("victoriametrics.service")
+      ${collector}.wait_for_open_port(${toString net.ports.grafana}, "${host.ip}")
+      # One series of its own, so the query below does not wait on a scrape.
+      store = "http://127.0.0.1:${toString net.ports.victoriaMetrics}"
+      ${collector}.succeed(f"curl -sf -d 'grafana_test_metric 1' {store}/api/v1/import/prometheus")
+      ${collector}.wait_until_succeeds(
+          f"curl -sf '{store}/api/v1/query?query=grafana_test_metric' | grep -q grafana_test_metric",
+          timeout=60,
+      )
 
-    with subtest("the datasource answers its health check"):
-        out = ${collector}.succeed(f"curl -s {grafana}/api/datasources/uid/victoriametrics/health")
-        assert '"status":"OK"' in out, out
+      # Every dashboard file the provider is given, by name.
+      directory = "${provider.options.path}"
+      boards = {
+          name: json.loads(${collector}.succeed(f"cat {directory}/{name}"))
+          for name in ${collector}.succeed(f"ls {directory}").split()
+      }
 
-    with subtest("a query through the datasource returns the store's series"):
-        body = '{"queries":[{"refId":"A","datasource":{"uid":"victoriametrics"},"expr":"grafana_test_metric","instant":true}],"from":"now-5m","to":"now"}'
-        out = ${collector}.succeed(f"curl -s -H 'Content-Type: application/json' -d '{body}' {grafana}/api/ds/query")
-        assert '"status":200' in out and "grafana_test_metric" in out, out
-  '';
+      with subtest("every dashboard is provisioned"):
+          uids = {board["uid"] for board in boards.values()}
+          # The three this repo has, so a file going missing fails too.
+          missing = {"fleet", "dns", "dhcp"} - uids
+          assert not missing, f"no dashboard file for {sorted(missing)}"
+          out = ${collector}.succeed(f"curl -sf {grafana}/api/search")
+          for uid in uids:
+              assert f'"uid":"{uid}"' in out, f"{uid} not provisioned: {out}"
+
+      with subtest("the datasource answers its health check"):
+          out = ${collector}.succeed(f"curl -s {grafana}/api/datasources/uid/victoriametrics/health")
+          assert '"status":"OK"' in out, out
+
+      with subtest("a query through the datasource returns the store's series"):
+          body = '{"queries":[{"refId":"A","datasource":{"uid":"victoriametrics"},"expr":"grafana_test_metric","instant":true}],"from":"now-5m","to":"now"}'
+          out = ${collector}.succeed(f"curl -s -H 'Content-Type: application/json' -d '{body}' {grafana}/api/ds/query")
+          assert '"status":200' in out and "grafana_test_metric" in out, out
+
+      with subtest("every panel's queries are ones the store accepts"):
+          # Grafana's own variables, which it fills in before asking the store
+          # and the store does not know, each by its whole name, as a fixed
+          # window. One not listed fails, rather than being sent as written.
+          # An empty answer passes: most of these series are absent here.
+          variables = {
+              "__rate_interval": "1m",
+              "__interval": "30s",
+              "__interval_ms": "30000",
+              "__range": "1h",
+              "__range_s": "3600",
+              "__range_ms": "3600000",
+          }
+
+          def fill(where, expr):
+              def one(match):
+                  assert match.group(1) in variables, f"{where}: Grafana variable ''${match.group(1)} has no stand-in here"
+                  return variables[match.group(1)]
+              return re.sub(r"\$(__\w+)", one, expr)
+
+          for name, board in boards.items():
+              checked = 0
+              for panel in board["panels"]:
+                  for target in panel["targets"]:
+                      where = f"{name}, {panel['title']}, {target['refId']}"
+                      query = shlex.quote(f"query={fill(where, target['expr'])}")
+                      out = ${collector}.succeed(f"curl -s -G --data-urlencode {query} {store}/api/v1/query")
+                      assert '"status":"success"' in out, f"{where}: {out}"
+                      checked += 1
+              assert checked > 0, f"{name}: no panel queries were found to check"
+    '';
 }
