@@ -25,16 +25,9 @@ let
   # reads the head every 30 minutes, so this is a dozen reads failing in a row.
   headFresh = 6;
 
-  # Kea labels its statistics with the subnet in CIDR form and with Kea's
-  # subnet id, which hosts/gate/routing.nix sets to the segment's VLAN id. The
-  # alert names the segment instead, so no address leaves the house.
-  pooled = lib.attrNames (lib.filterAttrs (_: s: s ? pool) net.segments);
-  bySegment =
-    expr:
-    lib.foldl' (
-      e: name:
-      ''label_replace(${e}, "segment", "${name}", "subnet_id", "${toString net.segments.${name}.id}")''
-    ) expr pooled;
+  # Kea's statistics by segment rather than subnet, so no address leaves the
+  # house. Shared with the DHCP dashboard.
+  kea = import ../lib/kea-segments.nix { inherit lib net; };
 in
 {
   groups = [
@@ -149,14 +142,12 @@ in
           annotations.summary = "{{ $labels.instance }}'s conntrack table is over 80% of its limit.";
         }
         {
-          # Kea reports each pool and each subnet. The pools' series alone,
-          # so a pool is counted once, and since every segment has one pool,
-          # summed by segment. A pool's count leaves out reservations below it,
-          # which the subnet's count includes and the pool can never run out of.
+          # Each pool's share leased, by segment: lib/kea-segments.nix says
+          # which of Kea's series that reads, and why. The DHCP dashboard draws
+          # the same ratio, with this threshold marked.
           alert = "DhcpPoolLow";
           expr = ''
-            sum by (instance, segment) (${bySegment ''kea_dhcp4_addresses_assigned_total{pool!=""}''})
-              / sum by (instance, segment) (${bySegment ''kea_dhcp4_addresses_total{pool!=""}''})
+            ${kea.poolUsed}
               > 0.9
           '';
           for = "15m";

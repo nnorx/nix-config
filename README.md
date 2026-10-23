@@ -79,7 +79,7 @@ modules/
   pimon.nix            Monitoring agent or collector
   metrics.nix          VictoriaMetrics and Grafana, scraping the fleet (core5 only)
   blackbox.nix         Its probes: each resolver on port 53, and pings out of the house
-  dashboards.nix       Its Grafana dashboards, Fleet and DNS, laid out in reading order
+  dashboards.nix       Its Grafana dashboards, Fleet, DNS and DHCP, in reading order
   node-exporter.nix    Host metrics and host-status facts, on each scraped host
   firewall.nix         Default-deny. SSH scoped per interface, never globally
   ssh.nix              Key-only auth, modern crypto

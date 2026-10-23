@@ -38,8 +38,8 @@ let
       labels.instance = name;
     }) names;
 
-  # The Fleet and DNS dashboards, for the provider below.
-  dashboards = import ./dashboards.nix { inherit lib pkgs; };
+  # The Fleet, DNS and DHCP dashboards, for the provider below.
+  dashboards = import ./dashboards.nix { inherit lib pkgs net; };
 in
 {
   # The probes, whose jobs join the scrape configuration below, and the alert

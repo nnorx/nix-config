@@ -29,7 +29,7 @@ internet is broken is one monitoring did not catch.
 | | Decision |
 |---|---|
 | Store | VictoriaMetrics, single node, on core5 |
-| UI | Grafana on core5, provisioned from the repo. VictoriaMetrics' own vmui for ad hoc queries |
+| UI | Grafana on core5, provisioned from the repo, with three dashboards: Fleet, DNS and DHCP. VictoriaMetrics' own vmui for ad hoc queries |
 | Collection | Pull. core5 scrapes exporters on each host, every 30 seconds |
 | Retention | 12 months, about 4 GB, budgeted at 10 GB |
 | gate's address | gate gets no `ip`. A new `metricsSegment` names where it is scraped |
@@ -68,7 +68,10 @@ Grafana for dashboards, because the community dashboards for node_exporter,
 Kea and Unbound are written for it, and vmui, built into VictoriaMetrics, is a
 query box rather than a dashboard. Its datasource and dashboards are
 provisioned from files in the repo, so Grafana's own state holds nothing worth
-keeping: no dashboard is edited in the UI and kept there. Neither Grafana nor
+keeping: no dashboard is edited in the UI and kept there. There are three,
+Fleet, DNS and DHCP, in `modules/dashboards.nix`, and `tests/grafana.nix`
+runs every panel's queries against the store, so a typo fails the pull
+request rather than drawing nothing. Neither Grafana nor
 the metrics history joins the off-box backups (`modules/offbox-push.nix`):
 losing them to a dead drive costs graphs, not configuration.
 
@@ -551,6 +554,39 @@ fleetAlerts still covers the other Pis' upgrades. Away from core5:
   reading and serves it, so a drive that has dropped off its bus reads as it
   last did. On core5 that drive is the root, so `HostDown` and the watchdog
   say so instead.
+
+## DHCP pools
+
+**Kea's own statistics, from gate's exporter, drawn on the DHCP dashboard one
+line per segment.**
+
+Kea reports each subnet and each pool in it, labelled by address.
+`lib/kea-segments.nix` adds a `segment` label from the subnet id, which
+`hosts/gate/routing.nix` sets to the segment's VLAN id, and both `DhcpPoolLow`
+and the dashboard read it, so the two cannot name a segment differently.
+Kea's message counts are the whole server's, with no subnet, so those panels
+are by operation. The questions, as queries, where `by (instance, segment)`
+reads that label; the dashboard draws each with `$__rate_interval` for the
+window:
+
+- **Pool used**, `DhcpPoolLow`'s own ratio, with its 90% marked:
+  `sum by (instance, segment) (kea_dhcp4_addresses_assigned_total{pool!=""}) / sum by (instance, segment) (kea_dhcp4_addresses_total{pool!=""})`.
+- **Leases held**, the subnet's, reservations included, so they can pass the
+  pool's size: `sum by (instance, segment) (kea_dhcp4_addresses_assigned_total{pool=""})`.
+  Beside them the **pool size**, `sum by (instance, segment) (kea_dhcp4_addresses_total{pool!=""})`.
+- **Messages.** From clients:
+  `sum by (instance, operation) (rate(kea_dhcp4_packets_received_total{operation=~"discover|request|release|inform"}[5m]))`.
+  From Kea: `sum by (instance, operation) (rate(kea_dhcp4_packets_sent_total{operation=~"offer|ack"}[5m]))`.
+- **Trouble.** NAKs sent, `kea_dhcp4_packets_sent_total{operation="nak"}`;
+  declines, drops, parse failures and unknown messages received,
+  `kea_dhcp4_packets_received_total{operation=~"decline|drop|parse-failed|unknown"}`;
+  and `kea_dhcp4_reservation_conflicts_total` by segment, each as a rate. A
+  decline is a client finding the address it was offered already answering,
+  and a reservation conflict is an address reserved for one client and leased
+  to another: either is an address in use twice.
+- **Reclaimed leases**, expired and returned to the pool:
+  `sum by (instance, segment) (rate(kea_dhcp4_addresses_reclaimed_total{pool=""}[5m]))`.
+- **The exporter**, `up{job="kea"}`.
 
 ## Drive health
 
