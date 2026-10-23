@@ -74,7 +74,12 @@ losing them to a dead drive costs graphs, not configuration.
 
 VictoriaMetrics, vmalert and Alertmanager listen on loopback only, since
 everything that talks to them is on core5. Grafana is the one listener on
-core5's address. core5 keeps the public resolvers it already uses
+core5's address. VictoriaMetrics' delete, snapshot and force-merge APIs take a
+key made on core5 at boot and read by root alone, since nothing deletes series
+or makes snapshots in the normal run of things; `modules/metrics.nix` has the
+command for when something must. The `diag` login queries VictoriaMetrics but
+reaches neither vmalert, Alertmanager nor the blackbox exporter
+(`modules/diag-login.nix`). core5 keeps the public resolvers it already uses
 (`networking.nameservers`), for the reason network.md gives for pimon:
 monitoring that resolves through the resolvers it watches goes blind exactly
 when they fail.

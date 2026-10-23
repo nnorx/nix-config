@@ -1,22 +1,46 @@
 # The diag login, from a client over ssh as fleet-ssh reaches it:
 # host-status in full, no sudo, the journal group and not wheel, no pty, keys
 # only from the declared lists, and the host's own user still let in beside it.
+# Then what diag reaches, in both firewalls' forms: services on loopback, but
+# not the alerting and probe ports there, and not another host, while the
+# host's own user reaches all three.
 #
 # `nix build .#checks.x86_64-linux.diag-login`. It needs KVM, which forge's
 # daemon has; CI's vm-tests job runs it on pull requests.
 #
-# The server takes modules/ssh.nix and modules/diag-login.nix as every fleet
+# The servers take modules/ssh.nix and modules/diag-login.nix as every fleet
 # host does, with stand-in keys, so AllowUsers is the merged list the hosts
-# get. nixos-upgrade.service is a stand-in, as in tests/deploy-agent.nix, run
-# once so host-status has an upgrade in the journal to report.
+# get. `server` has the Pis' iptables firewall and `router` gate's nftables.
+# nixos-upgrade.service is a stand-in, as in tests/deploy-agent.nix, run once
+# so host-status has an upgrade in the journal to report. Stand-in HTTP
+# listeners sit on each server's loopback, at VictoriaMetrics' port, the two
+# alerting ports and the blackbox exporter's, and on the client at
+# VictoriaMetrics' port, so a connection the rule did not refuse would succeed.
 { net }:
 let
   user = "server";
-in
-{
-  name = "diag-login";
 
-  nodes.server =
+  # What the stand-ins listen on: one port diag may query, and three it may
+  # not, the list modules/diag-login.nix refuses.
+  queryPort = net.ports.victoriaMetrics;
+  refusedPorts = [
+    net.ports.alertmanager
+    net.ports.vmalert
+    net.ports.blackboxExporter
+  ];
+
+  # An HTTP server on every address, IPv4 and IPv6, at `port`.
+  listener = pkgs: port: {
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      ExecStart = "${pkgs.python3}/bin/python3 -m http.server --bind :: ${toString port}";
+      WorkingDirectory = "/var/empty";
+      DynamicUser = true;
+    };
+  };
+
+  fleetServer =
+    hostname: nftables:
     {
       config,
       lib,
@@ -28,8 +52,7 @@ in
     in
     {
       _module.args = {
-        inherit net;
-        hostname = user;
+        inherit net hostname;
         sshPubKeys = [ keys.snakeOilPublicKey ];
         diagPubKeys = [ keys.snakeOilEd25519PublicKey ];
       };
@@ -40,6 +63,8 @@ in
         ../modules/host-status.nix
       ];
 
+      networking.nftables.enable = nftables;
+
       # A host with no `ip` in lib/net.nix binds its own address, as gate
       # does, and opens the port itself, as modules/firewall.nix would.
       services.openssh.listenAddresses = [ { addr = config.networking.primaryIPAddress; } ];
@@ -48,20 +73,40 @@ in
       # As on the servers: the host's own user in wheel, accounts with no
       # password locked, and sudo for wheel alone (modules/baseline.nix).
       users.mutableUsers = false;
-      users.users.${user} = {
+      users.users.${hostname} = {
         isNormalUser = true;
         extraGroups = [ "wheel" ];
       };
       security.sudo.execWheelOnly = true;
 
+      # The refused logins below are the client's own, on purpose. Without
+      # this, sshd's penalty for them can refuse the next login, depending on
+      # how fast the VM runs them.
+      services.openssh.settings.PerSourcePenalties = "no";
+
       system.autoUpgrade = {
         enable = true;
         dates = "2099-01-01";
       };
-      systemd.services.nixos-upgrade.script = lib.mkForce ''
-        echo "stand-in upgrade"
-      '';
+      systemd.services = {
+        nixos-upgrade.script = lib.mkForce ''
+          echo "stand-in upgrade"
+        '';
+      }
+      // lib.listToAttrs (
+        map (port: lib.nameValuePair "listener-${toString port}" (listener pkgs port)) (
+          [ queryPort ] ++ refusedPorts
+        )
+      );
+
+      environment.systemPackages = [ pkgs.curl ];
     };
+in
+{
+  name = "diag-login";
+
+  nodes.server = fleetServer user false;
+  nodes.router = fleetServer "router" true;
 
   nodes.client =
     { pkgs, ... }:
@@ -77,6 +122,10 @@ in
         source = keys.snakeOilPrivateKey;
         mode = "0600";
       };
+
+      # Another host on the servers' network, which diag must not reach.
+      systemd.services.listener = listener pkgs queryPort;
+      networking.firewall.allowedTCPPorts = [ queryPort ];
     };
 
   testScript =
@@ -85,17 +134,21 @@ in
       # sshd binds this address alone, as on the fleet, and the name `server`
       # resolves to its IPv6 address first.
       address = nodes.server.networking.primaryIPAddress;
+      routerAddress = nodes.router.networking.primaryIPAddress;
+      client4 = nodes.client.networking.primaryIPAddress;
+      client6 = nodes.client.networking.primaryIPv6Address;
+      refusedList = builtins.concatStringsSep ", " (map toString refusedPorts);
     in
     ''
       import shlex
 
-      def ssh(key, login, command, code=0, flags=""):
-          """Runs `command` on the server as `login` with `key`, and returns its
+      def ssh(key, login, command, code=0, flags="", host="${address}"):
+          """Runs `command` on `host` as `login` with `key`, and returns its
           output. `code=None` wants any failure."""
           cmd = (
               f"ssh {flags} -i {key} -o IdentitiesOnly=yes -o IdentityAgent=none "
               "-o StrictHostKeyChecking=no -o BatchMode=yes "
-              f"{login}@${address} {shlex.quote(command)} </dev/null 2>&1"
+              f"{login}@{host} {shlex.quote(command)} </dev/null 2>&1"
           )
           status, out = client.execute(cmd)
           if code is None:
@@ -104,13 +157,18 @@ in
           assert status == code, f"{login} {command!r}: exit {status}, wanted {code}:\n{out}"
           return out
 
-      def diag(command, code=0, flags=""):
-          return ssh("/etc/diag-key", "diag", command, code, flags)
+      def diag(command, code=0, flags="", host="${address}"):
+          return ssh("/etc/diag-key", "diag", command, code, flags, host)
 
       start_all()
-      server.wait_for_unit("sshd.service")
+      for machine in (server, router):
+          machine.wait_for_unit("sshd.service")
+          for port in [${toString queryPort}, ${refusedList}]:
+              machine.wait_for_open_port(port, "127.0.0.1")
       client.wait_for_unit("network.target")
-      client.wait_until_succeeds("ssh-keyscan ${address} | grep -q ssh-ed25519", timeout=60)
+      client.wait_for_open_port(${toString queryPort})
+      for host in ("${address}", "${routerAddress}"):
+          client.wait_until_succeeds(f"ssh-keyscan {host} | grep -q ssh-ed25519", timeout=60)
 
       server.succeed("systemctl start nixos-upgrade.service")
 
@@ -174,5 +232,39 @@ in
           # The client sees only a reset connection; the daemon says why.
           server.succeed("journalctl -u nix-daemon --no-pager | grep -q \"user 'diag' is not allowed\"")
           ssh("/etc/admin-key", "${user}", query)
+
+      # What diag reaches, on each firewall. Refused means refused at once:
+      # a reset, which curl -v reports as "Connection refused", where a drop
+      # would leave it waiting out --max-time.
+      curl = "curl -sSv --max-time 10 -o /dev/null "
+      loopback = ["http://127.0.0.1:{}/", "http://[::1]:{}/"]
+      remote = ["http://${client4}:${toString queryPort}/", "http://[${client6}]:${toString queryPort}/"]
+      refused = [u.format(p) for u in loopback for p in [${refusedList}]]
+
+      for name, host, login in (("server", "${address}", "${user}"), ("router", "${routerAddress}", "router")):
+          def own(command, code=0):
+              return ssh("/etc/admin-key", login, command, code, host=host)
+
+          with subtest(f"{name}: diag queries a service on loopback"):
+              for url in loopback:
+                  diag(curl + url.format(${toString queryPort}), host=host)
+
+          with subtest(f"{name}: diag is refused the alerting and probe ports on loopback"):
+              for url in refused:
+                  out = diag(curl + url, code=7, host=host)
+                  assert "Connection refused" in out, out
+
+          with subtest(f"{name}: diag is refused another host"):
+              for url in remote:
+                  out = diag(curl + url, code=7, host=host)
+                  assert "Connection refused" in out, out
+              for address in ("${client4}", "${client6}"):
+                  diag(f"ping -c 1 -W 5 {address}", code=None, host=host)
+
+          with subtest(f"{name}: the host's own user reaches all of it"):
+              for url in [u.format(${toString queryPort}) for u in loopback] + refused + remote:
+                  own(curl + url)
+              for address in ("${client4}", "${client6}"):
+                  own(f"ping -c 1 -W 5 {address}")
     '';
 }
