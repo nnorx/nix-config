@@ -148,6 +148,12 @@ in
     # version arrives without anyone watching; the fleet dashboard uses only
     # built-in panels, which keeps that small too.
     package = unstable.grafana;
+    # The Prometheus datasource, which the provisioned one below and every
+    # panel use. Grafana 13.2 moved it out of Grafana's own build into a
+    # plugin it fetches at start, which `preinstall_disabled` below refuses,
+    # so without this every panel shows no data. From `unstable` with the
+    # package, so the two move together.
+    declarativePlugins = [ unstable.grafanaPlugins.prometheus ];
     settings = {
       server = {
         http_addr = host.ip;
@@ -178,7 +184,8 @@ in
       };
       # At every start Grafana fetches a set of plugins from grafana.com, and
       # the keys it checks plugin signatures with, unless told not to. The
-      # plugins built into it, which are all this uses, need neither.
+      # plugins built into it and the one in `declarativePlugins` above, which
+      # are all this uses, need neither.
       plugins = {
         preinstall_disabled = true;
         public_key_retrieval_disabled = true;
@@ -195,8 +202,8 @@ in
           {
             name = "VictoriaMetrics";
             uid = "victoriametrics";
-            # It answers PromQL, so Grafana's own Prometheus datasource is the
-            # one to use, and no plugin is needed.
+            # It answers PromQL, so Grafana's Prometheus datasource is the one
+            # to use, and no VictoriaMetrics plugin is needed.
             type = "prometheus";
             url = "http://${vmAddress}";
             isDefault = true;
