@@ -43,7 +43,7 @@ in
     "grafana"
   ];
 
-  # Docker access for this host's user.
+  # This host's user, which the UniFi container runs as.
   #
   # The uid is pinned because the UniFi container needs a numeric PUID at
   # evaluation time, and NixOS otherwise allocates normal-user ids at
@@ -55,10 +55,13 @@ in
   # existing account, so the pin and the account disagreed and home-manager
   # refused to activate with `UID is "1000", expected "1001"`. The number is
   # arbitrary; agreeing with the account on disk is the requirement.
-  users.users.${hostname} = {
-    uid = 1000;
-    extraGroups = [ "docker" ];
-  };
+  #
+  # Not in `docker`, which is root-equivalent: the socket starts a container
+  # with the host's root mounted, and no password is asked. Root here goes
+  # through sudo and its password, as on every other host, so `sudo docker`
+  # it is. The containers and their backups run as systemd units and need no
+  # group.
+  users.users.${hostname}.uid = 1000;
 
   # Pi 5 boot — override the extlinux default from hosts/common
   boot.loader.generic-extlinux-compatible.enable = lib.mkForce false;
