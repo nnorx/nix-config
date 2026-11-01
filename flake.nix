@@ -420,6 +420,36 @@
               }
             );
           };
+
+          # `nix run .#cve-scan`: vulnix on every host and home config, from
+          # their .drv files, with the whitelist's dead rules. See
+          # scripts/cve-scan.sh.
+          cve-scan = {
+            type = "app";
+            meta.description = "Scan every host and home config for CVEs with vulnix, and list dead whitelist rules";
+            program = pkgs.lib.getExe (
+              pkgs.writeShellApplication {
+                name = "cve-scan";
+                runtimeInputs = with pkgs; [
+                  vulnix
+                  curl
+                  jq
+                  gzip
+                  coreutils
+                  gnused
+                  diffutils
+                  git
+                  nix
+                  # For http.server, which serves the feeds to vulnix.
+                  python3
+                ];
+                runtimeEnv = {
+                  CVE_SCAN_REPORT = "${./scripts/cve-scan-report.jq}";
+                };
+                text = builtins.readFile ./scripts/cve-scan.sh;
+              }
+            );
+          };
         }
       );
 
