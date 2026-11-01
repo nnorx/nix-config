@@ -140,7 +140,7 @@ in
         # MongoDB 5+ requires ARMv8.2-A. The Pi 5's Cortex-A76 has it; the
         # Pi 4's Cortex-A72 does not, so this cannot be moved to core4 or
         # lifeline without changing database.
-        image = "docker.io/library/mongo:8.0@sha256:02a0cc7939f5ed38f30f9bc714ef5f682d49baf9350c54acf302ce833087fe8a";
+        image = "docker.io/library/mongo:8.0@sha256:b9924c330a8bbc5800fe9c69f04a84e221eca7b28fd049a0354147d9908fa142";
         environmentFiles = [ config.sops.templates."unifi-db.env".path ];
         volumes = [
           "${stateDir}/db:/data/db"
@@ -150,7 +150,7 @@ in
       };
 
       unifi = {
-        image = "lscr.io/linuxserver/unifi-network-application:10.6.101@sha256:3017d2baabbc3f3f123dc1c892794f40c05516ccac0b94b95a7f4a0f7a417c5e";
+        image = "lscr.io/linuxserver/unifi-network-application:10.6.109@sha256:8389f585c6443af7051b4696a09e4bb5408636da7f99c5a0e5a883595c1d434c";
         dependsOn = [ "unifi-db" ];
         environment = {
           PUID = toString user.uid;
