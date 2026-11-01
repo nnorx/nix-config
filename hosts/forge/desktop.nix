@@ -2,7 +2,6 @@
 {
   lib,
   pkgs,
-  unstable,
   ...
 }:
 {
@@ -94,8 +93,12 @@
     };
   };
 
-  # From unstable, where browser security releases land first.
-  environment.systemPackages = [ unstable.brave ];
+  # From the system's nixpkgs, the one Plasma comes from. On KDE, Brave loads
+  # Qt to match the desktop's theme, and finds Qt's plugins through the
+  # session's QT_PLUGIN_PATH, which holds Plasma's. A Brave built against
+  # another Qt release refuses those plugins and aborts at startup. The
+  # stable channel takes Brave's security releases as backports.
+  environment.systemPackages = [ pkgs.brave ];
 
   # The browser for a user who has chosen none: /etc/xdg/mimeapps.list, which
   # each user's ~/.config/mimeapps.list outranks. Not Home Manager's
