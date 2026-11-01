@@ -138,8 +138,19 @@ comment = "Disputed aarch64 stack-protector gap, fixed upstream before GCC 15."
 cve = ["CVE-2023-4039"]
 comment = "Disputed aarch64 stack-protector gap, fixed upstream before GCC 15."
 
+["gcc-16.2.0"]
+cve = ["CVE-2023-4039"]
+comment = "Disputed aarch64 stack-protector gap, fixed upstream before GCC 15."
+
+["gcc-16.2.0-src"]
+cve = ["CVE-2023-4039"]
+comment = "GCC's source tarball, see [gcc-16.2.0]."
+
 ["binutils-2.46"]
 comment = "Build-time linker/assembler. CVEs are crashes parsing crafted object files, only reachable by pointing ld/objdump at untrusted binaries."
+
+["binutils-2.47"]
+comment = "See [binutils-2.46]."
 
 ["ninja-1.13.2"]
 comment = "Build system used at compile time. CVE-2021-4336 is escape-sequence handling in build status output."
@@ -223,8 +234,162 @@ comment = "CVE-2022-36073 is an account-takeover bug on the rubygems.org site, n
 cve = ["CVE-2021-4048"]
 comment = "OOB read fixed in LAPACK 3.10.1 and OpenBLAS 0.3.18; matches the wrapper's '3' by number."
 
-# Both CVEs affect "v1.0.2 and earlier"; 1.0.6 matches only because NVD
-# records no upper bound. libmicrohttpd-1.0.2 is not whitelisted.
-["libmicrohttpd-1.0.6"]
-cve = ["CVE-2025-59777", "CVE-2025-62689"]
-comment = "Fixed before 1.0.6; NVD's range has no upper bound."
+["ShellCheck-0.11.0"]
+cve = ["CVE-2021-28794"]
+comment = "CVE-2021-28794 is for an unofficial VS Code ShellCheck extension, not shellcheck."
+
+# grafana's Go modules derivation carries the same name and the same match.
+["grafana-13.3.0"]
+cve = ["CVE-2023-34111"]
+comment = "CVE-2023-34111 is a GitHub Actions workflow in taosdata/grafanaplugin, not Grafana."
+
+["grafana-13.3.0-go-modules"]
+cve = ["CVE-2023-34111"]
+comment = "See [grafana-13.3.0]."
+
+# Only the VS Code extension's CVEs. CPython's own stay visible.
+["python-3.14.4"]
+cve = ["CVE-2024-49050", "CVE-2025-49714"]
+comment = "Both are for the VS Code Python extension, not CPython."
+
+["python-3.14.6"]
+cve = ["CVE-2024-49050", "CVE-2025-49714"]
+comment = "See [python-3.14.4]."
+
+["memcached-1.6.45"]
+cve = ["CVE-2022-26635"]
+comment = "CVE-2022-26635 is for the PHP-Memcached extension, not memcached."
+
+["snappy-1.2.2"]
+cve = ["CVE-2023-28115", "CVE-2023-41330"]
+comment = "Both are for the PHP knp-snappy library, not Google's snappy compressor."
+
+["subversion-1.14.5"]
+cve = ["CVE-2021-21698", "CVE-2022-29046", "CVE-2022-29048"]
+comment = "All are for the Jenkins Subversion plugin, not svn."
+
+["thrift-0.24.0"]
+cve = ["CVE-2021-24028"]
+comment = "CVE-2021-24028 is for Facebook's fbthrift, not Apache Thrift."
+
+["accountsservice-23.13.9"]
+cve = ["CVE-2023-3297"]
+comment = "CVE-2023-3297 is in an Ubuntu-only accountsservice patch."
+
+# CVE-2025-59529, avahi's own, stays visible.
+["avahi-0.8"]
+cve = ["CVE-2021-26720"]
+comment = "CVE-2021-26720 is in a Debian packaging script, avahi-daemon-check-dns.sh."
+
+# The PAM file's name parses as polkit, version 1. polkit itself is scanned
+# under its own name.
+["polkit-1.pam"]
+cve = ["CVE-2021-4034"]
+comment = "pkexec's CVE-2021-4034, fixed in polkit 0.120, matched on a PAM file's name."
+
+# Likewise the /etc/dbus-1 directory, and the Rust `dbus` crate. The dbus
+# daemon is scanned under its own name.
+["dbus-1"]
+cve = ["CVE-2022-42010", "CVE-2022-42011", "CVE-2022-42012"]
+comment = "D-Bus daemon CVEs, matched on the name of the dbus-1 config directory."
+
+["dbus-0.9.10"]
+cve = ["CVE-2022-42010", "CVE-2022-42011", "CVE-2022-42012"]
+comment = "D-Bus daemon CVEs, matched on the Rust dbus crate."
+
+# C zlib's own CVEs stay visible.
+["zlib-1.3.2"]
+cve = ["CVE-2023-6992", "CVE-2026-27820"]
+comment = "CVE-2023-6992 is Cloudflare's zlib fork, CVE-2026-27820 the Ruby zlib gem."
+
+["go-1.26.10"]
+cve = ["CVE-2023-49292"]
+comment = "CVE-2023-49292 is for the ecies Go library, not the Go toolchain."
+
+["go-1.27.3"]
+cve = ["CVE-2023-49292"]
+comment = "See [go-1.26.10]."
+
+["openmp-21.1.8"]
+cve = ["CVE-2022-26345"]
+comment = "CVE-2022-26345 is for Intel's oneAPI OpenMP, not LLVM's."
+
+# Crates and Go modules vendored into builds, whose names match a different
+# product in NVD. Each rule is pinned to the vendored version and to the
+# other product's CVEs, so the crate's own CVEs still show. The Rust `bytes`
+# crate is not listed: its CVE is its own.
+["diff-0.1.13"]
+cve = ["CVE-2024-13278", "CVE-2026-73478"]
+comment = "Rust diff crate. Both CVEs are for the Drupal Diff module."
+
+["yoke-0.8.1"]
+cve = ["CVE-2026-26055", "CVE-2026-26056"]
+comment = "Rust yoke crate. Both CVEs are for the Yoke Kubernetes deployer."
+
+["uuid-1.18.1"]
+cve = ["CVE-2026-41907", "CVE-2026-41988"]
+comment = "Rust uuid crate. Both CVEs are for the npm uuid package."
+
+["uuid-1.20.0"]
+cve = ["CVE-2026-41907", "CVE-2026-41988"]
+comment = "See [uuid-1.18.1]."
+
+["nix-0.23.2"]
+cve = ["CVE-2024-27297"]
+comment = "Rust nix crate (Unix syscalls). CVE-2024-27297 is for the Nix package manager."
+
+["nix-0.29.0"]
+cve = ["CVE-2024-27297"]
+comment = "See [nix-0.23.2]."
+
+["nix-0.31.1"]
+cve = ["CVE-2024-27297"]
+comment = "See [nix-0.23.2]."
+
+["paste-1.0.15"]
+cve = ["CVE-2022-21948"]
+comment = "Rust paste crate. CVE-2022-21948 is for openSUSE's paste web app."
+
+["tap-1.0.1"]
+cve = ["CVE-2023-41940"]
+comment = "CVE-2023-41940 is for the Jenkins TAP plugin."
+
+["jam-2.6.1"]
+cve = ["CVE-2025-3841"]
+comment = "Perforce Jam build tool. CVE-2025-3841 is for wix-incubator jam."
+
+["jam-2.6.1.tar"]
+cve = ["CVE-2025-3841"]
+comment = "Jam's source tarball, see [jam-2.6.1]."
+
+# google/wire, Go's dependency-injection code generator. NVD's "wire" is
+# the Wire messenger and Square's Wire protobuf library.
+["wire-0.7.0"]
+cve = [
+  "CVE-2021-21301", "CVE-2021-32665", "CVE-2021-32666", "CVE-2021-32755",
+  "CVE-2021-41093", "CVE-2022-23625", "CVE-2022-31009", "CVE-2022-43673",
+  "CVE-2023-22737", "CVE-2026-45799",
+]
+comment = "google/wire. All are for the Wire messenger or Square's Wire."
+
+["wire-0.7.0-go-modules"]
+cve = [
+  "CVE-2021-21301", "CVE-2021-32665", "CVE-2021-32666", "CVE-2021-32755",
+  "CVE-2021-41093", "CVE-2022-23625", "CVE-2022-31009", "CVE-2022-43673",
+  "CVE-2023-22737", "CVE-2026-45799",
+]
+comment = "See [wire-0.7.0]."
+
+# All three were fixed in 5.42.3-RC1, so 5.42.3 has the fixes. NVD's range
+# reads the release candidate as later than the release.
+["perl-5.42.3"]
+cve = ["CVE-2026-8376", "CVE-2026-13221", "CVE-2026-57432"]
+comment = "Fixed in 5.42.3-RC1, before this release."
+
+["perl-5.42.3-env"]
+cve = ["CVE-2026-8376", "CVE-2026-13221", "CVE-2026-57432"]
+comment = "See [perl-5.42.3]."
+
+["perl-5.42.3-binlore"]
+cve = ["CVE-2026-8376", "CVE-2026-13221", "CVE-2026-57432"]
+comment = "See [perl-5.42.3]."
