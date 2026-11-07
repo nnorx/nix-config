@@ -24,14 +24,50 @@
 # declarative. They live in /var/lib/hass and are state.
 {
   config,
+  lib,
   net,
   unstable,
   ...
 }:
 let
   inherit (config.services.home-assistant) configDir;
+
+  # Upstream's decoder fix ("Detect and report invalid stream earlier",
+  # released in brotli 1.2.1), on unstable's brotli 1.2.0. vulnix reads the
+  # CVE ID from the patch's name.
+  brotliWithDecoderFix = unstable.brotli.overrideAttrs (old: {
+    patches = old.patches ++ [
+      (unstable.fetchpatch {
+        name = "CVE-2026-111497.patch";
+        url = "https://github.com/google/brotli/commit/b418fa81c48262a86a95332b0bc6d62c30aa78b6.patch";
+        hash = "sha256-sZn5DP5l1B7b/clxq+kj925eti7lQ2nrv6Wuhl2bMw4=";
+      })
+    ];
+  });
 in
 {
+  # Home Assistant's process loads the fixed library ahead of unstable's
+  # brotli, until the channel ships 1.2.1 and this retires itself.
+  #
+  # Unstable's python brotli and brotlicffi, and whatever else in the process
+  # links brotli, find `libbrotli*.so.1` through their RUNPATH, which the
+  # loader searches after LD_LIBRARY_PATH. Building them against the fixed
+  # library instead would rebuild aiohttp and most of Home Assistant above it,
+  # and rewriting the closure with system.replaceDependencies needs an aarch64
+  # builder just to evaluate core5. Nothing else sets LD_LIBRARY_PATH for the
+  # service, not the nixpkgs module nor the package's wrapper, and a second
+  # definition would fail evaluation on the conflict rather than replace this.
+  #
+  # The fix adds an error code in a slot the header had reserved, so the
+  # library's ABI is unchanged. Processes Home Assistant starts inherit the
+  # variable too; the library needs only long-standing glibc symbols, so one
+  # built on stable's older glibc loads it as well.
+  systemd.services.home-assistant.environment =
+    lib.mkIf (lib.versionOlder unstable.brotli.version "1.2.1")
+      {
+        LD_LIBRARY_PATH = "${brotliWithDecoderFix.lib}/lib";
+      };
+
   services.home-assistant = {
     enable = true;
 
