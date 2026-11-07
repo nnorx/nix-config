@@ -38,6 +38,7 @@ in
   # does not depend on it (modules/alerts.nix, docs/observability.md).
   fleetAlerts.failure = [
     "victoriametrics"
+    "vmauth"
     "vmalert"
     "alertmanager"
     "grafana"

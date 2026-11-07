@@ -333,14 +333,14 @@ text someone else chose.
 ### Metrics and alerts through core5's forced command
 
 VictoriaMetrics, vmalert and Alertmanager listen on core5's loopback
-(`vmAddress` in `modules/metrics.nix`), and they stay there.
+(`modules/metrics.nix`, `modules/alerting.nix`), and they stay there.
 
 - **A new listener, with a firewall rule to the agent's host**, was the
   alternative. Single-node VictoriaMetrics has no authentication, and its
   HTTP API also takes writes (`/api/v1/import`, the remote-write and Influx
   endpoints) and deletions (`/api/v1/admin/tsdb/delete_series`), so opening
-  the port opens those to whatever reaches it. vmauth could front it with a
-  read-only path list, but that is another service, a port in `lib/net.nix`,
+  the port opens those to whatever reaches it. vmauth, which passes reads
+  alone on loopback, could be opened instead, but that is another listener,
   a rule on core5's interface and a token in two sops files, and it covers
   neither Alertmanager nor the journals.
 - **Grafana's datasource proxy**, with a viewer token, was the other. It

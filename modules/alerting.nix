@@ -39,7 +39,9 @@
   ...
 }:
 let
-  vm = "http://127.0.0.1:${toString net.ports.victoriaMetrics}";
+  # The store itself, not vmauth in front of it (modules/metrics.nix), since
+  # vmalert writes its alerts' state there.
+  vm = "http://127.0.0.1:${toString net.ports.victoriaMetricsStore}";
   vmalertAddress = "127.0.0.1:${toString net.ports.vmalert}";
   alertmanagerAddress = "127.0.0.1:${toString net.ports.alertmanager}";
   ph = config.sops.placeholder;
