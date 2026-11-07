@@ -635,7 +635,9 @@ when asked to. **needed**.
 **Dev tools** (`home/dev-tools.nix`, `home/common-tools.nix`), on every dev
 machine: npm, pnpm and cargo reach their registries when used, npm and pnpm
 also check them for their own updates, `tldr` downloads its pages from
-GitHub, and `vulnix` downloads the NVD feed. All on use, none on a timer.
+GitHub, `vulnix` downloads the NVD feed, and `nix run .#cve-scan` downloads
+NVD's yearly feeds when it runs, the changed ones only. All on use, none on a
+timer.
 **needed**.
 
 ## GitHub Actions

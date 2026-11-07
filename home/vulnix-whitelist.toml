@@ -14,7 +14,9 @@
 # pinned version, the false positive comes back and the rule needs bumping.
 # That is the intended failure: noisy, not silent.
 #
-# Run with:  vulnix -w ~/.config/vulnix/whitelist.toml <path>
+# Run with:  nix run .#cve-scan
+# from the checkout. It scans every host and home config at a commit, with
+# this file as it is there, and lists the rules that suppress nothing.
 #
 # Categories below:
 #   1. Haskell library name collisions  — package name happens to match an

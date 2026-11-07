@@ -7,6 +7,10 @@
 #      tests/preflight-brief/ (scripts/test-preflight-brief.sh). A slip in a
 #      rule changes verdicts with no error, so this fails the run instead.
 #      First, since it takes milliseconds.
+#      Beside it, cve-scan's report, against tests/cve-scan-report/
+#      (scripts/test-cve-scan-report.sh): the report says which whitelist
+#      rules are dead, and a slip there gets a rule removed that still
+#      suppresses something, or keeps one that suppresses nothing.
 #   2. The night-shift dispatcher, pkgs/night-shift/night-shift.sh, against
 #      stubbed Linear, GitHub, ntfy and Claude (tests/night-shift/run.sh). It runs
 #      unattended, acts as Nick in Linear and deletes worktrees and branches,
@@ -129,6 +133,9 @@ if [[ $flake_check != only ]]; then
   # with (PREFLIGHT_BRIEF), not the commit's, and those are what this tests.
   # $BASH, since writeShellApplication puts no bash on PATH.
   "$BASH" scripts/test-preflight-brief.sh
+
+  step "cve-scan report rules"
+  "$BASH" scripts/test-cve-scan-report.sh
 
   step "night-shift dispatcher"
   # From the checkout under --head too: the working tree's dispatcher, not the
