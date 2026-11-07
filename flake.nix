@@ -256,6 +256,21 @@
           extraModules = [ ./hosts/common/pi.nix ] ++ hardwareModules ++ extraModules;
         };
 
+      # The Raspberry Pi bcm2711 kernel that nixos-raspberrypi builds, for a
+      # Pi 4 otherwise set up by nixos-hardware. That module's own kernel is
+      # built from our nixpkgs and is in no public cache, so every nixpkgs
+      # bump costs cache.yml hours compiling it. This one is built from
+      # nixos-raspberrypi's own nixpkgs pin and cached upstream, the same way
+      # core5's is; a nixpkgs.follows on that input (see its comment) would
+      # make it ours to compile again.
+      #
+      # Only the kernel moves. U-Boot, extlinux and the device-tree filter
+      # stay nixos-hardware's, and the dtbs come from this kernel. Its
+      # kernelPackages default is mkDefault, so a plain value wins.
+      pi4CachedKernel = {
+        boot.kernelPackages = nixos-raspberrypi.packages.aarch64-linux.linuxPackages_rpi4;
+      };
+
       # Helper function to create an SD card installer image for Pi 3/4
       mkPiInstaller =
         hostname:
@@ -570,7 +585,10 @@
         # Pi 3/4 use U-Boot via nixos-hardware
         core4 = mkPi {
           hostname = "core4";
-          hardwareModules = [ nixos-hardware.nixosModules.raspberry-pi-4 ];
+          hardwareModules = [
+            nixos-hardware.nixosModules.raspberry-pi-4
+            pi4CachedKernel
+          ];
         };
         lifeline = mkPi {
           hostname = "lifeline";
