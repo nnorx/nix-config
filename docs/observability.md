@@ -80,13 +80,18 @@ losing them to a dead drive costs graphs, not configuration.
 
 VictoriaMetrics, vmalert and Alertmanager listen on loopback only, since
 everything that talks to them is on core5. Grafana is the one listener on
-core5's address. VictoriaMetrics' delete, snapshot and force-merge APIs take a
-key made on core5 at boot and read by root alone, since nothing deletes series
-or makes snapshots in the normal run of things; `modules/metrics.nix` has the
-command for when something must. The `diag` login queries VictoriaMetrics but
-reaches neither vmalert, Alertmanager nor the blackbox exporter
-(`modules/diag-login.nix`). core5 keeps the public resolvers it already uses
-(`networking.nameservers`), for the reason network.md gives for pimon:
+core5's address. The store has two ports: its own, which Grafana, vmalert and
+its scrape of itself use, and VictoriaMetrics' usual one, where vmauth passes
+the read paths alone (queries, series, labels, the status pages and vmui) and
+refuses the rest. The store's admin APIs, deleting series, snapshots, merges,
+reloads, its `/config`, `/flags` and profiling pages among them, take a key
+made on core5 at boot and read by root alone, since nothing calls them in the
+normal run of things; `modules/metrics.nix` lists them, and has the command
+for when something must delete. The `diag` login queries VictoriaMetrics
+through vmauth alone, and reaches neither the store's own port, vmalert,
+Alertmanager nor the blackbox exporter (`modules/diag-login.nix`). core5
+keeps the public resolvers it already uses (`networking.nameservers`), for
+the reason network.md gives for pimon:
 monitoring that resolves through the resolvers it watches goes blind exactly
 when they fail.
 
@@ -181,7 +186,8 @@ pimon's loopback agent on core5 already does:
 | 9547 | `keaExporter` | gate's servers gateway |
 | 9115 | `blackboxExporter` | core5 loopback |
 | 9633 | `smartctlExporter` | core5 loopback |
-| 8428 | `victoriaMetrics` | core5 loopback |
+| 8428 | `victoriaMetrics` | core5 loopback, vmauth in front of the store |
+| 8430 | `victoriaMetricsStore` | core5 loopback, the store itself |
 | 8881 | `vmalert` | core5 loopback |
 | 9093 | `alertmanager` | core5 loopback |
 | 3030 | `grafana` | core5's address |

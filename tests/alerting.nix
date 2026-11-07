@@ -88,7 +88,7 @@ in
 
         services.victoriametrics = {
           enable = true;
-          listenAddress = "127.0.0.1:${toString net.ports.victoriaMetrics}";
+          listenAddress = "127.0.0.1:${toString net.ports.victoriaMetricsStore}";
         };
 
         services.vmalert.instances."".settings.rule = [

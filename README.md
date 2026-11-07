@@ -436,8 +436,9 @@ printf '%s' "$pw" | jq -R . | sops set --value-stdin secrets/core5.yaml '["grafa
 unset pw
 ```
 
-VictoriaMetrics listens on core5's loopback alone. For its own query UI,
-`ssh -L 8428:127.0.0.1:8428 core5` and then http://localhost:8428/vmui.
+VictoriaMetrics listens on core5's loopback alone, behind vmauth, which passes
+queries and the query UI. For that UI, `ssh -L 8428:127.0.0.1:8428 core5` and
+then http://localhost:8428/vmui.
 
 ## CI and the binary cache
 

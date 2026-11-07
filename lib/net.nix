@@ -497,12 +497,17 @@
     goveeCommand = 4003; # UDP, control, to each light
 
     # The metrics stack, docs/observability.md. node_exporter is a contract
-    # between core5 and every target. VictoriaMetrics listens on core5's
-    # loopback and is here because the rule is every port. Grafana is on
-    # core5's address, at 3030 rather than its default 3000, which is
-    # adguardWeb: gate's tunnel grants match on the number.
+    # between core5 and every target. VictoriaMetrics is on core5's loopback
+    # and is here because the rule is every port: the store itself at
+    # victoriaMetricsStore, for Grafana, vmalert and its own scrape, and
+    # vmauth at victoriaMetrics, the store's own default, passing its read
+    # paths alone (modules/metrics.nix). So a query at the usual port is a
+    # query through vmauth. Grafana is on core5's address, at 3030 rather than
+    # its default 3000, which is adguardWeb: gate's tunnel grants match on the
+    # number.
     nodeExporter = 9100;
     victoriaMetrics = 8428;
+    victoriaMetricsStore = 8430;
     grafana = 3030;
 
     # The alerting on the collector, on its loopback (modules/alerting.nix).

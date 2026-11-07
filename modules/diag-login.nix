@@ -32,15 +32,17 @@ let
   # what pushes one, and no service there connects onward on its behalf. The
   # blackbox exporter probes whatever target a request gives it, so its port
   # is refused with the alerting ones, and diag's reach stays at the host
-  # itself. All three run on core5 alone
-  # (modules/alerting.nix, modules/blackbox.nix); the ports are refused on
-  # every host so that the rule is one rule everywhere. VictoriaMetrics'
-  # port stays open for queries, and its admin APIs take a key
-  # (modules/metrics.nix).
+  # itself. The metrics store's own port is refused too, so diag queries it
+  # through vmauth, at VictoriaMetrics' usual port, which passes reads alone,
+  # and its admin APIs take a key besides (modules/metrics.nix). All four run
+  # on core5 alone (modules/alerting.nix, modules/blackbox.nix,
+  # modules/metrics.nix); the ports are refused on every host so that the
+  # rule is one rule everywhere.
   refusedPorts = [
     net.ports.alertmanager
     net.ports.vmalert
     net.ports.blackboxExporter
+    net.ports.victoriaMetricsStore
   ];
 
   # The chain diag's traffic jumps to, in each firewall's form. Traffic on a

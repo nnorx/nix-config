@@ -23,11 +23,45 @@
 let
   host = net.hosts.${hostname};
   hardening = import ../lib/hardening.nix;
-  vmAddress = "127.0.0.1:${toString net.ports.victoriaMetrics}";
+  # The store itself, which Grafana, vmalert (./alerting.nix) and its own
+  # scrape use, and vmauth in front of it at the port queries have always
+  # used, below.
+  storeAddress = "127.0.0.1:${toString net.ports.victoriaMetricsStore}";
+  vmauthAddress = "127.0.0.1:${toString net.ports.victoriaMetrics}";
   interval = "30s";
 
-  # Made at boot by victoriametrics-delete-key, below.
-  deleteKey = "/run/victoriametrics-delete-key";
+  # Made at boot by victoriametrics-admin-key, below.
+  adminKey = "/run/victoriametrics-admin-key";
+
+  # The paths vmauth passes to the store, each a regular expression that must
+  # match the whole path, which vmauth cleans of `.` and `..` before matching.
+  # Reads alone: queries, series, labels and their values, the status pages
+  # vmui's own pages call, the two query tools vmui's editor calls, and vmui
+  # itself. Anything else, a write, an import or an admin path, matches no
+  # route, and vmauth refuses it without asking the store.
+  readPaths = [
+    "/api/v1/query"
+    "/api/v1/query_range"
+    "/api/v1/series"
+    "/api/v1/labels"
+    "/api/v1/label/[^/]+/values"
+    "/api/v1/metadata"
+    "/api/v1/status/(buildinfo|tsdb|top_queries|active_queries|metric_names_stats)"
+    "/prettify-query"
+    "/expand-with-exprs"
+    "/vmui(/.*)?"
+  ];
+  # JSON, which is YAML too.
+  vmauthConfig = pkgs.writeText "vmauth.yml" (
+    builtins.toJSON {
+      unauthorized_user.url_map = [
+        {
+          src_paths = readPaths;
+          url_prefix = "http://${storeAddress}";
+        }
+      ];
+    }
+  );
 
   # Each target at the address its exporters bind (modules/node-exporter.nix),
   # with `instance` set to the host's name rather than that address, which is
@@ -65,7 +99,7 @@ in
 
   services.victoriametrics = {
     enable = true;
-    listenAddress = vmAddress;
+    listenAddress = storeAddress;
 
     # Months, when there is no suffix.
     retentionPeriod = "12";
@@ -81,16 +115,37 @@ in
       # Bavail), and on core5 ext4 reserves another 51 GB for root, the default
       # 5%, read with `stat -f /` on 2026-10-11.
       "-storage.minFreeDiskSpaceBytes=50GiB"
-
-      # The admin APIs that change the store take this key, below: deleting
-      # series (`/api/v1/admin/tsdb/delete_series` and Graphite's
-      # `/tags/delSeries`), making and deleting snapshots (`/snapshot/*`),
-      # and forcing a merge (`/internal/force_merge`). Each flag reads a
-      # file:// value at first use and every few seconds after, and refuses
-      # every key until the file is there.
-      "-deleteAuthKey=file://%d/delete-key"
-      "-snapshotAuthKey=file://%d/delete-key"
-      "-forceMergeAuthKey=file://%d/delete-key"
+    ]
+    # The admin endpoints take this key, below: deleting series
+    # (`/api/v1/admin/tsdb/delete_series` and Graphite's `/tags/delSeries`),
+    # making and deleting snapshots (`/snapshot/*`), forcing a merge or a
+    # flush (`/internal/force_merge`, `/internal/force_flush`), reloading the
+    # scrape configuration (`/-/reload`), resetting the rollup cache
+    # (`/internal/resetRollupResultCache`) and the metric names' statistics
+    # (`/api/v1/admin/status/metric_names_stats/reset`), logging new series
+    # (`/internal/log_new_series`), and the `/config`, `/flags` and
+    # `/debug/pprof/*` pages. Each flag reads a file:// value at first use and
+    # every few seconds after, and refuses every key until the file is there.
+    # Nothing on core5 calls any of them: the module's start check asks
+    # `/ping`, which takes no key, and a changed scrape configuration restarts
+    # the store rather than reloading it.
+    #
+    # `/metrics` is the one admin page without a key, `-metricsAuthKey`
+    # unset: the store's scrape of itself, below, reads it, and a scrape
+    # passes a key only as a query argument written into the scrape
+    # configuration, where a key made at boot cannot be.
+    ++ map (flag: "-${flag}=file://%d/admin-key") [
+      "deleteAuthKey"
+      "snapshotAuthKey"
+      "forceMergeAuthKey"
+      "forceFlushAuthKey"
+      "reloadAuthKey"
+      "search.resetCacheAuthKey"
+      "metricNamesStatsResetAuthKey"
+      "logNewSeriesAuthKey"
+      "configAuthKey"
+      "flagsAuthKey"
+      "pprofAuthKey"
     ];
 
     prometheusConfig = {
@@ -122,7 +177,7 @@ in
           job_name = "victoriametrics";
           static_configs = [
             {
-              targets = [ vmAddress ];
+              targets = [ storeAddress ];
               labels.instance = hostname;
             }
           ];
@@ -218,7 +273,7 @@ in
             # It answers PromQL, so Grafana's Prometheus datasource is the one
             # to use, and no VictoriaMetrics plugin is needed.
             type = "prometheus";
-            url = "http://${vmAddress}";
+            url = "http://${storeAddress}";
             isDefault = true;
             # The scrape interval, so `$__rate_interval` never asks rate() for
             # a window holding fewer than two samples.
@@ -242,20 +297,21 @@ in
   # to each service's own state.
   systemd.services.victoriametrics.serviceConfig = hardening // {
     ProtectSystem = lib.mkForce hardening.ProtectSystem;
-    LoadCredential = [ "delete-key:${deleteKey}" ];
+    LoadCredential = [ "admin-key:${adminKey}" ];
   };
 
-  # The key VictoriaMetrics' delete, snapshot and force-merge APIs take.
-  # Nothing deletes series, makes a snapshot or forces a merge in the normal
-  # run of things, so it is made here, once a boot, readable by root
-  # alone, rather than kept in sops: losing it costs nothing, and the service
-  # reads its copy as a credential. Never empty: VictoriaMetrics treats an
-  # empty key as none. To delete, as root on core5:
+  # The key VictoriaMetrics' admin endpoints take, above. Nothing calls one in
+  # the normal run of things, so it is made here, once a boot, readable by
+  # root alone, rather than kept in sops: losing it costs nothing, and the
+  # service reads its copy as a credential. Never empty: VictoriaMetrics
+  # treats an empty key as none. To delete, as root on core5, at the store's
+  # own port, victoriaMetricsStore in lib/net.nix, since vmauth passes no
+  # admin path:
   #
-  #   curl --data-urlencode authKey@/run/victoriametrics-delete-key \
+  #   curl --data-urlencode authKey@/run/victoriametrics-admin-key \
   #     --data-urlencode 'match[]=<selector>' \
-  #     http://127.0.0.1:<port>/api/v1/admin/tsdb/delete_series
-  systemd.services.victoriametrics-delete-key = {
+  #     http://127.0.0.1:<store port>/api/v1/admin/tsdb/delete_series
+  systemd.services.victoriametrics-admin-key = {
     description = "Make the key VictoriaMetrics' admin APIs take";
     before = [ "victoriametrics.service" ];
     requiredBy = [ "victoriametrics.service" ];
@@ -265,11 +321,40 @@ in
       UMask = "0077";
     };
     script = ''
-      if [ ! -s ${deleteKey} ]; then
+      if [ ! -s ${adminKey} ]; then
         key=$(${lib.getExe pkgs.openssl} rand -hex 32)
-        printf '%s' "$key" > ${deleteKey}
+        printf '%s' "$key" > ${adminKey}
       fi
     '';
+  };
+
+  # Queries reach the store through vmauth, which passes `readPaths`, above,
+  # and refuses the rest. It listens at the port that was the store's, so a
+  # query sent there is unchanged, and the diag login, which modules/diag-login.nix
+  # refuses the store's own port, reaches the store through it alone. Its own
+  # pages, `/metrics`, `/flags`, `/-/reload` and `/debug/pprof/*`, are on a
+  # socket in its runtime directory, which its user and root alone open, so
+  # its port serves the routes above and nothing else. nixpkgs has no module
+  # for it; the binary is the store's own package's.
+  systemd.services.vmauth = {
+    description = "Pass reads alone to VictoriaMetrics";
+    wantedBy = [ "multi-user.target" ];
+    # Its port was the store's, until the store moved; on that switch, the
+    # store's restart frees it first.
+    after = [ "victoriametrics.service" ];
+    serviceConfig = hardening // {
+      ExecStart = lib.escapeShellArgs [
+        (lib.getExe' config.services.victoriametrics.package "vmauth")
+        "-auth.config=${vmauthConfig}"
+        "-httpListenAddr=${vmauthAddress}"
+        "-httpInternalListenAddr=unix:/run/vmauth/internal.sock"
+      ];
+      DynamicUser = true;
+      RuntimeDirectory = "vmauth";
+      RuntimeDirectoryMode = "0700";
+      Restart = "on-failure";
+      RestartSec = "5s";
+    };
   };
 
   systemd.services.grafana = {
@@ -284,8 +369,8 @@ in
     '';
   };
 
-  # Grafana is the one listener on core5's address; VictoriaMetrics is on
-  # loopback. The LAN interface only, as for Home Assistant: servers reaches it
+  # Grafana is the one listener on core5's address; VictoriaMetrics and vmauth
+  # are on loopback. The LAN interface only, as for Home Assistant: servers reaches it
   # directly, trusted through gate, and no other segment at all.
   networking.firewall.interfaces.${host.iface}.allowedTCPPorts = [ net.ports.grafana ];
 }

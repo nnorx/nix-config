@@ -11,6 +11,12 @@
 # nothing, which passes, since no exporter runs here; the dashboards' own
 # check after core5 upgrades is what catches that.
 #
+# And the store's two ports, as modules/metrics.nix sets them: vmauth's, at
+# VictoriaMetrics' usual port, passes queries and vmui and refuses writes,
+# imports and admin paths; the store's own takes writes, vmalert's among them,
+# and its scrape of itself; and each admin endpoint there takes the key, which
+# root reads.
+#
 # `nix build .#checks.x86_64-linux.grafana`. It needs KVM, which forge's daemon
 # has; CI's vm-tests job runs it on pull requests.
 #
@@ -26,6 +32,9 @@ let
 
   # Test value only: core5's own is in sops.
   password = "test-password";
+
+  # What vmauth answers a path that matches no route.
+  refusedStatus = 400;
 
   sopsStub =
     { lib, pkgs, ... }:
@@ -121,8 +130,13 @@ in
       start_all()
       ${collector}.wait_for_unit("victoriametrics.service")
       ${collector}.wait_for_open_port(${toString net.ports.grafana}, "${host.ip}")
+      # The store's own port, which Grafana and vmalert use, and vmauth's in
+      # front of it, which queries from a login use.
+      store = "http://127.0.0.1:${toString net.ports.victoriaMetricsStore}"
+      vmauth = "http://127.0.0.1:${toString net.ports.victoriaMetrics}"
+      ${collector}.wait_for_unit("vmauth.service")
+      ${collector}.wait_for_open_port(${toString net.ports.victoriaMetrics}, "127.0.0.1")
       # One series of its own, so the query below does not wait on a scrape.
-      store = "http://127.0.0.1:${toString net.ports.victoriaMetrics}"
       ${collector}.succeed(f"curl -sf -d 'grafana_test_metric 1' {store}/api/v1/import/prometheus")
       ${collector}.wait_until_succeeds(
           f"curl -sf '{store}/api/v1/query?query=grafana_test_metric' | grep -q grafana_test_metric",
@@ -184,5 +198,112 @@ in
                       assert '"status":"success"' in out, f"{where}: {out}"
                       checked += 1
               assert checked > 0, f"{name}: no panel queries were found to check"
+
+      def status(method, url, data=None):
+          """The HTTP status of one request, with the path sent as written."""
+          body = f"--data-binary {shlex.quote(data)} " if data is not None else ""
+          return int(${collector}.succeed(
+              f"curl -s --path-as-is -o /dev/null -w '%{{http_code}}' -X {method} {body}{shlex.quote(url)}"
+          ))
+
+      def count(metric):
+          """How many series the store holds under `metric`, asked directly."""
+          out = json.loads(${collector}.succeed(f"curl -sf '{store}/api/v1/series' --data-urlencode 'match[]={metric}'"))
+          return len(out["data"])
+
+      with subtest("through vmauth, queries and vmui answer"):
+          out = ${collector}.succeed(f"curl -sf '{vmauth}/api/v1/query?query=grafana_test_metric'")
+          assert "grafana_test_metric" in out, out
+          for path in [
+              "/api/v1/query_range?query=grafana_test_metric&start=-5m&step=30s",
+              "/api/v1/series?match[]=grafana_test_metric",
+              "/api/v1/labels",
+              "/api/v1/label/__name__/values",
+              "/api/v1/status/tsdb",
+              "/api/v1/status/buildinfo",
+          ]:
+              out = ${collector}.succeed(f"curl -sf -g '{vmauth}{path}'")
+              assert '"status":"success"' in out, f"{path}: {out}"
+          out = ${collector}.succeed(f"curl -sfL {vmauth}/vmui/")
+          assert "<html" in out.lower(), out[:500]
+
+      with subtest("through vmauth, writes, imports and admin paths are refused"):
+          refused = [
+              ("POST", "/api/v1/import/prometheus", "vmauth_injected 1"),
+              ("POST", "/api/v1/import", '{"metric":{"__name__":"vmauth_injected"},"values":[1],"timestamps":[0]}'),
+              ("POST", "/api/v1/import/csv?format=2:metric:vmauth_injected", "1"),
+              ("POST", "/api/v1/write", ""),
+              ("POST", "/write", "vmauth_injected value=1"),
+              ("POST", "/influx/write", "vmauth_injected value=1"),
+              ("POST", "/influx/api/v2/write", "vmauth_injected value=1"),
+              ("POST", "/prometheus/api/v1/import/prometheus", "vmauth_injected 1"),
+              ("POST", "/datadog/api/v1/series", "{}"),
+              ("POST", "/opentelemetry/v1/metrics", ""),
+              ("GET", "/api/v1/export?match[]=grafana_test_metric", None),
+              ("POST", "/api/v1/admin/tsdb/delete_series?match[]=grafana_test_metric", None),
+              ("GET", "/snapshot/create", None),
+              ("GET", "/internal/force_merge", None),
+              ("GET", "/-/reload", None),
+              ("GET", "/flags", None),
+              ("GET", "/metrics", None),
+              ("GET", "/debug/pprof/", None),
+              # vmauth cleans the path before it matches a route.
+              ("POST", "/vmui/../api/v1/import/prometheus", "vmauth_injected 1"),
+              ("POST", "/api/v1/query/../import/prometheus", "vmauth_injected 1"),
+              ("POST", "/vmui/%2e%2e/api/v1/import/prometheus", "vmauth_injected 1"),
+          ]
+          for method, path, data in refused:
+              code = status(method, f"{vmauth}{path}", data)
+              assert code == ${toString refusedStatus}, f"{method} {path} through vmauth: {code}"
+          # The series path is a read whatever the method, so a DELETE through
+          # vmauth reaches the store and removes nothing.
+          status("DELETE", f"{vmauth}/api/v1/series?match[]=grafana_test_metric")
+          assert count("grafana_test_metric") == 1, "a DELETE through vmauth removed a series"
+          ${collector}.succeed(f"curl -sf \"{store}/internal/force_flush?authKey=$(cat /run/victoriametrics-admin-key)\"")
+          assert count("vmauth_injected") == 0, "a write through vmauth reached the store"
+
+      with subtest("the store's own port takes writes, vmalert's among them"):
+          ${collector}.succeed(f"curl -sf -d 'store_write_test 1' {store}/api/v1/import/prometheus")
+          ${collector}.wait_until_succeeds(
+              f"curl -sf '{store}/api/v1/query?query=store_write_test' | grep -q store_write_test",
+              timeout=60,
+          )
+          # vmalert writes each alert's state there, and the Watchdog always fires.
+          ${collector}.wait_until_succeeds(
+              f"curl -sf -g '{store}/api/v1/query?query=ALERTS{{alertname=\"Watchdog\"}}' | grep -q Watchdog",
+              timeout=120,
+          )
+
+      with subtest("the store scrapes itself at its own port, without a key"):
+          ${collector}.wait_until_succeeds(
+              f"curl -sf -g '{store}/api/v1/query?query=up{{job=\"victoriametrics\"}}==1' | grep -q victoriametrics",
+              timeout=120,
+          )
+
+      with subtest("each admin endpoint takes the key, which root reads"):
+          ${collector}.succeed("test -s /run/victoriametrics-admin-key")
+          ${collector}.succeed("test \"$(stat -c %a:%U /run/victoriametrics-admin-key)\" = 600:root")
+          key = ${collector}.succeed("cat /run/victoriametrics-admin-key").strip()
+          keyed = [
+              ("POST", "/api/v1/admin/tsdb/delete_series?match[]=no_such_metric"),
+              ("GET", "/snapshot/list"),
+              ("GET", "/internal/force_merge"),
+              ("GET", "/internal/force_flush"),
+              ("GET", "/-/reload"),
+              ("GET", "/internal/resetRollupResultCache"),
+              ("POST", "/api/v1/admin/status/metric_names_stats/reset"),
+              ("GET", "/internal/log_new_series"),
+              ("GET", "/config"),
+              ("GET", "/flags"),
+              ("GET", "/debug/pprof/cmdline"),
+          ]
+          for method, path in keyed:
+              join = "&" if "?" in path else "?"
+              without = status(method, f"{store}{path}")
+              assert without == 401, f"{method} {path} without the key: {without}"
+              wrong = status(method, f"{store}{path}{join}authKey=wrong")
+              assert wrong == 401, f"{method} {path} with a wrong key: {wrong}"
+              right = status(method, f"{store}{path}{join}authKey={key}")
+              assert 200 <= right < 300, f"{method} {path} with the key: {right}"
     '';
 }
