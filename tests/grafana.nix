@@ -152,8 +152,8 @@ in
 
       with subtest("every dashboard is provisioned"):
           uids = {board["uid"] for board in boards.values()}
-          # The three this repo has, so a file going missing fails too.
-          missing = {"fleet", "dns", "dhcp"} - uids
+          # The four this repo has, so a file going missing fails too.
+          missing = {"fleet", "dns", "dhcp", "alerting"} - uids
           assert not missing, f"no dashboard file for {sorted(missing)}"
           out = ${collector}.succeed(f"curl -sf {grafana}/api/search")
           for uid in uids:

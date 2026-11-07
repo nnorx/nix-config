@@ -535,9 +535,236 @@ let
           fieldConfig.defaults.mappings = upMappings;
         })
       ];
+
+  # What fires, and the stack that fires it (modules/alerting.nix), from what
+  # it writes to the store and the store scrapes from it, so that neither
+  # vmalert's nor Alertmanager's own pages, on core5's loopback, need opening.
+  # Watchdog always fires, by design, and is left out by name, which hides no
+  # other alert. Nothing here knows of Alertmanager's silences: a silenced
+  # alert still fires, and still shows.
+  alerts = state: ''ALERTS{alertstate="${state}", alertname!="Watchdog"}'';
+  # One row per alert, as ALERTS labels it: its name, host and severity
+  # first, then any label a rule adds, such as a segment or a mountpoint.
+  alertTable =
+    { title, state }:
+    panel {
+      inherit title;
+      type = "table";
+      targets = [
+        {
+          expr = alerts state;
+          instant = true;
+          format = "table";
+        }
+      ];
+      transformations = [
+        {
+          id = "organize";
+          options = {
+            excludeByName = {
+              Time = true;
+              __name__ = true;
+              alertgroup = true;
+              alertstate = true;
+              Value = true;
+            };
+            indexByName = {
+              alertname = 0;
+              instance = 1;
+              severity = 2;
+            };
+            renameByName = {
+              alertname = "Alert";
+              instance = "Host";
+              severity = "Severity";
+            };
+          };
+        }
+      ];
+    };
+  # Whether each service's last read of its configuration succeeded.
+  reloadMappings = [
+    {
+      type = "value";
+      options = {
+        "0" = {
+          text = "failed";
+          color = "red";
+        };
+        "1" = {
+          text = "loaded";
+          color = "green";
+        };
+      };
+    }
+  ];
+  alertingDashboard =
+    dashboard
+      {
+        uid = "alerting";
+        title = "Alerting";
+      }
+      [
+        (alertTable {
+          title = "Firing now";
+          state = "firing";
+        })
+        (alertTable {
+          title = "Pending now";
+          state = "pending";
+        })
+        (panel {
+          title = "Firing over the window";
+          width = 24;
+          # How many of each alert fired at each moment: one host's alert is
+          # a line at 1 for as long as it fired.
+          targets = [
+            {
+              expr = "count by (alertname) (${alerts "firing"})";
+              legendFormat = "{{alertname}}";
+            }
+          ];
+        })
+        (panel {
+          title = "Rule trouble per second";
+          width = 18;
+          # vmalert's side: a rule its query failed for, a round of rules
+          # that ran late enough to skip one, an alert Alertmanager did not
+          # take, and alert state the store did not take, which the panels
+          # above and a restart's memory of each alert's `for` are read from.
+          targets = [
+            {
+              expr = "sum(${rate "vmalert_alerting_rules_errors_total"})";
+              legendFormat = "evaluation errors";
+            }
+            {
+              expr = "sum(${rate "vmalert_iteration_missed_total"})";
+              legendFormat = "missed iterations";
+            }
+            {
+              expr = "sum(${rate "vmalert_alerts_send_errors_total"})";
+              legendFormat = "failed sends to Alertmanager";
+            }
+            {
+              expr = "sum(${rate "vmalert_remotewrite_errors_total"})";
+              legendFormat = "failed writes of alert state";
+            }
+          ];
+        })
+        (panel {
+          title = "Last config reload";
+          type = "stat";
+          width = 6;
+          targets = [
+            {
+              expr = "vmalert_config_last_reload_successful";
+              legendFormat = "vmalert";
+            }
+            {
+              expr = "alertmanager_config_last_reload_successful";
+              legendFormat = "Alertmanager";
+            }
+          ];
+          options = upOptions;
+          fieldConfig.defaults.mappings = reloadMappings;
+        })
+        (panel {
+          title = "Notifications per second";
+          width = 18;
+          # Alertmanager's side, by integration, only those it has used since
+          # it started: it counts every kind it knows, and the rest would be
+          # a line each at nothing. Sent is every notification it tried,
+          # failed ones included, each after its retries.
+          targets =
+            let
+              used = "on (integration) (sum by (integration) (alertmanager_notifications_total) > 0)";
+            in
+            [
+              {
+                expr = "sum by (integration) (${rate "alertmanager_notifications_total"}) and ${used}";
+                legendFormat = "{{integration}} sent";
+              }
+              {
+                expr = "sum by (integration) (${rate "alertmanager_notifications_failed_total"}) and ${used}";
+                legendFormat = "{{integration}} failed";
+              }
+            ];
+        })
+        (panel {
+          title = "Active silences";
+          type = "stat";
+          width = 6;
+          targets = [
+            {
+              expr = ''alertmanager_silences{state="active"}'';
+              legendFormat = "active";
+            }
+          ];
+        })
+        (panel {
+          title = "Store, ingested per second";
+          # Every scrape's samples and vmalert's writes, beside the series
+          # the store had not seen before, which a change of labels raises.
+          targets = [
+            {
+              expr = "sum(${rate "vm_rows_inserted_total"})";
+              legendFormat = "rows";
+            }
+            {
+              expr = "sum(${rate "vm_new_timeseries_created_total"})";
+              legendFormat = "new series";
+            }
+          ];
+        })
+        (panel {
+          title = "Store, data and free disk";
+          unit = "bytes";
+          # The store stops taking writes below the free space
+          # `-storage.minFreeDiskSpaceBytes` keeps (modules/metrics.nix).
+          targets = [
+            {
+              expr = "sum(vm_data_size_bytes)";
+              legendFormat = "data";
+            }
+            {
+              expr = "vm_free_disk_space_bytes";
+              legendFormat = "free";
+            }
+          ];
+        })
+        (panel {
+          title = "Scrapes failed, by job";
+          unit = "percentunit";
+          # The share of each job's scrapes that failed, from each scrape's
+          # own record of itself: the store counts its failed scrapes as one
+          # total, with no job.
+          targets = [
+            {
+              expr = "1 - avg by (job) (avg_over_time(up[$__rate_interval]))";
+              legendFormat = "{{job}}";
+            }
+          ];
+        })
+        (panel {
+          title = "Up, by job";
+          type = "stat";
+          # Every scrape the store makes, the stack's own included. A job of
+          # several targets, the hosts' or a probe's, is down when any one
+          # is: the Fleet dashboard has the hosts one by one.
+          targets = [
+            {
+              expr = "min by (job) (up)";
+              legendFormat = "{{job}}";
+            }
+          ];
+          options = upOptions;
+          fieldConfig.defaults.mappings = upMappings;
+        })
+      ];
 in
 pkgs.linkFarm "fleet-dashboards" {
   "fleet.json" = pkgs.writeText "fleet.json" (builtins.toJSON fleetDashboard);
   "dns.json" = pkgs.writeText "dns.json" (builtins.toJSON dnsDashboard);
   "dhcp.json" = pkgs.writeText "dhcp.json" (builtins.toJSON dhcpDashboard);
+  "alerting.json" = pkgs.writeText "alerting.json" (builtins.toJSON alertingDashboard);
 }
