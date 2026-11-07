@@ -550,9 +550,15 @@
         # defaults to its own pin, which only moves when upstream bumps it; by
         # 2026-10 that had left core5 two months behind the other hosts. The
         # kernel and firmware still come from `nixos-raspberrypi.packages`,
-        # built from that pin and cached upstream. What this costs is the
-        # page-size-16k overlay: its jemalloc reaches rustc, so Rust programs
-        # and a few others miss cache.nixos.org and cache.yml builds them.
+        # built from that pin and cached upstream.
+        #
+        # The kernel runs 16K pages (base's bcm2712 kernel), but core5 leaves
+        # out nixos-raspberrypi's page-size-16k module. Its only effect is an
+        # overlay building jemalloc for 16K pages, and rustc links jemalloc,
+        # so it moved the Rust toolchain and everything built with it off
+        # cache.nixos.org. nixpkgs builds jemalloc for 64K pages on aarch64,
+        # which works on a 16K kernel at some cost in memory, so nothing is
+        # rebuilt for core5's page size.
         #
         # `nixos-raspberrypi` is deliberately absent from specialArgs: the
         # wrapper injects it and its own value wins the merge.
@@ -573,7 +579,6 @@
                 {
                   imports = with nixos-raspberrypi.nixosModules; [
                     raspberry-pi-5.base
-                    raspberry-pi-5.page-size-16k
                   ];
                 }
               )

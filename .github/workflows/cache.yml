@@ -45,10 +45,10 @@ jobs:
   build:
     # Split by kernel, not by host. core4 and lifeline resolve to the *same*
     # Pi 4 kernel derivation, so they share a job and nix compiles it once.
-    # core5's kernel comes from nixos-raspberrypi's cache, but its
-    # page-size-16k overlay rebuilds rustc when nixpkgs bumps it, which takes
-    # hours too. In one job, a lock bump that moves both could pass the
-    # timeout below, and a timed-out run caches nothing.
+    # core5's kernel comes from nixos-raspberrypi's cache and the rest of its
+    # system from cache.nixos.org, so its job takes minutes. It stays apart
+    # so that a Pi 4 kernel compile that passes the timeout below, and so
+    # caches nothing, does not take core5's push down with it.
     strategy:
       fail-fast: false
       matrix:

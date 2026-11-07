@@ -247,3 +247,5 @@ ssh core5 'sudo systemctl start home-assistant-backup'
 core5 runs a 16K page-size kernel, so if Home Assistant or one of its
 dependencies crashes in a way that makes no sense, suspect that first. Upstream
 builds, and their memory allocators in particular, mostly assume 4K pages.
+jemalloc, wherever a package links it, is nixpkgs' build for 64K pages,
+which works on 16K pages at some cost in memory.
