@@ -395,3 +395,14 @@ comment = "See [perl-5.42.3]."
 ["perl-5.42.3-binlore"]
 cve = ["CVE-2026-8376", "CVE-2026-13221", "CVE-2026-57432"]
 comment = "See [perl-5.42.3]."
+
+# The CVE's ranges for Google's brotli end before 1.2.1, its fixed release.
+# The same entry lists andybalholm/brotli, a Go port, as affected below
+# 1.2.7, and vulnix matches that range by name.
+["brotli-1.2.1"]
+cve = ["CVE-2026-111497"]
+comment = "Fixed in Google's 1.2.1; the match is the Go port's range."
+
+["game-music-emu-0.6.5"]
+cve = ["CVE-2026-0017"]
+comment = "CVE-2026-0017 is an Android BiometricService bug; NVD's entry lists game_music_emu by mistake."
