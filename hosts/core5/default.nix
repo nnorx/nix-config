@@ -6,12 +6,6 @@
   net,
   ...
 }:
-let
-  # Collector allow list, one rule per agent. Adding a host means adding it to
-  # net.pimonAgents and then rebuilding *this* host: until core5 is rebuilt the
-  # new agent's POSTs are dropped, and pimon's Restart=always hides that.
-  agentHosts = lib.filter (h: h != hostname) net.pimonAgents;
-in
 {
   imports = [
     ../../modules/docker.nix
@@ -23,15 +17,6 @@ in
     # The root's NVMe drive, by its namespace, which needs no reboot to read
     # (modules/smartctl.nix). There is one NVMe drive, so the name is stable.
     (import ../../modules/smartctl.nix { devices = [ "/dev/nvme0n1" ]; })
-    (import ../../modules/pimon.nix {
-      mode = "collector";
-      bind = "0.0.0.0";
-      port = net.ports.pimon;
-    })
-    (import ../../modules/pimon.nix {
-      mode = "agent";
-      collectorUrl = "http://127.0.0.1:${toString net.ports.pimon}";
-    })
   ];
 
   # The metrics stack failing to start says so through the hosted path, which
@@ -102,8 +87,9 @@ in
   };
 
   # Public resolvers rather than the fleet's own. Deliberate as far as it goes:
-  # core5 runs the pimon collector, so pointing it at core4 or lifeline would
-  # make monitoring depend on the thing it monitors.
+  # core5 runs the metrics stack, which watches the resolvers and alerts when
+  # they fail, so pointing it at core4 or lifeline would make monitoring
+  # depend on the thing it monitors.
   networking.nameservers = net.publicResolvers;
 
   # The switch and AP need all four UniFi ports: the UI for us, inform for
@@ -131,15 +117,10 @@ in
     ];
   };
 
-  # pimon collector — allow the collector port only from other Pis
-  networking.firewall.extraCommands =
-    lib.concatMapStrings (h: ''
-      iptables -A nixos-fw -p tcp --dport ${toString net.ports.pimon} -s ${net.hosts.${h}.ip} -j nixos-fw-accept
-    '') agentHosts
-    # Govee lights answer Home Assistant's scan and report status here. Only
-    # from iot, where the lights are and whence gate lets this one port
-    # through; see hosts/gate/govee.nix.
-    + ''
-      iptables -A nixos-fw -p udp --dport ${toString net.ports.goveeReply} -s ${net.segments.iot.subnet} -j nixos-fw-accept
-    '';
+  # Govee lights answer Home Assistant's scan and report status here. Only
+  # from iot, where the lights are and whence gate lets this one port
+  # through; see hosts/gate/govee.nix.
+  networking.firewall.extraCommands = ''
+    iptables -A nixos-fw -p udp --dport ${toString net.ports.goveeReply} -s ${net.segments.iot.subnet} -j nixos-fw-accept
+  '';
 }

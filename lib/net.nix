@@ -241,11 +241,12 @@
     # adding an `ip` here would silently configure a LAN address and a LAN
     # default gateway on the interface facing the internet.
     #
-    # Nothing may assume gate has an `ip`: hosts/core5's pimon firewall
-    # dereferences `net.hosts.<h>.ip` unguarded, so naming gate in
-    # `pimonAgents` fails core5's evaluation rather than gate's.
-    # modules/net-assertions.nix catches it with a message that names the
-    # cause.
+    # Nothing may assume gate has an `ip`. Consumers read `net.hosts.<h>.ip`
+    # unguarded for the hosts a list names (hosts/forge/dns.nix, for each of
+    # `resolvers`), so naming gate in such a list fails some other host's
+    # evaluation with a bare "attribute 'ip' missing". A list that may name
+    # gate reads its address another way, as `metricsTargets` does through
+    # `metricsSegment` below, and modules/net-assertions.nix checks it.
     #
     # Metrics did not force one either. What the scraper needs is narrower:
     # the address gate is reached at from the collector's segment, which is
@@ -350,8 +351,8 @@
   };
 
   # The Govee lights, for the rules in hosts/gate/govee.nix and core5. Named
-  # rather than derived from `devices`, like pimonAgents: a rule reads a role,
-  # not "every device on iot".
+  # rather than derived from `devices`: a rule reads a role, not "every device
+  # on iot".
   goveeLights = [
     "govee-1"
     "govee-2"
@@ -439,20 +440,12 @@
   # SSDP's own port.
   goveeGroup = "239.255.255.250";
 
-  # Hosts running a pimon agent that report to the collector on core5. Named
-  # rather than derived from `hosts`: address presence is not the same fact as
-  # running an agent, and core5's firewall opens a port per entry.
-  pimonAgents = [
-    "core4"
-    "lifeline"
-  ];
-
   # The fleet's metrics, by pull: the collector runs the store and Grafana
   # (modules/metrics.nix) and scrapes node_exporter on each target
   # (modules/node-exporter.nix), which opens its port to the collector alone.
-  # See docs/observability.md. Named rather than derived from `hosts`, for the
-  # same reason as pimonAgents: being a host is not the same fact as being
-  # scraped. gate has no `ip`, and is scraped at its `metricsSegment`.
+  # See docs/observability.md. Named rather than derived from `hosts`: being a
+  # host is not the same fact as being scraped, and each target opens a port.
+  # gate has no `ip`, and is scraped at its `metricsSegment`.
   metricsCollector = "core5";
   metricsTargets = [
     "core4"
@@ -462,18 +455,10 @@
   ];
 
   # Ports forming contracts *between* hosts, so they can't live in one module:
-  # core4 and lifeline each dial their own unbound on loopback; both dial
-  # core5's pimon collector; every AdGuard host opens adguardWeb on its LAN
-  # interface.
+  # core4 and lifeline each dial their own unbound on loopback; every AdGuard
+  # host opens adguardWeb on its LAN interface.
   ports = {
     unbound = 5335;
-
-    # Moved off 8080 for the UniFi controller, whose device-inform port is
-    # 8080 and is baked into UniFi device firmware defaults. pimon is ours and
-    # has no external contract, so it is the one that moves. Every consumer
-    # reads this attribute, so the change lands everywhere at once: the
-    # collector's bind, both agents' collectorUrl, and core5's firewall.
-    pimon = 8090;
 
     adguardWeb = 3000;
 

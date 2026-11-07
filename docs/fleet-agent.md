@@ -253,10 +253,10 @@ misbehaves cannot take the host.
 **DNS.** A run calls Anthropic's API and ntfy.sh by name, and
 `ResolverFailing` on both resolvers is an incident it should explain. On its
 Pi the agent's unit resolves through `net.publicResolvers`, as core5 does
-for the same reason (network.md, on pimon), with a `resolv.conf` of its own
-bound into the unit if the Pi itself uses the fleet's resolvers. On forge,
-both resolvers failing at home leaves the run unable to start, which is a
-limit of milestone 2.
+for the same reason (network.md, on core5's resolvers), with a `resolv.conf`
+of its own bound into the unit if the Pi itself uses the fleet's resolvers. On
+forge, both resolvers failing at home leaves the run unable to start, which is
+a limit of milestone 2.
 
 ## Tools
 

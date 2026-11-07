@@ -10,9 +10,9 @@ addressing.
 | Host | Hardware | Address | Role |
 |---|---|---|---|
 | **gate** | CWWK N100, 4x Intel i226 | `.1` in every segment | The router. nftables, NAT, Kea DHCP across five VLANs, its own recursive Unbound, and WireGuard for remote access |
-| **core4** | Raspberry Pi 4 (8GB) | 192.168.20.32 | AdGuard Home + Unbound, pimon agent, node_exporter, DNS metrics |
-| **lifeline** | Raspberry Pi 4 | 192.168.20.11 | AdGuard Home + Unbound, pimon agent, node_exporter, DNS metrics. An independent second DNS path |
-| **core5** | Raspberry Pi 5, NVMe | 192.168.20.49 | Home Assistant, UniFi controller, pimon collector, the metrics store and Grafana, Docker |
+| **core4** | Raspberry Pi 4 (8GB) | 192.168.20.32 | AdGuard Home + Unbound, node_exporter, DNS metrics |
+| **lifeline** | Raspberry Pi 4 | 192.168.20.11 | AdGuard Home + Unbound, node_exporter, DNS metrics. An independent second DNS path |
+| **core5** | Raspberry Pi 5, NVMe | 192.168.20.49 | Home Assistant, UniFi controller, the metrics store, alerting and Grafana, Docker |
 
 ```
    internet ── modem ── gate ─┬─ lan1 ── wired machine        (untagged trusted)
@@ -57,7 +57,7 @@ hosts/
     pi.nix             Pi-only boot and SD-card layout
     resolver.nix       AdGuard + Unbound, on each host in net.resolvers
   core4/ lifeline/     The resolvers
-  core5/               Home Assistant, UniFi, pimon collector, metrics, NVMe root
+  core5/               Home Assistant, UniFi, metrics and alerting, NVMe root
   gate/                The router
     routing.nix        VLANs, NAT, firewall policy, Kea
     wireguard.nix      Remote peers and what each may reach
@@ -76,7 +76,6 @@ modules/
   home-assistant-backup.nix  Its state, pushed off-box (core5 only)
   offbox-push.nix      Both pushes: newest backup, age-encrypted, to a private repo
   alerts.nix           Push notifications and heartbeats for the jobs above and upgrades
-  pimon.nix            Monitoring agent or collector
   metrics.nix          VictoriaMetrics and Grafana, scraping the fleet (core5 only)
   blackbox.nix         Its probes: each resolver on port 53, and pings out of the house
   dashboards.nix       Its Grafana dashboards, Fleet, DNS and DHCP, in reading order

@@ -207,7 +207,7 @@ One at a time, weeks apart, now that the house is boring.
       because a host that is up, answering and wrong is invisible to liveness
       checks. See [recovery.md](recovery.md).
 - [ ] **Decide the monitoring stack, then instrument gate.** Deliberately not
-      "wire gate into pimon": pimon does host liveness, and the questions here
+      "wire gate into pimon": pimon did host liveness, and the questions here
       are WAN state, conntrack pressure, per-interface throughput, DHCP pool
       exhaustion and DNS failure ratios, plus *alerting*, since a router fault
       you learn about by noticing the internet is broken is one monitoring did
@@ -220,13 +220,14 @@ One at a time, weeks apart, now that the house is boring.
       database does, and that is not a workload for an SD card.
 
       Note this is also what would force gate to have an `ip` in `lib/net.nix`,
-      since core5's firewall opens a port per `pimonAgents` entry and reads that
+      since core5's firewall opened a port per `pimonAgents` entry and read that
       attribute. Decide what the address would mean first.
 
       Decided 2026-10-10 in [observability.md](observability.md):
       VictoriaMetrics and Grafana on core5, pulling from every host, with
       alerts to the same ntfy topic. Instrumenting gate is the second of its
-      follow-up issues.
+      follow-up issues. pimon was retired in NNO-70, once node metrics and
+      `HostDown` had run two weeks without a gap.
 
       Alerting no longer waits on this. `modules/alerts.nix` sends a push
       notification when the Pis' upgrades or core5's off-box backups fail,
