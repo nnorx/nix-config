@@ -8,14 +8,13 @@
 {
   pkgs,
   lib,
-  unstable,
   ...
 }:
 {
   home.packages = with pkgs; [
     # ===== JavaScript/TypeScript =====
     nodejs_24 # Node.js 24 (includes npm)
-    unstable.pnpm_11 # pnpm 11.x — pinned: bare `pnpm` now resolves to pnpm_12
+    pnpm_11 # pnpm 11.x, named so a bump of bare `pnpm` to 12 does not move it
     typescript # was nodePackages.typescript; that set was removed in 26.05
 
     # ===== Rust =====
