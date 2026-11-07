@@ -115,9 +115,9 @@ jobs:
           - runner: ubuntu-latest
             hosts: gate
     runs-on: ${{ matrix.runner }}
-    # A flake.lock bump can rebuild core5's 16k-page packages that are not in
-    # the cache yet, and run into this. That says the bump is heavy, not that
-    # it is broken.
+    # Generous for a job that usually takes minutes: a flake.lock bump moves
+    # every host's packages at once. A run that reaches it says the bump is
+    # heavy, not that it is broken.
     timeout-minutes: 120
     concurrency:
       group: build-etc-${{ github.ref }}-${{ matrix.runner }}

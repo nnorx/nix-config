@@ -463,13 +463,13 @@ advice and never fails the check. The rules are in
 
 `cache.yml` exists because `linux_rpi4` is in no public cache. Without it a
 kernel bump costs each Pi 4 roughly 9 to 15 hours of compiling, separately, with
-no shared output between them. It also builds what core5's 16K page size moves
-off cache.nixos.org: rustc's jemalloc, and so the Rust toolchain and programs
-built with it, in a job of its own. The caches are written once, in `flake.nix`'s
-`nixConfig`, and applied in two ways, both needed: as flake settings, which
-are client-supplied, so Nix ignores them for anyone outside `trusted-users`, and
-through `modules/baseline.nix`, which reads that list and is what actually
-lands in each host's `nix.conf`.
+no shared output between them. core5, in a job of its own, takes its kernel
+from nixos-raspberrypi's cache and the rest from cache.nixos.org, so its job
+builds only the fleet's own derivations. The caches are written once, in
+`flake.nix`'s `nixConfig`, and applied in two ways, both needed: as flake
+settings, which are client-supplied, so Nix ignores them for anyone outside
+`trusted-users`, and through `modules/baseline.nix`, which reads that list and
+is what actually lands in each host's `nix.conf`.
 
 GitHub Actions are pinned to commit SHAs. That token signs into a cache every
 host trusts as root, so the blast radius of a compromised action is the whole
