@@ -232,6 +232,21 @@ kase("file_doc_update", "file: a doc edited from its export: the change shown, t
   assert.ok(!existsSync(`${c.handoff}/design.md`), "the draft gone");
 }, true);
 
+kase("file_doc_fresh_export", "file: Linear's list lags the write: the export still has the doc as filed", async (c) => {
+  c.repo("demo");
+  projects(c);
+  writeFileSync(`${c.dir}/linear/lag`, "");
+  await c.ns(["file"]);
+  mkdirSync(c.handoff, { recursive: true });
+  writeFileSync(`${c.handoff}/design.md`,
+    readFileSync(`${c.state}/projects/night-shift/design.md`, "utf8").replace("The old text.", "The new text."));
+  writeFileSync(`${c.handoff}/decisions.md`, "---\nproject: Night shift\ndoc: Decisions\n---\n\nWhat was decided.\n");
+  assert.equal((await c.ns(["file"], { tty: "y\ny\n" })).status, 0);
+  const design = readFileSync(`${c.state}/projects/night-shift/design.md`, "utf8");
+  assert.ok(design.includes("updated: 2026-11-07T12:00:00.000Z") && design.includes("The new text."), "the update exported");
+  assert.ok(existsSync(`${c.state}/projects/night-shift/decisions.md`), "the new doc exported");
+}, true);
+
 kase("file_doc_stale", "file: a doc changed in Linear since its export: nothing filed", async (c) => {
   drafts(c);
   projects(c);

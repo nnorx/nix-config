@@ -117,10 +117,17 @@ function unique(name: string, taken: Set<string>): string {
  * Each open project's documents, as projects/<project>/<doc>.md. Replaced
  * whole, so a doc deleted in Linear leaves no file behind. Closed projects'
  * docs are fetched and skipped here: few enough not to filter on Linear's side.
+ * fresh holds docs just filed, as Linear answered: its list can lag a write,
+ * so the newer of the two is written.
  */
-export async function writeProjectDocs(env: Env, linear: Linear): Promise<void> {
+export async function writeProjectDocs(env: Env, linear: Linear, fresh: Doc[] = []): Promise<void> {
+  const docs = new Map((await all<Doc>(linear, DOCS, "documents")).map((d) => [d.id, d]));
+  for (const doc of fresh) {
+    const listed = docs.get(doc.id);
+    if (!listed || doc.updatedAt > listed.updatedAt) docs.set(doc.id, doc);
+  }
   const byProject = new Map<string, { name: string; docs: Doc[] }>();
-  for (const doc of await all<Doc>(linear, DOCS, "documents")) {
+  for (const doc of docs.values()) {
     const p = doc.project;
     if (!p || (p.status && ["completed", "canceled"].includes(p.status.type))) continue;
     const entry = byProject.get(p.id) ?? { name: p.name, docs: [] };

@@ -13,7 +13,8 @@
 #           {tool: "linear", op, variables}. With the file linear-down,
 #           every request fails as an unresolved host does. Projects and
 #           their documents are linear/projects.json, an array of {id, name,
-#           status, documents: [{id, title, content, updatedAt, url}]}.
+#           status, documents: [{id, title, content, updatedAt, url}]}. With
+#           linear/lag, lists lag the first doc write, as Linear's can.
 #   GitHub  https://api.github.com/..., read with -w '\n%{http_code}'. The
 #           answer is the file github: the status code on its first line, the
 #           body after it; with no such file, 200 and []. {tool: "github", url}.
@@ -63,6 +64,8 @@ if [[ $url == https://api.linear.app/graphql ]]; then
   issues=("$dir"/linear/issues/*.json)
   all=$(if ((${#issues[@]})); then jq -s . "${issues[@]}"; else echo '[]'; fi)
   projects=$(cat "$dir/linear/projects.json" 2>/dev/null || echo '[]')
+  listed=$(cat "$dir/linear/projects.listed.json" 2>/dev/null || echo "$projects")
+  docs='.[] | {id, name, status} as $p | .documents[] | {id, title, content, updatedAt, url, project: $p}'
   query=$(jq -r .query <<<"$data")
   vars=$(jq -c .variables <<<"$data")
   # The key reaches curl in -K, never on the command line.
@@ -113,22 +116,24 @@ if [[ $url == https://api.linear.app/graphql ]]; then
   record --arg op "$op" --argjson v "$vars" '{tool: "linear", op: $op, variables: $v}'
   issue_file() { echo "$dir/linear/issues/$(jq -r .id <<<"$vars").json"; }
   case $op in
-    projects) jq -c '{data: {projects: {pageInfo: {hasNextPage: false, endCursor: null}, nodes: [.[] | {id, name}]}}}' <<<"$projects" ;;
-    documents)
-      jq -c '{data: {documents: {pageInfo: {hasNextPage: false, endCursor: null},
-        nodes: [.[] | {id, name, status} as $p | .documents[] | {id, title, content, updatedAt, project: $p}]}}}' <<<"$projects"
-      ;;
-    documentCreate)
-      jq --argjson i "$(jq -c .i <<<"$vars")" '(.[] | select(.id == $i.projectId) | .documents) += [{id: "doc-new",
-        title: $i.title, content: $i.content, updatedAt: "2026-11-07T12:00:00.000Z", url: "https://linear.app/test/document/new"}]' \
-        <<<"$projects" >"$dir/linear/projects.json"
-      echo '{"data": {"documentCreate": {"success": true, "document": {"url": "https://linear.app/test/document/new"}}}}'
-      ;;
-    documentUpdate)
-      jq --argjson v "$vars" '(.[].documents[] | select(.id == $v.id)) |= (.content = $v.i.content | .updatedAt = "2026-11-07T12:00:00.000Z")' \
-        <<<"$projects" >"$dir/linear/projects.json"
-      jq -c --arg id "$(jq -r .id <<<"$vars")" '{data: {documentUpdate: {success: true,
-        document: {url: (.[].documents[] | select(.id == $id) | .url)}}}}' "$dir/linear/projects.json"
+    projects) jq -c '{data: {projects: {pageInfo: {hasNextPage: false, endCursor: null}, nodes: [.[] | {id, name}]}}}' <<<"$listed" ;;
+    documents) jq -c "{data: {documents: {pageInfo: {hasNextPage: false, endCursor: null}, nodes: [$docs]}}}" <<<"$listed" ;;
+    documentCreate | documentUpdate)
+      # With the file linear/lag, the lists go on showing what was there
+      # before the first write, as Linear's can for a moment.
+      [[ ! -f $dir/linear/lag || -f $dir/linear/projects.listed.json ]] || cp "$dir/linear/projects.json" "$dir/linear/projects.listed.json"
+      if [[ $op == documentCreate ]]; then
+        jq --argjson i "$(jq -c .i <<<"$vars")" '(.[] | select(.id == $i.projectId) | .documents) += [{id: "doc-new",
+          title: $i.title, content: $i.content, updatedAt: "2026-11-07T12:00:00.000Z", url: "https://linear.app/test/document/new"}]' \
+          <<<"$projects" >"$dir/linear/projects.json"
+        id=doc-new
+      else
+        id=$(jq -r .id <<<"$vars")
+        jq --argjson v "$vars" '(.[].documents[] | select(.id == $v.id)) |= (.content = $v.i.content | .updatedAt = "2026-11-07T12:00:00.000Z")' \
+          <<<"$projects" >"$dir/linear/projects.json"
+      fi
+      jq -c --arg op "$op" --arg id "$id" "{data: {(\$op): {success: true, document: ([$docs] | map(select(.id == \$id)) | first)}}}" \
+        "$dir/linear/projects.json"
       ;;
     check)
       jq -c --arg l "$(jq -r '.l // ""' <<<"$vars")" '{data: {viewer: {id: "user-nick", displayName: .data.viewer.displayName},
