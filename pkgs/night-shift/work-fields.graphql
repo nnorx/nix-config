@@ -1,0 +1,10 @@
+id identifier title description url createdAt updatedAt
+  state { name type }
+  creator { id }
+  botActor { id }
+  assignee { id }
+  team { key states { nodes { id name type position } } }
+  labels { nodes { id name } }
+  comments(first: 100) { nodes { body createdAt user { id } } }
+  history(first: 250) { pageInfo { hasNextPage }
+    nodes { createdAt actorId botActor { id } addedLabelIds updatedDescription fromTitle } }

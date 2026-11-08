@@ -125,9 +125,9 @@ PR and CI state can be read without a token from `api.github.com`.
 Linear issues for the night shift work the same way: write each as a draft
 in the target repository's `.git/linear-handoff/`, and ask Nick to run
 `night-shift file`. docs/night-shift.md, "Filing issues from drafts", has the
-format. It files into the backlog only: queuing stays Nick's, in Linear.
-To see what is already filed, read `~/.local/state/night-shift/backlog.md`
-on forge, which the night shift rewrites after every run.
+format, issues and project docs. Issues land in the backlog only: queuing
+stays Nick's. What is filed is in `~/.local/state/night-shift/` on forge:
+`backlog.md`, and `projects/` with each doc as a draft to edit.
 
 Read-only diagnostics on a host go through `fleet-ssh <host> <command>`, the
 one command that runs outside the sandbox (`home/ssh.nix`); plain `ssh` has no
@@ -198,8 +198,8 @@ Prose is cheap to write and costly to read, and Nick reads it. Keep it short.
   tell its history, or cite issues and PRs; git log has those. A comment
   longer than the code it explains is too long.
 - `docs/` describes what runs, in the present tense: how it works and how to
-  operate it. A plan for something not yet built goes to Linear, drafted in
-  `.git/linear-handoff/`, not into `docs/`. Once it is built, it gets a
+  operate it. A plan for something not yet built goes to Linear as a doc
+  draft, not into `docs/`. Once it is built, it gets a
   runbook section here.
 - Write a new doc only when the task asks for one. Prefer a section in an
   existing doc, and a table to paragraphs.

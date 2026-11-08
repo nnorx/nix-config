@@ -3,6 +3,7 @@
 {
   stdenv,
   writeShellApplication,
+  importNpmLock,
   git,
   jq,
   coreutils,
@@ -12,7 +13,16 @@
   gnugrep,
   util-linux,
   flock,
+  nodejs_24,
+  typescript,
 }:
+let
+  # @types/node for the night shift's TypeScript, from its package-lock.json.
+  nightShiftModules = importNpmLock.buildNodeModules {
+    npmRoot = ../night-shift;
+    nodejs = nodejs_24;
+  };
+in
 writeShellApplication {
   name = "preflight";
   meta.description = "Format, flake check, evaluate every config, and report what a change touches";
@@ -32,10 +42,13 @@ writeShellApplication {
     # macOS, the portable flock instead, since util-linux is
     # built for Linux first; the terminal case skips there.
     (if stdenv.hostPlatform.isLinux then util-linux else flock)
+    nodejs_24
+    typescript
   ];
   runtimeEnv = {
     PREFLIGHT_EVAL = "${../../scripts/preflight-eval.nix}";
     PREFLIGHT_BRIEF = "${../../scripts/preflight-brief.jq}";
+    NIGHT_SHIFT_TYPES = "${nightShiftModules}/node_modules/@types";
   };
   text = builtins.readFile ../../scripts/preflight.sh;
 }

@@ -13,18 +13,21 @@
 # under stubs/ come first on PATH, as curl, claude, systemd-run, bwrap and
 # systemctl, and for work mode osascript, gh, caffeinate and launchctl, and
 # say how they answer; everything else is real, git included. Nothing
-# reaches the network, the real claude, or Nick's own state directory.
+# reaches the network, the real claude, or Nick's own state directory. The
+# commands in TypeScript use fetch, not curl, so http.ts serves Linear and
+# ntfy on loopback, answering each request with the curl stub.
 #
 # A case on tidy or land_one gives its repository a literal GitHub origin, for
 # github_repo(). One that starts an agent needs a fetch to work, so its origin
 # is a local bare repository instead: `git remote get-url` expands insteadOf,
 # so an insteadOf mapping would hide the GitHub URL from github_repo().
 #
-# One line per case, then the failures. NIGHT_SHIFT_SCRIPT names the script
-# under test, by default the copy in this checkout, so a guard can be broken in
-# a scratch copy to see its case fail. NIGHT_SHIFT_TESTS_KEEP=1 keeps every
-# case's directory, its log.jsonl and the dispatcher's output, to look at.
-# Needs bash, git, jq, coreutils, gnused, gawk, gnugrep and flock, and
+# One line per case, then the failures. NIGHT_SHIFT_SCRIPT and NIGHT_SHIFT_TS
+# name the script and the TypeScript under test, by default this checkout's,
+# so a guard can be broken in a scratch copy to see its case fail.
+# NIGHT_SHIFT_TESTS_KEEP=1 keeps every case's directory, its log.jsonl and the
+# dispatcher's output, to look at.
+# Needs bash, node, git, jq, coreutils, gnused, gawk, gnugrep and flock, and
 # util-linux's script for the one case that answers on a terminal, which
 # preflight's runtimeInputs carry.
 set -euo pipefail
@@ -32,13 +35,28 @@ set -euo pipefail
 root=$(realpath -- "$(dirname -- "$0")/../..")
 here=$root/tests/night-shift
 script=$(realpath -- "${NIGHT_SHIFT_SCRIPT:-$root/pkgs/night-shift/night-shift.sh}")
+ts=$(realpath -- "${NIGHT_SHIFT_TS:-$root/pkgs/night-shift/src/main.ts}")
 
 work=$(mktemp -d)
-if [[ -n ${NIGHT_SHIFT_TESTS_KEEP:-} ]]; then
-  echo "night-shift tests: keeping $work"
-else
-  trap 'rm -rf "$work"' EXIT
-fi
+server=""
+cleanup() {
+  [[ -z $server ]] || kill "$server" 2>/dev/null || true
+  [[ -n ${NIGHT_SHIFT_TESTS_KEEP:-} ]] || rm -rf "$work"
+}
+trap cleanup EXIT
+[[ -z ${NIGHT_SHIFT_TESTS_KEEP:-} ]] || echo "night-shift tests: keeping $work"
+
+node "$here/http.ts" "$work" "$here/stubs/curl" "$BASH" "$work/port" &
+server=$!
+for _ in {1..100}; do
+  [[ ! -s $work/port ]] || break
+  sleep 0.05
+done
+[[ -s $work/port ]] || {
+  echo "night-shift tests: http.ts did not start" >&2
+  exit 1
+}
+port=$(<"$work/port")
 
 # The stubs, by the names the dispatcher calls, with this bash as their
 # interpreter: writeShellApplication puts no bash on PATH.
@@ -82,7 +100,7 @@ begin() {
   cd "$c"
   : >"$c/log.jsonl"
   echo test-key >"$c/key"
-  echo "https://ntfy.invalid/test-topic" >"$c/ntfy"
+  echo "http://127.0.0.1:$port/$(basename "$c")/ntfy" >"$c/ntfy"
   cp "$here/fixtures/workspace.json" "$c/linear/workspace.json"
   git config --file "$c/gitconfig" user.name "Night Shift Test"
   git config --file "$c/gitconfig" user.email "test@example.invalid"
@@ -106,7 +124,8 @@ ns() {
     GIT_CONFIG_GLOBAL="$c/gitconfig" GIT_CONFIG_NOSYSTEM=1 NS_CASE="$c"
     NIGHT_SHIFT_KEY_FILE="$c/key" NIGHT_SHIFT_NTFY_FILE="$c/ntfy"
     NIGHT_SHIFT_PROJECTS="$c/projects" NIGHT_SHIFT_POWER="$c/power" NIGHT_SHIFT_MAX=2
-    NIGHT_SHIFT_STALL_HOURS=4 NIGHT_SHIFT_FAILED_RUNS=3)
+    NIGHT_SHIFT_STALL_HOURS=4 NIGHT_SHIFT_FAILED_RUNS=3 NIGHT_SHIFT_TS="$ts"
+    NIGHT_SHIFT_LINEAR_URL="http://127.0.0.1:$port/$(basename "$c")/graphql")
   while [[ ${1-} == *=* ]]; do
     cmd+=("$1")
     shift
@@ -623,70 +642,6 @@ case_finish_requeued_slow_stop() {
   expect "three looks between the stop and the resume" is "$(jq -s '
     map(select(.tool == "claude")) | (map(.args[0]) | index("stop")) as $s
     | (map(.args[1]) | index("--resume")) as $r | .[$s:$r] | map(select(.args[0] == "agents")) | length' "$c/log.jsonl")" 3
-}
-
-# --- 5. night-shift file's refusals -----------------------------------------------
-
-# Each beside a draft that is fine, which must not be filed either.
-drafts() {
-  repo demo
-  mkdir -p "$c/projects/demo/.git/linear-handoff"
-  cp "$here/drafts/good.md" "$c/projects/demo/.git/linear-handoff/"
-}
-
-refused_drafts() {
-  ns file
-  expect "a failure" is "$status" 1
-  expect "nothing filed" has "$(<"$c/out")" "nothing filed"
-  expect "the reason: $2" has "$(<"$c/out")" "$1: $2"
-  expect "no issueCreate" none '.op == "issueCreate"'
-  expect "the good draft kept" test -f "$c/projects/demo/.git/linear-handoff/good.md"
-  expect "the bad draft kept" test -f "$1"
-}
-
-case_file_unknown_key() {
-  drafts
-  cp "$here/drafts/unknown-key.md" "$c/projects/demo/.git/linear-handoff/"
-  refused_drafts "$c/projects/demo/.git/linear-handoff/unknown-key.md" "unknown key 'assignee'"
-}
-
-case_file_control() {
-  drafts
-  printf -- '---\ntitle: forge: a control character\n---\n\nA bell \a in the text.\n' \
-    >"$c/projects/demo/.git/linear-handoff/control.md"
-  refused_drafts "$c/projects/demo/.git/linear-handoff/control.md" "contains control or invisible characters"
-}
-
-case_file_no_title() {
-  drafts
-  cp "$here/drafts/no-title.md" "$c/projects/demo/.git/linear-handoff/"
-  refused_drafts "$c/projects/demo/.git/linear-handoff/no-title.md" "no title"
-}
-
-# The happy path needs a terminal to answer on, and util-linux's script to
-# give it one; elsewhere, macOS's own script say, it is skipped.
-case_file_interactive() {
-  if [[ $(script --version 2>/dev/null) != *util-linux* ]]; then
-    echo "no util-linux script to drive a terminal" >"$c/skipped"
-    return 0
-  fi
-  drafts
-  sed 's/^title: .*/title: forge: a later change/' "$here/drafts/good.md" \
-    >"$c/projects/demo/.git/linear-handoff/later.md"
-  tty=$'y\nn\n'
-  ns file
-  expect "exit 0" is "$status" 0
-  expect "shows what it will file" has "$(<"$c/out")" "TST · demo · high · Night shift · into Backlog"
-  expect "one issueCreate" one '.op == "issueCreate"'
-  expect "filed as the draft says, into the backlog" is "$(jq -sc 'map(select(.op == "issueCreate")) | first | .variables.i' "$c/log.jsonl")" \
-    "$(jq -nc '{teamId: "team-1", title: "forge: make the widget faster", priority: 2,
-      description: "The widget takes a second to draw. Make it take less.\n\n_Filed from a draft with `night-shift file`._",
-      labelIds: ["label-demo"], stateId: "state-backlog", projectId: "project-1"}')"
-  expect "the filed draft gone" test ! -e "$c/projects/demo/.git/linear-handoff/good.md" -a ! -e "$c/projects/demo/.git/linear-handoff/good.filing"
-  expect "the declined draft kept" test -f "$c/projects/demo/.git/linear-handoff/later.md"
-  expect "says what it filed" has "$(<"$c/out")" "filed TST-99"
-  expect "filed 1 of 2" has "$(<"$c/out")" "filed 1 of 2"
-  expect "then writes the backlog" test -f "$c/state/night-shift/backlog.md"
 }
 
 # --- 6. _after ---------------------------------------------------------------------
@@ -1356,13 +1311,6 @@ case_work_tick_unconfigured() {
   expect "nothing counted" test ! -e "$c/state/night-shift/failed-runs"
 }
 
-case_work_file() {
-  work
-  nsw file
-  expect "refused" is "$status" 1
-  expect "says why" has "$(<"$c/out")" "file is forge's"
-}
-
 # --- Running them ------------------------------------------------------------------
 
 cases=(
@@ -1396,10 +1344,6 @@ cases=(
   "finish_requeued   finish: re-queued meanwhile: a comment, left in Queued"
   "finish_requeued_resumes finish: re-queued meanwhile: run resumes it"
   "finish_requeued_slow_stop finish: re-queued, the roster slow to see the stop: resume waits"
-  "file_unknown_key  file: an unknown key: nothing filed"
-  "file_control      file: a control character: nothing filed"
-  "file_no_title     file: no title: nothing filed"
-  "file_interactive  file: a terminal answers y, then n: one filed, one kept"
   "after             _after: a push on the third failure, once, reset by success"
   "after_push_failed _after: a push that failed is tried again"
   "tidy_refused      tidy: GitHub's 403 ends its questions for the run"
@@ -1433,7 +1377,6 @@ cases=(
   "work_safe         work: safe: claude here, sandboxed, the checkout untouched"
   "work_safe_elsewhere work: safe outside a configured repository: the base alone"
   "work_safe_refused work: safe refused for settings that change the sandbox, and on forge"
-  "work_file         work: file is refused"
   "start_poisoned_head start: origin/HEAD pointed at an agent's branch: made from origin's"
   "work_start_poisoned_head work: origin/HEAD pointed at an agent's branch: made from origin's"
   "work_bg_fails     work: claude --bg fails: removed, and starts afresh when labelled again"
@@ -1455,7 +1398,7 @@ for entry in "${cases[@]}"; do
   (
     begin "$dir"
     "case_$name"
-    expect "no request the stubs do not know" none '.tool == "unknown" or .op == "unknown" or .op == "no key"'
+    expect "no request the stubs do not know, nor one too complex" none '.tool == "unknown" or .op == "unknown" or .op == "no key" or .op == "too complex"'
   ) >"$work/$name.report" 2>&1 &
   rc=0
   wait $! || rc=$?
