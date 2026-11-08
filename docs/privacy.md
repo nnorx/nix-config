@@ -735,7 +735,7 @@ address.
 
 **Per class, where a class is a list of named devices.** gate can only tell
 devices apart by their source address or, since iot is one hop away, their
-MAC address. [device-identity.md](device-identity.md) settles how a rule
+MAC address. ["Naming a device" in network.md](network.md#naming-a-device) settles how a rule
 names one without this repo saying which hardware it is: a role name and a
 reserved address, public in `lib/net.nix`, and the MAC that Kea reserves the
 address for, in gate's sops file. The ways a class can be expressed:
@@ -751,8 +751,8 @@ address for, in gate's sops file. The ways a class can be expressed:
   its class. That is enough against firmware reporting home, not against a
   compromised device set on getting out. And every name in the list is
   public, so this is for devices the repo already names, or whose existence
-  is harmless to say; "What would reopen this" in device-identity.md says
-  what happens if the list grows into an inventory. This is the
+  is harmless to say; a list that grows into an inventory is a decision of
+  its own. This is the
   recommendation, with one class to start: local-only, for devices that need
   no internet at all, holding the Govee lamps.
 - **One segment per policy.** A device's class is the network it joins,
@@ -810,9 +810,9 @@ on an N100 that is the house's only router:
   a cloud device's destinations, only give it all of the internet or none.
 
 The names in any allowlist are a list of the vendors whose devices are in the
-house, which is the inventory device-identity.md keeps out of the public
-half. Writing one down is what its "What would reopen this" names, so that
-decision comes first; they never go in this repo in the clear.
+house, which is the inventory "Naming a device" in network.md keeps out of the
+public half. Writing one down is a decision of its own, which comes first;
+they never go in this repo in the clear.
 
 **Decision.** Start with the last: a local-only class with no internet, for
 the devices that need none, which is the whole gain for them and costs gate
@@ -859,7 +859,7 @@ record, from AdGuard's per-client log, and stays out of the repo.
   Control through it. A new lamp is set up as "Adding a lamp" says, on a
   pool address with the internet, and cut off when it joins `devices` and
   the class, which Home Assistant needs of it anyway once its rules name the
-  lamps (device-identity.md).
+  lamps (network.md, "Naming a device").
 
 That is acceptable, and the lamps go first, since they are the devices this
 repo already knows need nothing. What the trial has to show is that a lamp
@@ -921,7 +921,7 @@ That gives three ways back, none of which reboots gate:
 
 None of the steps below reboots gate, and the lamps stay on iot, so Home
 Assistant's Govee rules on gate and core5 are untouched by this.
-device-identity.md narrows those to the lamps' addresses on its own
+The Net Security project narrows those to the lamps' addresses on its own
 schedule.
 
 ### The trial set, by hand
@@ -1010,7 +1010,7 @@ deploys behind `deploy-guard` ([recovery.md](recovery.md)).
    app shows it offline, the counter rises, and the log shows it retrying.
    The finding goes in this section, and if a lamp misbehaves, the plan
    stops here.
-3. **device-identity.md's steps 1 to 3**: `devices` and `goveeLights` in
+3. **The device identity steps 1 to 3** (Net Security): `devices` and `goveeLights` in
    `lib/net.nix`, the MACs in gate's sops file, and Kea's reservations, so
    each lamp holds a stable address. Its own PRs, on its own schedule; the
    next step needs them.
