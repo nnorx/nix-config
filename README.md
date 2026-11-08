@@ -111,7 +111,7 @@ scripts/               What the apps run
 | [unifi.md](docs/unifi.md) | Controller, backups, adopting and re-adopting devices |
 | [home-assistant.md](docs/home-assistant.md) | First run, phones, adding integrations, upgrades |
 | [laptop.md](docs/laptop.md) | Installing forge, enabling Secure Boot, preparing for Windows |
-| [observability.md](docs/observability.md) | The metrics and alerting design: store, collection, alerts, access |
+| [observability.md](docs/observability.md) | The metrics and alerting stack: what runs, access, and what to do when an alert fires |
 | [night-shift.md](docs/night-shift.md) | Agents on forge, and in a sandbox on the work Mac, working issues queued in Linear |
 | [privacy.md](docs/privacy.md) | What leaves the house, per host and service, and what could stop |
 | [device-identity.md](docs/device-identity.md) | Naming devices in rules without publishing their MACs: the design |
@@ -378,67 +378,8 @@ the last one. Point the project's notifications at the same
 ntfy topic so both kinds of alert arrive in one place. To cover another unit,
 add it to `fleetAlerts.failure` or `fleetAlerts.heartbeat` in its host.
 
-The metrics have alerts of their own, on core5 (`modules/alerting.nix`, rules
-in `modules/alert-rules.nix`): vmalert and Alertmanager, pushing to the same
-topic, once per incident. A `Watchdog` alert pings healthchecks.io every 5
-minutes as `core5-metrics-watchdog`, so the stack going quiet alerts from
-outside. Its check appears at the first ping with the one-day default; set its
-period to 15 minutes and its grace to 5 when it appears.
-
-## Metrics
-
-core5 scrapes node_exporter on every host in `metricsTargets` (`lib/net.nix`)
-every 30 seconds, into VictoriaMetrics, which keeps 12 months. Grafana is at
-core5's address on `ports.grafana`, http://192.168.20.49:3030, reachable from
-trusted and servers. Its Fleet dashboard shows whether each host is up and
-what it runs. [docs/observability.md](docs/observability.md) has the design,
-and the alert rules over it ("Alerts" above).
-
-Each host also exports host-status's two facts: `fleet_revision_info`, whose
-`revision` label is the commit it is running, and `fleet_root_device_info`,
-whose `device` label is where its root is mounted from. So the store sees a
-host on the wrong system. Queries for Grafana's Explore view:
-
-```
-up{job="node"}               # 1 per host it can scrape, 0 for one it cannot
-fleet_revision_info          # each host's running revision
-fleet_root_device_info       # each host's root device
-```
-
-gate is scraped at its servers gateway, and answers the router's questions
-(`hosts/gate/metrics.nix`):
-
-```
-node_network_carrier{instance="gate",device="wan"}     # 1 while the WAN link is up
-fleet_wan_addresses                                    # 1 while wan holds a DHCP lease
-fleet_wan_lease_remaining_seconds                      # reset by each renewal
-fleet_wan_default_routes                               # 1 while the default route is out wan
-node_nf_conntrack_entries{instance="gate"} / node_nf_conntrack_entries_limit{instance="gate"}
-rate(node_network_receive_bytes_total{instance="gate"}[5m]) * 8   # bits/s in, per interface
-rate(node_network_transmit_bytes_total{instance="gate"}[5m]) * 8  # and out
-rate(node_network_receive_errs_total{instance="gate"}[5m])        # errors, per interface
-kea_dhcp4_addresses_assigned_total{pool=""} / kea_dhcp4_addresses_total{pool=""}   # pool used, per subnet
-time() - fleet_wireguard_last_handshake_timestamp_seconds  # seconds since each peer's handshake
-```
-
-A handshake timestamp of 0 means the peer has not completed one since `wg0`
-last came up, so its age reads as decades.
-
-Grafana's `admin` password is a secret on core5, and evaluation fails without
-it. Grafana reads it once, when it creates the account on its first start, so
-changing the secret later changes nothing: change it in Grafana's own profile
-page, and the secret to match. To set it, from the repo, in your own
-terminal, with the password from the password manager at the prompt:
-
-```bash
-read -rs pw
-printf '%s' "$pw" | jq -R . | sops set --value-stdin secrets/core5.yaml '["grafana-admin-password"]'
-unset pw
-```
-
-VictoriaMetrics listens on core5's loopback alone, behind vmauth, which passes
-queries and the query UI. For that UI, `ssh -L 8428:127.0.0.1:8428 core5` and
-then http://localhost:8428/vmui.
+The metrics have alerts of their own, on core5: [docs/observability.md](docs/observability.md)
+has them, and what to do when one fires.
 
 ## CI and the binary cache
 

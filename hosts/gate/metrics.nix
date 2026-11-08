@@ -1,6 +1,6 @@
 # gate's half of the fleet's metrics: what docs/router.md asks of the router,
-# for core5 to scrape (modules/metrics.nix). docs/observability.md has the
-# design; this file has what gate needed beyond node_exporter, which
+# for core5 to scrape (modules/metrics.nix). docs/observability.md is the
+# runbook; this file has what gate needed beyond node_exporter, which
 # modules/node-exporter.nix runs here as on every target.
 #
 # What answers each question:

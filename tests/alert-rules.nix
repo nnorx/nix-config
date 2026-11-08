@@ -1,6 +1,6 @@
 # The alert rules in modules/alert-rules.nix, against series written here:
 # each fires on the fault it is for, and stays quiet on the cases
-# docs/observability.md argues it past. vmalert-tool runs them against a store
+# its comment argues it past. vmalert-tool runs them against a store
 # of its own, in the build, with no VM.
 #
 # `nix build .#checks.x86_64-linux.alert-rules`. Seconds, not minutes; CI's

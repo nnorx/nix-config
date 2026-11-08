@@ -2,7 +2,7 @@
 # about itself: whether each resolver answers a client on port 53, and whether
 # the public resolvers answer a ping, which is traffic leaving the house
 # through gate. Imported by modules/metrics.nix, whose store scrapes the jobs
-# below. docs/observability.md has the design and the queries.
+# below. docs/observability.md is the runbook.
 #
 # The exporter listens on loopback alone: only VictoriaMetrics, on the same
 # host, asks it to probe anything, so nothing on the LAN can point it

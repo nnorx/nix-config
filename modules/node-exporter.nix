@@ -1,6 +1,6 @@
 # node_exporter on every host in net.metricsTargets, scraped by the collector
 # (modules/metrics.nix). Imported by hosts/common and inert elsewhere, so the
-# list in lib/net.nix is the one switch. docs/observability.md has the design.
+# list in lib/net.nix is the one switch.
 {
   config,
   lib,

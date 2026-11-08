@@ -250,7 +250,7 @@
     #
     # Metrics did not force one either. What the scraper needs is narrower:
     # the address gate is reached at from the collector's segment, which is
-    # `metricsSegment` below. docs/observability.md, "gate's address", has why.
+    # `metricsSegment` below.
     gate = {
       # The segment gate's exporters bind and are scraped on: its gateway
       # address there, and that address alone. hosts/gate/metrics.nix opens

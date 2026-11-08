@@ -1,8 +1,7 @@
 # The alert rules vmalert evaluates on the collector (modules/alerting.nix), as
 # vmalert's rule file. A function rather than a module, so that
 # tests/alert-rules.nix can check the same rules against series of its own
-# without evaluating a host. docs/observability.md, "Alerts", has the table
-# and the reasons for each threshold.
+# without evaluating a host. docs/observability.md has the table.
 #
 # Labels are the alert's name, `instance` (a host's name, which
 # modules/metrics.nix sets at scrape and ntfy's template shows), `severity`,

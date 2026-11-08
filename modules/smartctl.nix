@@ -2,8 +2,7 @@
 # smartctl_exporter: the critical-warning field, the SMART verdict, the spare
 # and its threshold, media errors and wear, which DriveFailing and DriveWearing
 # read (modules/alert-rules.nix). A function of the devices to read, imported
-# by the host that has them. docs/observability.md, "Drive health", has the
-# design.
+# by the host that has them.
 #
 # nixpkgs' module as it is: a dynamic user in the `disk` group, with
 # CAP_SYS_RAWIO and CAP_SYS_ADMIN for smartctl's passthrough commands and

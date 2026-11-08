@@ -1,8 +1,8 @@
 # Alerts over the fleet's metrics, on the collector: vmalert evaluates the rules
 # in ./alert-rules.nix against VictoriaMetrics, and Alertmanager delivers what
 # fires to the ntfy topic the phone follows, the one modules/alerts.nix already
-# posts to. Imported by modules/metrics.nix. docs/observability.md, "Alerts",
-# has the design; this file has what implementing it needed.
+# posts to. Imported by modules/metrics.nix. docs/observability.md is the
+# runbook.
 #
 # Delivery. ntfy.sh formats Alertmanager's webhook itself
 # (`?template=alertmanager`), so nothing runs between the two. Each severity is
@@ -63,7 +63,7 @@ let
     warning = "${ph.ntfy-url}?template=alertmanager";
     info = "${ph.ntfy-url}?template=alertmanager&priority=low";
     # A check named for this host, like modules/alerts.nix's, created by its
-    # first ping. Its period is set by hand (README, "Alerts").
+    # first ping. Its period is set by hand (docs/observability.md).
     watchdog = "https://hc-ping.com/${ph.healthchecks-ping-key}/${hostname}-metrics-watchdog?create=1";
   };
   credential = name: "/run/credentials/alertmanager.service/${name}";

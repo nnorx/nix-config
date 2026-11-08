@@ -4,8 +4,7 @@
 # in front of it, with the dashboards in ./dashboards.nix. The alerts over it
 # are in ./alerting.nix. A host's drives join from ./smartctl.nix, which the
 # host imports with their names.
-# docs/observability.md has the decisions and their reasons; this file has only
-# what implementing them needed.
+# docs/observability.md is the runbook.
 #
 # State is VictoriaMetrics' data and Grafana's database, both under /var/lib,
 # which on core5 is the NVMe root. Neither is backed up: Grafana's dashboards
@@ -107,7 +106,7 @@ in
       # Stop accepting samples rather than fill the disk, if the 12-month
       # estimate of 4 GB is wrong by orders of magnitude. A backstop, idle
       # unless something has already gone wrong: it acts at about 95% full, and
-      # the planned DiskFilling alert fires at 85%. What is left then is weeks
+      # the DiskFilling alert fires at 85%. What is left then is weeks
       # of room for Home Assistant, the UniFi database, Docker and the nightly
       # upgrade, which share this disk, and far more than the space
       # VictoriaMetrics' own merges need at the 10 GB budget. The real margin is
@@ -173,7 +172,7 @@ in
           static_configs = staticConfigs net.ports.unboundExporter net.resolvers;
         }
         {
-          # Its own ingestion and disk use, against the budget in the doc.
+          # Its own ingestion and disk use.
           job_name = "victoriametrics";
           static_configs = [
             {
