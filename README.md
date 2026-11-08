@@ -113,15 +113,13 @@ scripts/               What the apps run
 | [laptop.md](docs/laptop.md) | Installing forge, enabling Secure Boot, preparing for Windows |
 | [observability.md](docs/observability.md) | The metrics and alerting design: store, collection, alerts, access |
 | [night-shift.md](docs/night-shift.md) | Agents on forge, and in a sandbox on the work Mac, working issues queued in Linear |
-| [fleet-agent.md](docs/fleet-agent.md) | A read-only agent that answers an alert with a diagnosis: the design |
 | [privacy.md](docs/privacy.md) | What leaves the house, per host and service, and what could stop |
 | [device-identity.md](docs/device-identity.md) | Naming devices in rules without publishing their MACs: the design |
-| [ipv6.md](docs/ipv6.md) | IPv6 on gate: probing the ISP, the design, and the PRs in order |
-| [power.md](docs/power.md) | A UPS for the rack: what it carries, which host talks to it, the shutdown order, and the PRs in order |
 | [keys.md](docs/keys.md) | Every key, token and password hash: what each unlocks, rotating it, the hardware-key plan, rebuilding forge |
-| [services.md](docs/services.md) | The house's web UIs by name over TLS, wired from one registry: the design |
-| [deploys.md](docs/deploys.md) | Separating deploying from merging: a signed tag per host that the Pis verify, and the PRs in order |
-| [nas.md](docs/nas.md) | The home NAS: what runs on it and what does not, its hardware, storage, encryption, three copies of its data, Immich, and the PRs in order |
+
+Plans for what is not built yet are design docs in Linear, one per project.
+A Claude session reads them from `~/.local/state/night-shift/projects/`, in
+the form a doc draft takes (docs/night-shift.md).
 
 ## Deploying
 

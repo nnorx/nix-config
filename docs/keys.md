@@ -225,8 +225,7 @@ the only one.
 ### Signing
 
 The Deploy pipeline project needs a signing key Nick holds and agents cannot
-use. `docs/deploys.md`, when it exists, is where the pipeline's side is
-described.
+use.
 
 - **The key.** One `ed25519-sk` signing key per hardware key, resident, with
   `-O application=ssh:signing`, a touch per signature. Their public halves go
@@ -255,7 +254,7 @@ Which logins take a touch:
 | The Pis' deploy login | Yes | Deploying stays Nick's. One connection per host per deploy, through ControlMaster, rather than one per verb |
 | The recovery ISO and the Pi installers | Yes | Built from the same list, and rare |
 | fleet-ssh's diagnostics | No | Claude sessions run it all day |
-| The alert agent's `triage` login ([fleet-agent.md](fleet-agent.md)) | No | It runs unattended, and its forced command only reads |
+| The alert agent's planned `triage` login | No | It runs unattended, and its forced command only reads |
 | core5's pushes to `homelab-state` | No | Unattended, with a host credential |
 
 **The two paths are two logins.** sshd tells logins apart by key, as the deploy
@@ -287,7 +286,7 @@ connection to another host, a segment or the internet. It reaches
 VictoriaMetrics through vmauth, which passes reads alone, and the store's admin
 APIs take a key only root reads (`modules/metrics.nix`).
 
-[fleet-agent.md](fleet-agent.md) plans a third login, `triage`, for the alert
+The Fleet agent project plans a third login, `triage`, for the alert
 agent. It is narrower than `diag`: a forced command with fixed verbs and
 masked output, since a model reading device-chosen text should not get a
 shell. `diag` stays the general read-only shell for fleet-ssh in Claude
