@@ -29,7 +29,7 @@ internet is broken is one monitoring did not catch.
 | | Decision |
 |---|---|
 | Store | VictoriaMetrics, single node, on core5 |
-| UI | Grafana on core5, provisioned from the repo, with three dashboards: Fleet, DNS and DHCP. VictoriaMetrics' own vmui for ad hoc queries |
+| UI | Grafana on core5, provisioned from the repo, with four dashboards: Fleet, DNS, DHCP and Alerting. VictoriaMetrics' own vmui for ad hoc queries |
 | Collection | Pull. core5 scrapes exporters on each host, every 30 seconds |
 | Retention | 12 months, about 4 GB, budgeted at 10 GB |
 | gate's address | gate gets no `ip`. A new `metricsSegment` names where it is scraped |
@@ -68,15 +68,15 @@ Grafana for dashboards, because the community dashboards for node_exporter,
 Kea and Unbound are written for it, and vmui, built into VictoriaMetrics, is a
 query box rather than a dashboard. Its datasource and dashboards are
 provisioned from files in the repo, so Grafana's own state holds nothing worth
-keeping: no dashboard is edited in the UI and kept there. There are three,
-Fleet, DNS and DHCP, in `modules/dashboards.nix`, and `tests/grafana.nix`
-runs every panel's queries against the store, so an expression the store
-cannot run fails the pull request rather than drawing nothing. A misspelt
-metric or label still runs and passes there, with no exporters to answer it;
-each pull request's check on core5 after its upgrade catches that. Neither
-Grafana nor
-the metrics history joins the off-box backups (`modules/offbox-push.nix`):
-losing them to a dead drive costs graphs, not configuration.
+keeping: no dashboard is edited in the UI and kept there. There are four,
+Fleet, DNS, DHCP and Alerting, in `modules/dashboards.nix`, and
+`tests/grafana.nix` runs every panel's queries against the store, so an
+expression the store cannot run fails the pull request rather than drawing
+nothing. A misspelt metric or label still runs and passes there, with no
+exporters to answer it; each pull request's check on core5 after its upgrade
+catches that. Neither Grafana nor the metrics history joins the off-box
+backups (`modules/offbox-push.nix`): losing them to a dead drive costs graphs,
+not configuration.
 
 VictoriaMetrics, vmalert and Alertmanager listen on loopback only, since
 everything that talks to them is on core5. Grafana is the one listener on
@@ -445,6 +445,19 @@ holds the rules, each with its reasons beside it.
   now `victoriametrics`, `vmalert`, `alertmanager` and `grafana` in core5's
   `fleetAlerts.failure`, so the stack failing to start says so through the
   path that does not depend on it.
+
+The Alerting dashboard in Grafana answers what is firing and whether the
+stack is healthy, so that vmalert's and Alertmanager's own pages, on core5's
+loopback, need not be opened. Its tables are the alerts firing and pending
+now, from the `ALERTS` series vmalert writes to the store, and a graph counts
+each alert firing over the window. Below them is the stack, from rule
+evaluation and vmalert's sends to Alertmanager, through Alertmanager's
+notifications by integration and its active silences, to the store's ingest,
+disk and scrapes, each job's own up among them. `Watchdog` is left out of the
+alerts by name, since it always fires. A silenced alert still shows as
+firing: silences are Alertmanager's, and vmalert, which writes `ALERTS`, does
+not know of them. The dashboards are counted under "Store and UI" above, and
+`tests/grafana.nix` expects each by its uid.
 
 The rule set. Every threshold below was checked against core5's store on
 2026-10-13, and the four added in NNO-68 (`ScrapeDown`, `AdGuardStatsMissing`,
