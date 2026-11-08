@@ -1,31 +1,9 @@
-# The night shift: issues Nick queues in Linear, worked by background Claude
-# Code agents, each ending in a PR handoff for him to publish. See
-# hosts/forge/night-shift.nix and home/night-shift.nix for how it runs, and
-# docs/night-shift.md for using it. Built with writeShellApplication, which
-# adds the shebang, errexit, nounset and pipefail.
-#
-# Two modes, from NIGHT_SHIFT_MODE. forge, the default and what this header
-# describes, runs on forge against Nick's own Linear team, with states of his
-# own. work runs on a Mac against a team he shares, whose workflow is not his
-# to change: "Work mode" below says how it differs. NIGHT_SHIFT_PLATFORM,
-# linux or darwin, says how agents are started and how Nick is told.
-#
-# In forge mode, an issue moves through the team's states:
-#
-#   Queued         Nick put it there. Taken when a slot is free, highest
-#                  priority first, but only if Nick himself created it and
-#                  moved it there.
-#   Running        An agent has it, in its own worktree and session.
-#   Handoff ready  The agent committed and wrote a PR handoff. The comment
-#                  says what changed, and for nix-config, preflight's verdict.
-#   Needs you      The agent stopped with questions, or went quiet.
-#   Done           Nick merged the PR. The next run sees it on GitHub, moves
-#                  the issue to the team's completed state and cleans up
-#                  after the agent (land_one).
-#
-# Moving an issue back to Queued resumes its agent's session, in the same
-# worktree, with Nick's comments since it stopped. Moved there while the
-# agent still works, it stays in Queued and is resumed once the result is in.
+# The night shift's dispatcher: issues Nick queues in Linear, worked by
+# background Claude Code agents, each ending in a PR handoff for him to
+# publish. docs/night-shift.md has the states an issue moves through and the
+# two modes: forge, the default, against Nick's own team, and work, on a Mac
+# against a team he shares. check, status and file are in src/. Built with
+# writeShellApplication, which adds the shebang, errexit, nounset and pipefail.
 #
 # Nothing here publishes, merges or deploys. Agents run in Claude Code's
 # sandbox under Nick's settings; only this script, outside it, talks to Linear.
@@ -159,17 +137,9 @@ ISSUE_FIELDS='id identifier title description url
 # Work mode's: the assignee, the team's key, which names its repository in the
 # config, and from the history who added which label and who edited the text,
 # for work_refusal. A query of its own rather than more fields on forge's, so a
-# field Linear renames breaks only the mode that asks for it.
-WORK_FIELDS='id identifier title description url createdAt updatedAt
-  state { name type }
-  creator { id }
-  botActor { id }
-  assignee { id }
-  team { key states { nodes { id name type position } } }
-  labels { nodes { id name } }
-  comments(first: 100) { nodes { body createdAt user { id } } }
-  history(first: 250) { pageInfo { hasNextPage }
-    nodes { createdAt actorId botActor { id } addedLabelIds updatedDescription fromTitle } }'
+# field Linear renames breaks only the mode that asks for it. `night-shift
+# check` asks Linear about the same file.
+WORK_FIELDS=$(<"$(dirname "${NIGHT_SHIFT_TS:?}")/../work-fields.graphql")
 
 issue() {
   local fields=$ISSUE_FIELDS
@@ -266,66 +236,10 @@ ${comments:-(none)}
 EOF
 }
 
-# backlog: every open issue, by state, then priority, written to
-# $state_dir/backlog.md after each run and each `night-shift file`. A Claude
-# session cannot reach Linear, and is deliberately not given a key: one acting
-# as Nick could create and queue issues, which the dispatcher would then take
-# as his. This is how a session reads what is filed instead, with no way to
-# write. Nick's plan text, like write_issue's, so it stays outside every repo.
-#
-# Called after the real work, with failure reported rather than fatal, so a
-# Linear quirk here never fails a run (and never counts toward after_run's
-# push). Pages are collected in a file, not a variable, since descriptions
-# could pass the limit on a single argument.
+# backlog.md and the project docs, the snapshots a session reads Linear by
+# (src/backlog.ts). It reports its own failures, and none fails a run.
 backlog() {
-  local out=$state_dir/backlog.md tmp after="" page more
-  mkdir -p "$state_dir"
-  tmp=$(mktemp "$out.XXXXXX") || return 1
-  while :; do
-    # shellcheck disable=SC2016 # GraphQL's variables, not the shell's
-    page=$(gql 'query($after: String) {
-      issues(first: 50, after: $after, filter: {state: {type: {nin: ["completed", "canceled"]}}}) {
-        pageInfo { hasNextPage endCursor }
-        nodes { identifier title description priority priorityLabel updatedAt
-          state { name type } project { name } labels { nodes { name parent { name } } } } } }' \
-      "$(jq -nc --arg a "$after" '{after: (if $a == "" then null else $a end)}')") || {
-      rm -f "$tmp" "$tmp.nodes"
-      return 1
-    }
-    jq -c '.issues.nodes[]' <<<"$page" >>"$tmp.nodes"
-    more=$(jq -r '.issues.pageInfo | if .hasNextPage then .endCursor else "" end' <<<"$page")
-    [[ -n $more ]] || break
-    after=$more
-  done
-  # shellcheck disable=SC2016 # jq's variables, not the shell's
-  jq -rs --arg now "$(now)" '
-    def stage: {started: 0, unstarted: 1, backlog: 2, triage: 3}[.state.type] // 4;
-    def rank: if .priority == 0 then 5 else .priority end;
-    def number: .identifier | capture("(?<n>[0-9]+)$").n | tonumber;
-    def labels: [.labels.nodes[] | select(.parent.name != "repo") | .name];
-    def repo: [.labels.nodes[] | select(.parent.name == "repo") | .name] | first // "none";
-    sort_by(stage, .state.name, rank, number)
-    | "# Open issues in Linear",
-      "",
-      "Written by night-shift at \($now): \(length) issues not done or canceled,",
-      "by state, then priority. A snapshot to read; change issues in Linear.",
-      (group_by(stage, .state.name) | sort_by(.[0] | stage, .state.name)[]
-        | "", "## \(.[0].state.name) (\(length))",
-          (.[] | "", "### \(.identifier): \(.title)", "",
-            "- Priority: \(.priorityLabel). Repo: \(repo). Project: \(.project.name // "none")."
-              + (if labels == [] then "" else " Labels: \(labels | join(", "))." end),
-            "- Updated: \(.updatedAt[:10])",
-            "",
-            # Quoted, so a heading in a description cannot pass for one of
-            # the headings above.
-            (.description // "(no description)" | rtrimstr("\n") | split("\n")
-              | map(if . == "" then ">" else "> " + . end) | join("\n"))))
-  ' "$tmp.nodes" >"$tmp" || {
-    rm -f "$tmp" "$tmp.nodes"
-    return 1
-  }
-  rm -f "$tmp.nodes"
-  mv "$tmp" "$out"
+  node "${NIGHT_SHIFT_TS:?}" _backlog || true
 }
 
 # forget <state file> [why]: drops an issue the dispatcher is done with, along
@@ -1210,39 +1124,14 @@ run() {
     (($(running) < max)) || break
     child _start "$viewer" "$id"
   done
-  backlog || echo "night-shift: backlog.md not written; the next run tries again" >&2
+  backlog
 }
 
 # --- Work mode ------------------------------------------------------------------
 #
-# On a Mac at work (home/night-shift.nix), against a Linear team Nick shares,
-# whose workflow and labels are not his to change and whose issues his
-# teammates read. What takes the place of forge's states:
-#
-#   Queued         a label of Nick's (the config's `label`) on an issue
-#                  assigned to him, taken only if he added it himself and
-#                  nobody else has changed the title or description since. A
-#                  teammate writes the issue; adding the label is Nick saying
-#                  the text is his task.
-#   Running        moved to the team's started state (`startedState`), the one
-#                  thing this writes to Linear.
-#   Handoff ready, Needs you
-#                  a notification and $state_dir/<ID>.report.md, which
-#                  `night-shift status` shows. Nothing on the issue.
-#   Done           Linear's GitHub integration completes the issue when the PR
-#                  merges. tidy sees that, gh confirms the merge, and land_one
-#                  cleans up as on forge.
-#
-# Nick resumes an agent here, with `night-shift resume <ID> <answer>`, or by
-# adding the label again. Each team's repository, branch name, setup commands
-# and checks come from NIGHT_SHIFT_CONFIG, a file of Nick's outside the repo,
-# since this one is public: docs/night-shift.md, "On a Mac", has its shape.
-#
-# Each agent runs in Claude Code's sandbox, which the Mac's own sessions do
-# not have, from NIGHT_SHIFT_SETTINGS (home/night-shift.nix). Its worktree is
-# set up first, outside that sandbox, from origin's HEAD: what setup fetches
-# needs Nick's credentials, LFS objects say, and nothing of the agent's is
-# there yet to run.
+# On a Mac at work, against a team Nick shares: docs/night-shift.md, "On a
+# Mac", has how it differs from forge, and the config's shape. The one thing
+# it writes to Linear is the move to the team's started state.
 
 LABEL="agent"
 STARTED="In Progress"
@@ -1714,272 +1603,6 @@ work_tidy_one() {
   fi
 }
 
-work_check() {
-  local data k conf dir s
-  # shellcheck disable=SC2016 # GraphQL's variables, not the shell's
-  data=$(gql 'query($l: String!) { viewer { id displayName }
-    teams { nodes { key states { nodes { name } } } }
-    issueLabels(first: 50, filter: {name: {eq: $l}}) { nodes { name } } }' "$(jq -nc --arg l "$LABEL" '{l: $l}')")
-  echo "key: works, acting as $(jq -r .viewer.displayName <<<"$data")"
-  if [[ $(jq '.issueLabels.nodes | length' <<<"$data") -gt 0 ]]; then
-    echo "label $LABEL: exists"
-  else
-    echo "label $LABEL: not in Linear yet"
-  fi
-  while IFS= read -r k; do
-    conf=$(jq -c --arg k "$k" '.repos[$k]' <<<"$config")
-    dir=$(work_repo_dir "$conf")
-    jq -r --arg k "$k" --arg s "$STARTED" '[.teams.nodes[] | select(.key == $k)] | first
-      | if . == null then "team \($k): not found"
-        elif any(.states.nodes[]; .name == $s) then "team \($k): has \($s)"
-        else "team \($k): no state \($s)" end' <<<"$data"
-    if git -C "$dir" remote get-url origin >/dev/null 2>&1; then
-      echo "team $k: repository $dir"
-    else
-      echo "team $k: no repository with an origin at '$dir'"
-    fi
-    # claude --bg refuses a directory whose trust prompt was never accepted.
-    if [[ $(jq -r --arg d "$dir" '.projects[$d].hasTrustDialogAccepted // false' "$HOME/.claude.json" 2>/dev/null) == true ]]; then
-      echo "team $k: Claude trusts it"
-    else
-      echo "team $k: run claude in $dir once and accept the trust prompt"
-    fi
-    for s in $(work_overrides "$dir" "$dir"); do
-      echo "team $k: $s changes the sandbox or runs a command outside it, so its issues are refused"
-    done
-  done < <(jq -r '.repos // {} | keys[]' <<<"$config")
-  # The fields a run asks for, on one issue of Nick's, so a field Linear has
-  # renamed shows here rather than as a failed run.
-  if gql "query { issues(first: 1, filter: {assignee: {isMe: {eq: true}}}) { nodes { $WORK_FIELDS } } }" >/dev/null; then
-    echo "issue fields: all known to Linear"
-  fi
-  if jq -e '.sandbox.enabled and (.sandbox.filesystem.denyRead | index("~/Library/Keychains"))
-      and .disableAllHooks == true and (.permissions.deny | index("WebFetch") and index("WebSearch"))' \
-    "${NIGHT_SHIFT_SETTINGS:-/dev/null}" >/dev/null 2>&1; then
-    echo "sandbox: on, with the keychain hidden, hooks off and no web tools"
-  else
-    echo "sandbox: '${NIGHT_SHIFT_SETTINGS:-}' is missing, does not hide ~/Library/Keychains, leaves hooks on, or allows web tools"
-  fi
-  if command -v claude >/dev/null; then
-    echo "claude: $(claude --version </dev/null)"
-  else
-    echo "claude: not on PATH"
-  fi
-  if notify "Night shift" "A test notification from night-shift check"; then
-    echo "notification: sent"
-  fi
-}
-
-# Issue drafts, for `night-shift file`: <repo>/.git/linear-handoff/<any>.md,
-# written by Claude or by hand, the way pr-handoff takes PR text. A front
-# matter of `key: value` lines, no comments, then the description:
-#
-#   ---
-#   title: forge: push to ntfy when night-shift runs keep failing
-#   repo: nix-config        default: the repository the draft is in
-#   priority: high          urgent, high, medium, low or none (default)
-#   project: Night shift    default: none; must exist in the team
-#   team: NNO               needed only with more than one team
-#   ---
-#
-# Filed as Nick, an issue passes the dispatcher's "created by you" check, so
-# each is shown and confirmed on its own, and its description ends with a line
-# saying it was drafted, so its origin shows when he later queues it. It lands
-# in the team's backlog, never in Queued: starting an agent stays his move.
-
-DRAFT_KEYS=" title repo priority project team "
-
-# draft_field <file> <key>: the value, less one pair of surrounding quotes.
-draft_field() {
-  awk -v k="$2" '
-    NR == 1 { next }
-    $0 == "---" { exit }
-    { i = index($0, ":"); if (i && substr($0, 1, i - 1) == k) {
-        v = substr($0, i + 1); sub(/^[ \t]+/, "", v); sub(/[ \t]+$/, "", v)
-        if (v ~ /^".*"$/ || v ~ /^\047.*\047$/) v = substr(v, 2, length(v) - 2)
-        print v; exit } }' "$1"
-}
-
-# draft_body <file>: everything after the front matter, less leading blanks.
-draft_body() {
-  awk 'NR == 1 { next }
-    !body && $0 == "---" { body = 1; next }
-    body { if (NF || seen) { seen = 1; print } }' "$1"
-}
-
-# draft_problem <file>: why the draft cannot be filed, or nothing. The text is
-# shown to Nick and becomes an agent's task, so anything that could make what
-# he reads differ from what is filed is refused: invalid UTF-8, control
-# characters other than tab and newline, and invisible format characters.
-draft_problem() {
-  local f=$1 k
-  if [[ -L $f || ! -f $f ]]; then
-    echo "not a regular file"
-  elif LC_ALL=C.UTF-8 grep -qaxv '.*' "$f"; then
-    echo "not valid UTF-8"
-  elif LC_ALL=C.UTF-8 grep -qP '[\x{0}-\x{8}\x{B}-\x{1F}\x{7F}-\x{9F}\p{Cf}\p{Zl}\p{Zp}]' "$f"; then
-    echo "contains control or invisible characters"
-  elif [[ $(head -n 1 "$f") != --- ]] || [[ $(awk 'NR > 1 && $0 == "---"' "$f" | head -n 1) != --- ]]; then
-    echo "front matter must open and close with ---"
-  else
-    while IFS= read -r k; do
-      [[ -z $k || $DRAFT_KEYS == *" $k "* ]] || { echo "unknown key '$k'"; return; }
-    done < <(awk 'NR == 1 { next } $0 == "---" { exit } NF { i = index($0, ":"); print (i ? substr($0, 1, i - 1) : $0) }' "$f")
-  fi
-}
-
-# draft_input <file> <repo> <workspace json>: the IssueCreateInput and a line
-# describing it, or why not.
-draft_input() {
-  local f=$1 problem title repo tkey team teamid priority project label state proj
-  problem=$(draft_problem "$f")
-  [[ -z $problem ]] || { echo "$problem"; return 1; }
-  title=$(draft_field "$f" title)
-  [[ -n $title ]] || { echo "no title"; return 1; }
-  repo=$(draft_field "$f" repo)
-  repo=${repo:-$2}
-  tkey=$(draft_field "$f" team)
-  if [[ -z $tkey ]]; then
-    [[ $(jq '.teams.nodes | length' <<<"$3") -eq 1 ]] || { echo "more than one team; add team:"; return 1; }
-    tkey=$(jq -r '.teams.nodes[0].key' <<<"$3")
-  fi
-  team=$(jq -c --arg k "$tkey" '.teams.nodes[] | select(.key == $k)' <<<"$3")
-  [[ -n $team ]] || { echo "no team '$tkey'"; return 1; }
-  teamid=$(jq -r .id <<<"$team")
-  # Exactly one repo label of that name that this team can use: the
-  # workspace's, or the team's own.
-  label=$(jq -r --arg r "$repo" --arg t "$teamid" \
-    '[.repo.nodes[] | select(.name == $r and (.team == null or .team.id == $t)) | .id] | if length == 1 then .[0] else empty end' <<<"$3")
-  [[ -n $label ]] || { echo "no single repo label '$repo' for team $tkey"; return 1; }
-  # The backlog, or failing that the first not-started state; never Queued.
-  state=$(jq -c --arg q "$QUEUED" '[.states.nodes[] | select(.name != $q)] as $s
-    | ([$s[] | select(.type == "backlog")] | sort_by(.position) | first)
-      // ([$s[] | select(.type == "unstarted")] | sort_by(.position) | first) // empty' <<<"$team")
-  [[ -n $state ]] || { echo "team $tkey has no backlog state"; return 1; }
-  case $(draft_field "$f" priority) in
-    urgent) priority=1 ;; high) priority=2 ;; medium) priority=3 ;; low) priority=4 ;;
-    "" | none) priority=0 ;;
-    *) echo "priority is urgent, high, medium, low or none"; return 1 ;;
-  esac
-  project=$(draft_field "$f" project)
-  proj=""
-  if [[ -n $project ]]; then
-    proj=$(jq -r --arg p "$project" \
-      '[.projects.nodes[] | select(.name == $p) | .id] | if length == 1 then .[0] else empty end' <<<"$team")
-    [[ -n $proj ]] || { echo "no single project '$project' in team $tkey"; return 1; }
-  fi
-  jq -nc --arg team "$teamid" --arg title "$title" --arg body "$(draft_body "$f")" \
-    --argjson priority "$priority" --arg label "$label" --argjson state "$state" \
-    --arg proj "$proj" --arg key "$tkey" --arg repo "$repo" --arg project "$project" '
-    {input: ({teamId: $team, title: $title, priority: $priority,
-              description: "\($body)\n\n_Filed from a draft with `night-shift file`._",
-              labelIds: [$label], stateId: $state.id}
-             + (if $proj == "" then {} else {projectId: $proj} end)),
-     shown: "\($key) · \($repo) · \(["no priority", "urgent", "high", "medium", "low"][$priority])\(if $project == "" then "" else " · \($project)" end) · into \($state.name)"}'
-}
-
-file_drafts() {
-  local d dir common f data input n bad=0 answer out rc filing filed=0
-  local -a drafts=() repos=() inputs=()
-  local -A seen=()
-  for d in "$projects"/*/; do
-    git -C "$d" rev-parse --git-dir >/dev/null 2>&1 || continue
-    common=$(git -C "$d" rev-parse --path-format=absolute --git-common-dir)
-    # A worktree checked out in ~/projects shares its repository's drafts.
-    [[ -z ${seen[$common]:-} ]] || continue
-    seen[$common]=1
-    dir=$common/linear-handoff
-    [[ -e $dir ]] || continue
-    [[ -d $dir && ! -L $dir ]] || die "$dir is not a plain directory"
-    for f in "$dir"/*.filing; do
-      echo "night-shift: $f was being filed when a run was cut off; check Linear, then delete it or rename it back to .md" >&2
-    done
-    for f in "$dir"/*.md; do
-      drafts+=("$f")
-      repos+=("$(basename "$(dirname "$common")")")
-    done
-  done
-  if ((${#drafts[@]} == 0)); then
-    echo "no drafts in $projects/*/.git/linear-handoff/"
-    return 0
-  fi
-  data=$(gql 'query { viewer { displayName }
-    teams { nodes { id key states { nodes { id name type position } } projects(first: 100) { nodes { id name } } } }
-    repo: issueLabels(first: 250, filter: {parent: {name: {eq: "repo"}}}) { nodes { id name team { id } } } }')
-
-  # Every draft is checked before any is offered, so a mistake files nothing.
-  for n in "${!drafts[@]}"; do
-    if ! input=$(draft_input "${drafts[n]}" "${repos[n]}" "$data"); then
-      echo "night-shift: ${drafts[n]}: $input" >&2
-      bad=1
-    fi
-    inputs+=("$input")
-  done
-  ((bad == 0)) || die "nothing filed; fix the drafts above"
-
-  echo "Filing as $(jq -r .viewer.displayName <<<"$data"), one draft at a time."
-  for n in "${!drafts[@]}"; do
-    f=${drafts[n]}
-    printf '\n── %s (written %s)\n%s\n\n%s\n\n%s\n\n' "$f" "$(date -r "$f" '+%F %R')" \
-      "$(jq -r .shown <<<"${inputs[n]}")" "$(jq -r .input.title <<<"${inputs[n]}")" \
-      "$(jq -r .input.description <<<"${inputs[n]}")"
-    printf 'File this one? [y/N] '
-    read -r answer </dev/tty || answer=""
-    [[ $answer == [yY] ]] || { echo "kept"; continue; }
-    # Moved aside first: if Linear takes it but the answer is lost, a rerun
-    # must not file it again.
-    filing=${f%.md}.filing
-    mv "$f" "$filing"
-    rc=0
-    # shellcheck disable=SC2016 # GraphQL's variables, not the shell's
-    out=$(gql 'mutation($i: IssueCreateInput!) { issueCreate(input: $i) { success issue { identifier url } } }' \
-      "$(jq -c '{i: .input}' <<<"${inputs[n]}")") || rc=$?
-    if ((rc == 0)); then
-      rm "$filing"
-      jq -r '.issueCreate.issue | "filed \(.identifier)  \(.url)"' <<<"$out"
-      filed=$((filed + 1))
-    elif ((rc == 1)); then
-      echo "night-shift: no answer from Linear, so it may be filed; check, then delete $filing or rename it back to .md" >&2
-    else
-      mv "$filing" "$f"
-      echo "night-shift: Linear refused it; the draft is kept" >&2
-    fi
-  done
-  echo "filed $filed of ${#drafts[@]}"
-}
-
-check() {
-  local data teams
-  data=$(gql 'query { viewer { id displayName }
-    teams { nodes { key name states { nodes { name } } } }
-    issueLabels(first: 250, filter: {parent: {name: {eq: "repo"}}}) { nodes { name } } }')
-  echo "key: works, acting as $(jq -r .viewer.displayName <<<"$data")"
-  teams=$(jq -c '.teams.nodes[]' <<<"$data")
-  while IFS= read -r t; do
-    jq -r --argjson want "$(jq -nc --arg a "$QUEUED" --arg b "$RUNNING" --arg c "$READY" --arg d "$NEEDS" '[$a, $b, $c, $d]')" '
-      [.states.nodes[].name] as $have
-      | "team \(.key): " + (if ($want - $have) == [] then "all four states"
-        else "missing states: \(($want - $have) | join(", "))" end)' <<<"$t"
-  done <<<"$teams"
-  jq -r '.issueLabels.nodes[].name' <<<"$data" | while IFS= read -r label; do
-    if git -C "$projects/$label" rev-parse --git-dir >/dev/null 2>&1; then
-      echo "repo label $label: $projects/$label"
-    else
-      echo "repo label $label: no repository at $projects/$label"
-    fi
-  done
-  [[ $(jq '.issueLabels.nodes | length' <<<"$data") -gt 0 ]] || echo "no labels in a 'repo' group yet"
-  if command -v claude >/dev/null; then
-    echo "claude: $(claude --version </dev/null)"
-  else
-    echo "claude: not on PATH"
-  fi
-  if [[ -r ${NIGHT_SHIFT_NTFY_FILE:-} ]]; then
-    echo "ntfy: configured"
-  else
-    echo "ntfy: no topic, so no pushes"
-  fi
-}
 # after_run: the unit's ExecStopPost, so it sees every way a run ends, a
 # timeout or a kill included, in systemd's $SERVICE_RESULT. A run that cannot
 # reach Linear fails without touching any issue, so without this a revoked key
@@ -2008,25 +1631,6 @@ after_run() {
       touch "$f.pushed"
     fi
   fi
-}
-
-status() {
-  local any="" report
-  for f in "$state_dir"/*.json; do
-    any=1
-    jq -r '"\(.ident)  \(.phase)  since \(.started // .labelled)  \(.name // "")  \(.worktree // "")"' "$f"
-    # Work mode's reports, which on forge are comments on the issue.
-    report=$state_dir/$(jq -r .ident "$f").report.md
-    [[ ! -f $report ]] || sed 's/^/    /' "$report"
-  done
-  # Work mode's settings for a session land_one kept, once the issue itself
-  # is forgotten: delete one with `claude rm` of its session.
-  for f in "$state_dir"/*.settings; do
-    [[ -f ${f%.settings}.json ]] && continue
-    any=1
-    echo "$(basename "$f" .settings)  merged, but its worktree and session were kept; $f stays until you remove them"
-  done
-  [[ -n $any ]] || echo "nothing yet"
 }
 
 viewer=""
@@ -2083,23 +1687,8 @@ case ${1-} in
     esac
     EXIT_STATUS=$rc after_run
     ;;
-  file)
-    [[ $mode == forge ]] || die "file is forge's: in work mode, issues are filed in Linear by hand"
-    load_key
-    file_drafts
-    # So what was just filed is in the backlog without waiting for a run.
-    backlog || echo "night-shift: backlog.md not written; the next run will" >&2
-    ;;
-  check)
-    load_key
-    if [[ $mode == work ]]; then
-      load_config
-      work_check
-    else
-      check
-    fi
-    ;;
-  status) status ;;
+  # In TypeScript: src/main.ts.
+  check | status | file) exec node "${NIGHT_SHIFT_TS:?}" "$1" ;;
   # An interactive session in the agents' sandbox, cld-safe's
   # (home/night-shift.nix).
   safe)

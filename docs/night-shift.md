@@ -3,8 +3,8 @@
 Issues queued in Linear, worked by background Claude Code agents on forge while
 you are away from the desk, each ending in a PR handoff for you to publish.
 [`hosts/forge/night-shift.nix`](../hosts/forge/night-shift.nix) runs it and
-says why it is built the way it is; [`night-shift.sh`](../pkgs/night-shift/night-shift.sh)
-is the dispatcher. The same dispatcher runs on the work Mac against a shared
+says why it is built the way it is; [`pkgs/night-shift/`](../pkgs/night-shift/) is the dispatcher:
+`night-shift.sh`, with `check`, `status` and `file` in TypeScript under `src/`. The same dispatcher runs on the work Mac against a shared
 team, in a sandbox of its own: "On a Mac (work mode)" below.
 
 Every 10 minutes while forge is awake, a user timer takes finished work back
@@ -126,13 +126,11 @@ the repo's `.git/night-shift/`. If one of them fails, the issue lands in
 - **Done or canceled** by your hand, issues are forgotten, along with their
   issue text and old results in `.git/night-shift/`. Their worktrees are left
   for `claude rm` or the git cleanup.
-- **The backlog, for Claude:** after every run and every `night-shift file`,
-  each open issue (state, priority, repo, project and description) is
-  written to `~/.local/state/night-shift/backlog.md` on forge. A Claude
-  session cannot reach Linear, and has no key for it on purpose, since one
-  acting as you could queue work for the night shift; this file is how a
-  session sees what is filed, read-only. It is your plan text, so it stays
-  outside every repo.
+- **What Claude reads of Linear:** after every run and every `night-shift
+  file`, `~/.local/state/night-shift/` on forge gets `backlog.md`, each open
+  issue, and `projects/<project>/<doc>.md`, each open project's documents. A
+  session has no Linear key, on purpose: one acting as you could queue work.
+  This is your plan text, so it stays outside every repo.
 - `night-shift status` lists what each agent is doing.
 - Shortcuts: `nsr`, `nss` and `nsf` are `night-shift run`, `status` and
   `file`, and `wt nno-20` cds into NNO-20's worktree.
@@ -142,8 +140,8 @@ and `~/.local/state/night-shift/<ID>.json`.
 
 ### Filing issues from drafts
 
-Rather than paste issues into Linear, have Claude write them as drafts, one
-file each, in the repository's `.git/linear-handoff/` (any `.md` name):
+Claude writes issues as drafts, one file each, in the repository's
+`.git/linear-handoff/` (any `.md` name):
 
 ```markdown
 ---
@@ -160,17 +158,29 @@ repo names it. `priority` is urgent, high, medium, low or none; `project`
 must already exist in the team; `team` is needed only with more than one.
 The front matter takes those keys only, and no comments.
 
-`night-shift file` collects the drafts from every repository in
-`~/projects` and checks them all first, so one mistake files none. A draft
-with control or invisible characters is refused, since what you read must be
-what is filed. It then shows each draft in full, with when it was written
-and the state it will land in, and asks about that one; a draft you skip
-stays. Each becomes an issue created by you, in the team's backlog, its
-description ending "Filed from a draft with `night-shift file`", and its
-draft is deleted. Nothing is ever filed into `Queued`: moving an issue there
-is still your hand, in Linear. Read each draft before you answer, since
-filing it as you is what lets the night shift take it later, and agents
-working in a repository can write drafts there too.
+`night-shift file` collects the drafts from every repository in `~/projects`
+and checks them all first, so one mistake files none. Control or invisible
+characters are refused, naming each and its line: what you read must be what
+is filed. It shows each in full, with where it lands, and asks; a draft you
+skip stays. An issue is created by you, in the team's backlog, never in
+`Queued`, which stays your move. Read each before you answer: filing it as you
+is what lets the night shift take it later.
+
+A draft can instead be a project's document, for a plan not yet built:
+
+```markdown
+---
+project: NAS
+doc: Design
+updated: 2026-11-07T09:00:00.000Z
+---
+```
+
+Each exported doc is in draft form: copy it into `.git/linear-handoff/` and
+edit the text. Joined emoji count as invisible characters. `file` shows the
+change as a diff and replaces the doc's text. A doc changed in Linear since
+`updated` is refused, so no edit overwrites a newer one. Leave out `updated`
+to create a doc.
 
 If Linear does not answer, a draft may have been filed anyway, so it is left
 as `<name>.filing` rather than offered again; check Linear, then delete it or
@@ -208,8 +218,8 @@ rename it back.
 
 The same dispatcher runs on a Mac, from launchd every 10 minutes, against a
 Linear team you share. [`home/night-shift.nix`](../home/night-shift.nix) runs
-it, and "Work mode" in `night-shift.sh` has the details. The team's workflow
-and issues are shared, so it changes as little in Linear as it can:
+it. The team's workflow and issues are shared, so it changes as little in
+Linear as it can:
 
 - **Queue.** An issue assigned to you that carries your label, which you
   added yourself, with no one else changing the title or description since.

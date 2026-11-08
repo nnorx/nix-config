@@ -1,14 +1,14 @@
 {
-  "prose": 89782,
+  "prose": 89767,
   "comments": {
-    "nix": 32.5,
-    "sh": 21.0
+    "nix": 32.2,
+    "sh": 20.9
   },
   "shell": {
     "default": 300,
     "allow": {
-      "pkgs/night-shift/night-shift.sh": 2129,
-      "tests/night-shift/run.sh": 1487,
+      "pkgs/night-shift/night-shift.sh": 1718,
+      "tests/night-shift/run.sh": 1430,
       "home/fleet-deploy.sh": 458,
       "tests/fleet-deploy/run.sh": 419,
       "home/agents-status.sh": 413,

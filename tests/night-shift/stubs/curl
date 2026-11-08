@@ -11,7 +11,9 @@
 #           linear/workspace.json. Work mode's queue, issues assigned to
 #           user-nick with a label, is answered from the issues too.
 #           {tool: "linear", op, variables}. With the file linear-down,
-#           every request fails as an unresolved host does.
+#           every request fails as an unresolved host does. Projects and
+#           their documents are linear/projects.json, an array of {id, name,
+#           status, documents: [{id, title, content, updatedAt, url}]}.
 #   GitHub  https://api.github.com/..., read with -w '\n%{http_code}'. The
 #           answer is the file github: the status code on its first line, the
 #           body after it; with no such file, 200 and []. {tool: "github", url}.
@@ -60,6 +62,7 @@ if [[ $url == https://api.linear.app/graphql ]]; then
   shopt -s nullglob
   issues=("$dir"/linear/issues/*.json)
   all=$(if ((${#issues[@]})); then jq -s . "${issues[@]}"; else echo '[]'; fi)
+  projects=$(cat "$dir/linear/projects.json" 2>/dev/null || echo '[]')
   query=$(jq -r .query <<<"$data")
   vars=$(jq -c .variables <<<"$data")
   # The key reaches curl in -K, never on the command line.
@@ -68,7 +71,33 @@ if [[ $url == https://api.linear.app/graphql ]]; then
     echo '{"errors": [{"message": "Authentication required"}]}'
     exit 0
   fi
+  # Linear refuses a query past 10,000 points, and nested connections
+  # multiply. Roughly: the largest product of `first:` down any path.
+  cost=$(awk 'BEGIN { RS = "\001" } {
+    s = $0; d = 0; p = 0; m[0] = 1; next_first = 1; max = 1
+    while (length(s)) {
+      if (p > 0 && match(s, /^first: *[0-9]+/)) {
+        n = substr(s, 1, RLENGTH); gsub(/[^0-9]/, "", n); next_first = n; s = substr(s, RLENGTH + 1); continue
+      }
+      c = substr(s, 1, 1); s = substr(s, 2)
+      if (c == "(") p++
+      else if (c == ")") p--
+      else if (p == 0 && c == "{") { d++; m[d] = m[d - 1] * next_first; next_first = 1; if (m[d] > max) max = m[d] }
+      else if (p == 0 && c == "}") d--
+    }
+    print max }' <<<"$query")
+  if ((cost > 10000)); then
+    record --argjson cost "$cost" '{tool: "linear", op: "too complex", cost: $cost}'
+    echo '{"errors": [{"message": "Query too complex"}]}'
+    exit 0
+  fi
   case $query in
+    *documentCreate*) op=documentCreate ;;
+    *documentUpdate*) op=documentUpdate ;;
+    *'documents(first: 50, after: $after)'*) op=documents ;;
+    *'projects(first: 100, after: $after)'*) op=projects ;;
+    *'viewer { id displayName }'*) op=check ;;
+    *'issues(first: 1, filter: {assignee: {isMe'*) op=fields ;;
     *issueCreate*) op=issueCreate ;;
     *issueUpdate*) op=issueUpdate ;;
     *commentCreate*) op=commentCreate ;;
@@ -84,6 +113,28 @@ if [[ $url == https://api.linear.app/graphql ]]; then
   record --arg op "$op" --argjson v "$vars" '{tool: "linear", op: $op, variables: $v}'
   issue_file() { echo "$dir/linear/issues/$(jq -r .id <<<"$vars").json"; }
   case $op in
+    projects) jq -c '{data: {projects: {pageInfo: {hasNextPage: false, endCursor: null}, nodes: [.[] | {id, name}]}}}' <<<"$projects" ;;
+    documents)
+      jq -c '{data: {documents: {pageInfo: {hasNextPage: false, endCursor: null},
+        nodes: [.[] | {id, name, status} as $p | .documents[] | {id, title, content, updatedAt, project: $p}]}}}' <<<"$projects"
+      ;;
+    documentCreate)
+      jq --argjson i "$(jq -c .i <<<"$vars")" '(.[] | select(.id == $i.projectId) | .documents) += [{id: "doc-new",
+        title: $i.title, content: $i.content, updatedAt: "2026-11-07T12:00:00.000Z", url: "https://linear.app/test/document/new"}]' \
+        <<<"$projects" >"$dir/linear/projects.json"
+      echo '{"data": {"documentCreate": {"success": true, "document": {"url": "https://linear.app/test/document/new"}}}}'
+      ;;
+    documentUpdate)
+      jq --argjson v "$vars" '(.[].documents[] | select(.id == $v.id)) |= (.content = $v.i.content | .updatedAt = "2026-11-07T12:00:00.000Z")' \
+        <<<"$projects" >"$dir/linear/projects.json"
+      jq -c --arg id "$(jq -r .id <<<"$vars")" '{data: {documentUpdate: {success: true,
+        document: {url: (.[].documents[] | select(.id == $id) | .url)}}}}' "$dir/linear/projects.json"
+      ;;
+    check)
+      jq -c --arg l "$(jq -r '.l // ""' <<<"$vars")" '{data: {viewer: {id: "user-nick", displayName: .data.viewer.displayName},
+        teams: .data.teams, issueLabels: (if $l == "" then .data.repo else {nodes: []} end)}}' "$dir/linear/workspace.json"
+      ;;
+    fields) echo '{"data": {"issues": {"nodes": []}}}' ;;
     viewer) echo '{"data": {"viewer": {"id": "user-nick"}}}' ;;
     issue)
       f=$(issue_file)
