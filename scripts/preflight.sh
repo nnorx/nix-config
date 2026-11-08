@@ -37,7 +37,9 @@
 #      whether merging changes the Pis, which upgrade from main the same
 #      night, and whether that needs Nick at hand. It is advice and never
 #      fails the run.
-#   6. Formatting, as CI checks it. Last, so a formatting slip never hides an
+#   6. The ratchets (scripts/ratchets.sh): caps on prose, comment density and
+#      shell length. Past a cap the run fails, once formatting has run too.
+#   7. Formatting, as CI checks it. Last, so a formatting slip never hides an
 #      evaluation error or the brief above. Files that were not formatted get
 #      formatted, and the run fails so the change is looked at.
 #
@@ -271,9 +273,14 @@ if [[ -n $json ]]; then
   brief json >"$json"
 fi
 
+step "ratchets"
+ratchets=0
+"$BASH" scripts/ratchets.sh ${head:+--rev "$head"} || ratchets=$?
+
 if [[ -n $head ]]; then
   step "format: skipped, since --head checks a commit and formatting works on files"
 else
   step "format"
   nix fmt -- --ci .
 fi
+((ratchets == 0)) || exit "$ratchets"
