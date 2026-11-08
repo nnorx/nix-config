@@ -7,7 +7,6 @@
 # they share this one body. What is a resolver's own, its header comment
 # above all, stays in hosts/<name>.
 {
-  lib,
   hostname,
   net,
   ...
@@ -19,10 +18,6 @@ in
   imports = [
     (import ../../modules/adguardhome.nix { adminUser = hostname; })
     (import ../../modules/unbound.nix { })
-    (import ../../modules/pimon.nix {
-      mode = "agent";
-      collectorUrl = "http://${net.hosts.core5.ip}:${toString net.ports.pimon}";
-    })
   ];
 
   # Resolve through own AGH instance
@@ -37,19 +32,4 @@ in
     ];
     allowedUDPPorts = [ 53 ];
   };
-
-  # The pimon agent rides along because the resolvers are, today, every host
-  # in net.pimonAgents. core5's collector opens a port per entry in that list,
-  # not this one, and an agent missing from it posts into a dropped port that
-  # Restart=always hides (hosts/core5).
-  assertions = [
-    {
-      assertion = lib.elem hostname net.pimonAgents;
-      message = ''
-        ${hostname} is in net.resolvers, so hosts/common/resolver.nix runs a
-        pimon agent on it, but it is not in net.pimonAgents. core5 would drop
-        its reports. Add it there, or move the agent out of resolver.nix.
-      '';
-    }
-  ];
 }

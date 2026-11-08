@@ -2,16 +2,16 @@
 
 A decision record: the design the follow-up issues built, one piece each, so
 that none of them re-argued it. The store, the dashboards, the metrics from
-every host and the alerts over them are built (steps 1 to 4 under "Order of
-the follow-up issues"). pimon still runs beside them, for liveness, until it
-is retired, and [`modules/alerts.nix`](../modules/alerts.nix), for failed and
-missed jobs (README, "Alerts"), stays.
+every host and the alerts over them are built, and pimon, which they replace,
+is retired (steps 1 to 5 under "Order of the follow-up issues").
+[`modules/alerts.nix`](../modules/alerts.nix), for failed and missed jobs
+(README, "Alerts"), stays.
 
 ## The questions
 
-[`modules/pimon.nix`](../modules/pimon.nix) answers one question, whether a host
-is up, and keeps only the latest snapshot in memory. Phase 8 in
-[router.md](router.md) lists what nothing answers yet:
+pimon, the fleet's monitoring before this design, answered one question,
+whether a host was up, and kept only the latest snapshot in memory. Phase 8 in
+[router.md](router.md) listed what nothing answered yet:
 
 - **WAN state.** Is the link up, and does traffic leave the house?
 - **Conntrack pressure.** How close gate's connection table is to its limit.
@@ -35,7 +35,7 @@ internet is broken is one monitoring did not catch.
 | gate's address | gate gets no `ip`. A new `metricsSegment` names where it is scraped |
 | Alerts | vmalert and Alertmanager on core5, to the existing ntfy topic. A watchdog pings healthchecks.io, so the stack's own silence alerts from outside |
 | fleetAlerts | Unchanged, and still the path for unit failures and missed jobs |
-| pimon | Retired once node metrics and the host-down alert have run for two weeks |
+| pimon | Retired, after node metrics and the host-down alert had run for two weeks |
 | Wrong boot | The hosted root-device check stays primary. Metrics add how long each host has been behind main, and treat a missing exporter as down |
 | Access | Grafana from trusted. Over the tunnel later, if wanted, for forge alone |
 
@@ -91,9 +91,8 @@ for when something must delete. The `diag` login queries VictoriaMetrics
 through vmauth alone, and reaches neither the store's own port, vmalert,
 Alertmanager nor the blackbox exporter (`modules/diag-login.nix`). core5
 keeps the public resolvers it already uses (`networking.nameservers`), for
-the reason network.md gives for pimon:
-monitoring that resolves through the resolvers it watches goes blind exactly
-when they fail.
+the reason network.md gives: monitoring that resolves through the resolvers
+it watches goes blind exactly when they fail.
 
 ## Retention and disk
 
@@ -152,8 +151,8 @@ alert rules below hold for minutes anyway.
 **Pull. core5 scrapes; the other hosts only listen.**
 
 - Liveness comes free. Every scrape records `up` for its target, from the
-  collector's side, which is the question pimon answers today and the one an
-  agent that pushes cannot answer about itself.
+  collector's side, which is the question pimon answered and the one an agent
+  that pushes cannot answer about itself.
 - The list of what is watched lives in one place, core5's scrape
   configuration, generated from `lib/net.nix`.
 - Every scrape stays on the servers segment. core4, lifeline and core5 share it,
@@ -165,8 +164,8 @@ alert rules below hold for minutes anyway.
 
 What it costs is a listening port on each watched host, where push would open
 one port on core5 alone. Each exporter's port opens on the host's LAN interface
-and only from core5's address, the reverse of what core5 does for pimon's
-agents today. The source address matters even on servers, which also holds the
+and only from core5's address, the reverse of what core5 did for pimon's
+agents. The source address matters even on servers, which also holds the
 switch, the AP and anything on an untagged switch port
 ([home-assistant.md](home-assistant.md) has the same caveat for Home Assistant).
 
@@ -176,8 +175,7 @@ opens on `lan0`, whose untagged VLAN is servers, from core5's address. No other
 segment, and never `wan`.
 
 Ports to add to `lib/net.nix` under `ports`, each in the issue that first uses
-it. The loopback ones go there too, since the invariant is every port, as
-pimon's loopback agent on core5 already does:
+it. The loopback ones go there too, since the invariant is every port:
 
 | Port | Name | Listens on |
 |---|---|---|
@@ -227,8 +225,8 @@ gate = {
 };
 ```
 
-Two lists, beside `pimonAgents` and named rather than derived for the same
-reason (being in `hosts` is not the same fact as being scraped):
+Two lists, named rather than derived, since being in `hosts` is not the same
+fact as being scraped:
 
 ```nix
 metricsCollector = "core5";
@@ -237,8 +235,7 @@ metricsTargets = [ "core4" "lifeline" "core5" "gate" ];
 
 `modules/net-assertions.nix` gains the checks: every target has an `ip` or a
 `metricsSegment`; a `metricsSegment` names a declared segment; and it is the
-collector's own segment, so scraping never depends on gate forwarding. When
-pimon is retired, `pimonAgents` and its assertion go with it.
+collector's own segment, so scraping never depends on gate forwarding.
 
 ## DNS failure ratios
 
@@ -687,19 +684,25 @@ so one that drops off its bus goes on reading as it last did, with no
 
 ## pimon
 
-**Retired, once node metrics and `HostDown` have run for two weeks without a
+**Retired, once node metrics and `HostDown` had run for two weeks without a
 gap.**
 
-Everything pimon collects (CPU, memory, disk, temperature, load and uptime) is
-in node_exporter's defaults, with history pimon never kept, and `up` answers
-its liveness question from the collector's side. Keeping both would mean two
-answers to "is core4 up", from two collectors that can disagree. The two weeks
-are for confidence that the new path sees what the old one did.
+pimon was a push agent on core4, lifeline and core5, reporting to a collector
+on core5 that kept the latest snapshot of each. Everything it collected (CPU,
+memory, disk, temperature, load and uptime) is in node_exporter's defaults,
+with history pimon never kept, and `up` answers its liveness question from the
+collector's side. Keeping both would have meant two answers to "is core4 up",
+from two collectors that can disagree. The two weeks were for confidence that
+the new path sees what the old one did.
 
-Retiring it is its own PR, after the alert rules: drop the module and the
-`pimon` input, `pimonAgents` and its assertion, the collector rule in
-`hosts/core5/default.nix`, and `ports.pimon`. network.md's diagram and its
-reasoning for core5's public resolvers then name the metrics stack instead.
+Retired in its own PR (NNO-70), after the alert rules. Over the 14 days to
+2026-11-07, core5's store held 40318 of the 40320 expected `up{job="node"}`
+samples for each of core4, lifeline, core5 and gate, at most 5 of them down,
+and vmalert's own `up` the same, with its rule group iterating throughout and
+no execution errors or missed iterations. The PR dropped the module and the
+`pimon` input, `pimonAgents` and its assertion, the collector's firewall rule
+in `hosts/core5/default.nix`, and `ports.pimon`; network.md's diagram and its
+reasoning for core5's public resolvers name the metrics stack instead.
 
 ## The wrong boot
 
@@ -811,6 +814,8 @@ both are in.
    has why). The watchdog's check appears in healthchecks.io at its first
    ping, and its period is set by hand.
 5. **Retire pimon**, two weeks after 4.
+   Landed as one PR (NNO-70), once the two weeks had run without a gap
+   ("pimon" above has the figures).
 
 Later, if wanted: **Grafana over the tunnel**, the `grafana` grant for forge
 described under Access. gate alone, behind `deploy-guard`, since it changes

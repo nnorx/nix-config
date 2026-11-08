@@ -298,26 +298,6 @@
         "type": "github"
       }
     },
-    "pimon": {
-      "inputs": {
-        "nixpkgs": [
-          "nixpkgs"
-        ]
-      },
-      "locked": {
-        "lastModified": 1772407355,
-        "narHash": "sha256-IOyf1z09z7stDA5VryusX2oHOWewq6hIYxw25pBHjeA=",
-        "owner": "nnorx",
-        "repo": "pimon",
-        "rev": "e0784644cc653dca7a6ab7c4a01ab069e508e3dd",
-        "type": "github"
-      },
-      "original": {
-        "owner": "nnorx",
-        "repo": "pimon",
-        "type": "github"
-      }
-    },
     "pre-commit": {
       "inputs": {
         "flake-compat": "flake-compat",
@@ -352,7 +332,6 @@
         "nixos-raspberrypi": "nixos-raspberrypi",
         "nixpkgs": "nixpkgs_2",
         "nixpkgs-unstable": "nixpkgs-unstable",
-        "pimon": "pimon",
         "sops-nix": "sops-nix"
       }
     },

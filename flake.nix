@@ -56,12 +56,6 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    # pimon — fleet monitoring agent
-    pimon = {
-      url = "github:nnorx/pimon";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-
     # claude-plugins: personal Claude Code skills marketplace.
     # A plain git repo, not a flake, so it lands in the store as a source path
     # that ~/.claude/settings.json can point at directly.
@@ -107,7 +101,6 @@
       disko,
       lanzaboote,
       sops-nix,
-      pimon,
       claude-plugins,
       improve,
       ...
@@ -187,7 +180,6 @@
             net
             ;
           unstable = unstableFor.${system};
-          pimonPkg = pimon.packages.${system}.default;
         };
 
       fleetModules =

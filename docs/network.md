@@ -32,8 +32,8 @@ and what is still open, see [router.md](router.md).
                                       .32   .11    .49    .20.3
                                        │     │      │       │
                                   AdGuard AdGuard UniFi   tagged
-                                  Unbound Unbound pimon    SSIDs
-                                                  HA
+                                  Unbound Unbound HA       SSIDs
+                                                  metrics
 ```
 
 ## Segments
@@ -166,9 +166,10 @@ not resolve `github.com`, so the router could not be fixed by rebuilding it.
 That bootstrap loop is the entire reason it is there, and why it recurses
 rather than forwarding somewhere.
 
-core5 uses public resolvers for the same shape of reason: it runs the pimon
-collector, so pointing it at core4 or lifeline would make monitoring depend on
-the thing it monitors.
+core5 uses public resolvers for the same shape of reason: it runs the metrics
+stack ([observability.md](observability.md)), which watches the resolvers and
+alerts when they fail, so pointing it at core4 or lifeline would make
+monitoring depend on the thing it monitors.
 
 Two operators everywhere a fallback appears, Cloudflare and Quad9, so a single
 provider outage does not take bootstrap with it. Google is deliberately absent:
@@ -283,8 +284,8 @@ reference attribute names, so moving a segment means editing that file alone.
 agrees with itself, and is imported by `hosts/common` so every host validates
 the whole topology rather than only its own entry: a host's address inside the
 segment it names, `subnet` and `prefixLength` stating the same prefix, gateways
-and pools inside their own subnets, and every `pimonAgents` entry being a host
-with an address.
+and pools inside their own subnets, and every `metricsTargets` entry being a
+host the collector can scrape on its own segment.
 
 What it cannot check is whether the file agrees with the *switch*. Port
 profiles live in the UniFi controller's database, so a new tagged segment needs

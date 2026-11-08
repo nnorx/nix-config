@@ -177,7 +177,7 @@ goveeLights = [ "govee-1" "govee-2" ];
 
 Addresses sit below .100, the range `segments` already reserves for statics
 and reservations, so they are outside the pool and Kea leases them to nothing
-else. The lights are a named list, like `pimonAgents`, because a rule reads a
+else. The lights are a named list, like `metricsTargets`, because a rule reads a
 role, not "every device on iot".
 
 `modules/net-assertions.nix` checks the new half the way it checks the rest:

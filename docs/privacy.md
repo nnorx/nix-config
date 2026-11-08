@@ -221,7 +221,7 @@ those queries was checked too:
   which on a host that rarely restarts could be months. It is now deleted as
   soon as it has been loaded.
 - gate's `dns-redirect` rule has a counter, which counts packets and records
-  no addresses. pimon reports host health only.
+  no addresses.
 - The metrics store on core5 keeps each resolver's DNS counts for 12 months
   ([observability.md](observability.md#dns-failure-ratios)). Unbound's are
   totals with neither names nor clients, work's queries among them and not to

@@ -289,21 +289,10 @@ let
     '';
   }) net.goveeLights;
 
-  # hosts/core5 dereferences `net.hosts.<agent>.ip` unguarded to build its
-  # firewall, so an agent without an address fails core5's evaluation with an
-  # "attribute 'ip' missing" trace that names neither this list nor the host.
-  agentChecks = map (name: {
-    assertion = hosts ? ${name} && hosts.${name} ? ip;
-    message = ''
-      net.pimonAgents lists "${name}", which is not a host with an address in
-      net.hosts. The collector opens a firewall port per agent and reads that
-      address to do it.
-    '';
-  }) net.pimonAgents;
-
   # core5 builds its scrape targets from these addresses, and each target opens
   # its exporter's port to the collector's address alone, so a name without one
-  # fails as a bare "attribute 'ip' missing", as pimonAgents would.
+  # fails as a bare "attribute 'ip' missing" trace that names neither this list
+  # nor the host.
   #
   # The same segment, because every scrape is meant to stay on it: core5 to a
   # host anywhere else would cross gate's forward chain, which has no rule for
@@ -582,7 +571,6 @@ in
     ++ grantChecks
     ++ deviceChecks
     ++ goveeChecks
-    ++ agentChecks
     ++ metricsChecks
     ++ rootZoneChecks
     ++ portChecks
