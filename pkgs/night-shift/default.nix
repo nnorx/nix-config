@@ -30,7 +30,7 @@ writeShellApplication {
     gawk
     gnugrep # -P, for the hidden-character check on drafts
     # flock. util-linux is built for Linux first, so the portable one on
-    # macOS, as preflight does for the tests (flake.nix).
+    # macOS, as preflight does for the tests (pkgs/preflight).
     (if stdenv.hostPlatform.isLinux then util-linux else flock)
   ]
   ++ extraRuntimeInputs;
