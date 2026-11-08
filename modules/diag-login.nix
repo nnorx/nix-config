@@ -8,7 +8,7 @@
 # separate from id_ed25519_pis, since sshd tells logins apart by key. Each is
 # `restrict`: no pty, no forwarding of any kind, no agent, no `~/.ssh/rc`. No
 # forced command, so it is a general shell for reading the host. The alert
-# agent's `triage` login (docs/fleet-agent.md) is the narrower one.
+# agent's planned `triage` login is the narrower one.
 #
 # No password: nothing declares one, so with `users.mutableUsers = false` the
 # account is locked, as deploy's is, and only a key opens it.

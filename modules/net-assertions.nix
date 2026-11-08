@@ -169,7 +169,7 @@ let
   );
 
   # What each tunnel peer may reach. gate renders its tunnel rules from it, and
-  # the proxies read it too (docs/services.md), so a wrong entry fails every
+  # the proxies will read it too, so a wrong entry fails every
   # host here rather than only the one that reads it. The check that every
   # peer with a key has an entry is gate's, in hosts/gate/wireguard.nix,
   # since the keys are.
@@ -413,7 +413,7 @@ let
     '';
   }) portNames;
 
-  # The web UIs (docs/services.md, "The registry"). The resolvers, each
+  # The web UIs, `services` in lib/net.nix. The resolvers, each
   # proxy, the firewall and core5's probes read it, each on its own host, so a
   # wrong entry fails every host here, with a message, rather than the one
   # that reads it with a trace.

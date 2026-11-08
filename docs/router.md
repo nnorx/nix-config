@@ -12,8 +12,7 @@ it stands, see [network.md](network.md).
 router. That was not the plan going in, where the Nest was to be kept unreset
 as a revert path, and it raises what a bad deploy costs: the recovery USB and
 `deploy-guard` are now the only ways back. See [recovery.md](recovery.md).
-gate deploys by hand; [deploys.md](deploys.md) designs how its deploys, and
-the Pis', come to run only revisions Nick has signed.
+gate deploys by hand.
 
 ## Still open
 
@@ -134,8 +133,7 @@ segmentation and gate-reboot items are still open.
       connection found 22 and 80 open, so the carrier was not masking ports.
       nmap also reports an IPv6 address for the DDNS name from a mobile
       network; that is the carrier's DNS64, not a record (the zone holds an A
-      record only). Rescan over IPv6 once Phase 8 brings it, as
-      [ipv6.md](ipv6.md#the-port-scan-over-ipv6) describes
+      record only). Rescan over IPv6 once Phase 8 brings it.
 - [x] `dnssec-failed.org` fails to resolve, proving DNSSEC validation is live.
       2026-09-12: SERVFAIL on both resolvers, against Unbound directly on 5335
       and through AdGuard on 53. A signed control zone returns NOERROR with the
@@ -302,11 +300,10 @@ One at a time, weeks apart, now that the house is boring.
       choice through the cutover, but it should be revisited rather than
       forgotten.
 
-      Planned 2026-10-11 in [ipv6.md](ipv6.md): a read-only check and then a
+      Planned in the IPv6 project in Linear: a read-only check and then a
       `nixos-rebuild test` probe for what the ISP delegates, and if it
       delegates anything, IPv6 for trusted, then guest, then work if wanted,
-      behind an explicit inbound deny, with DNS staying on IPv4. The PRs
-      are listed there in order.
+      behind an explicit inbound deny, with DNS staying on IPv4.
 - [ ] **Policy-based routing through a commercial VPN**, only if wanted.
       WireGuard on an N100 tops out well under line rate, so route one VLAN
       through it rather than everything, and add a kill switch so the tunnel

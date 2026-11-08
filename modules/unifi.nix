@@ -183,7 +183,7 @@ in
         # beacon goes through INPUT to docker-proxy's socket. Bound to this
         # address, that socket would never see one. 0.0.0.0 keeps discovery
         # and still drops the [::] listener, which matters once the house has
-        # IPv6 (docs/ipv6.md). The cost is that a unicast to 10001, on any IPv4
+        # IPv6. The cost is that a unicast to 10001, on any IPv4
         # address core5 holds, still reaches the controller.
         ports = [
           "${ip}:${toString net.ports.unifiUi}:8443"

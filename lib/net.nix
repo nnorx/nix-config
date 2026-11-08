@@ -155,7 +155,7 @@
 
       # What each peer may reach through the tunnel beyond DNS, and the one
       # place that is written: gate's forward rules read it, and so will each
-      # proxy (docs/services.md, "Tunnel grants move into lib/net.nix").
+      # proxy.
       #
       #   adguard   the AdGuard UI on the fleet resolvers
       #   ssh       SSH to every server, and to gate itself
@@ -525,7 +525,7 @@
   };
 
   # The house's web UIs, each at https://<name>.<domain> through the proxy on
-  # its host (docs/services.md). <domain> is `services-domain` in the sops file
+  # its host. <domain> is `services-domain` in the sops file
   # of each host that serves or answers these names, and never here. A service
   # joins this set in the pull request that puts it behind its proxy.
   #
