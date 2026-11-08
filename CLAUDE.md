@@ -20,6 +20,8 @@ before changing it.
   commit without checking it out, and `--json <file>` writes the brief for
   tools. It works in the sandbox. `scripts/preflight.sh` says what each step is
   for, and `scripts/preflight-brief.jq` holds the rules.
+- Preflight also runs the ratchets (`scripts/ratchets.sh`), which fail the run
+  past a cap in `scripts/ratchets.json`. See "Keeping it small" below.
 - To format alone, `nix fmt -- --no-cache` in the sandbox: treefmt's cache is
   outside what commands may write.
 - The x86 hosts, gate and forge, can be built locally with `nix build
@@ -188,4 +190,24 @@ does not carry. The servers keep their names either way.
   `docs/<file>`, or `flake.lock`.
 - The title says what changed. The body is wrapped prose saying why, and what
   was verified.
-- Comments explain why and earn their length. No em dashes in new prose.
+- No em dashes in new prose.
+
+## Keeping it small
+
+Prose is cheap to write and costly to read, and Nick reads it. Keep it short.
+
+- A comment says why, when the code cannot. It does not restate the code,
+  tell its history, or cite issues and PRs; git log has those. A comment
+  longer than the code it explains is too long.
+- `docs/` describes what runs, in the present tense: how it works and how to
+  operate it. A plan for something not yet built goes to Linear, drafted in
+  `.git/linear-handoff/`, not into `docs/`. Once it is built, it gets a
+  runbook section here.
+- Write a new doc only when the task asks for one. Prefer a section in an
+  existing doc, and a table to paragraphs.
+- A shell script stays under 300 lines. One that outgrows that, or keeps its
+  state in `jq`, moves to TypeScript on Node. Shell inline in a Nix string
+  counts.
+- The ratchets cap prose words, comment density and shell length. A change
+  that brings one down runs `scripts/ratchets.sh --tighten` and commits the
+  lower cap. Raising a cap is Nick's call: say so in the PR body.
