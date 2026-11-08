@@ -1,6 +1,6 @@
 # The domains the house's devices look up most, per segment, from the query
 # log on each fleet resolver: the device side of docs/privacy.md, which the
-# repo cannot show. Built by flake.nix as `apps.<system>.dns-top-domains` with
+# repo cannot show. Built by pkgs/dns-top-domains as `apps.<system>.dns-top-domains` with
 # writeShellApplication, which adds the shebang, errexit, nounset and
 # pipefail. DNS_TOP_NET is lib/net.nix as JSON and DNS_TOP_ROWS is
 # dns-top-domains.jq, both in the store.

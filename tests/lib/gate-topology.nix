@@ -1,5 +1,5 @@
 # The topology the gate VM tests share, so a fix to it lands in every one of
-# them. Not a test itself, so not in flake.nix's checks.
+# them. Not a test itself, so not in tests/default.nix.
 #
 # gate is hosts/gate/routing.nix itself, on VM NICs given gate's interface
 # names, so the ruleset under test is the one gate renders. What it leaves out

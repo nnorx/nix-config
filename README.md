@@ -43,7 +43,9 @@ fails the build if that file stops agreeing with itself.
 ## Layout
 
 ```
-flake.nix              Inputs, hosts, installer images
+flake.nix              Inputs and the host table
+lib/mk.nix             Host and home builders
+lib/images.nix         Boot images
 lib/net.nix            Network topology: segments, addresses, NICs, ports
 lib/ssh-keys.nix       Admin machines' SSH public keys, one per machine
 lib/deploy-keys.nix    Their keys for the Pis' deploy login, one per machine
@@ -91,9 +93,10 @@ modules/
 
 home/                  Home Manager. common.nix everywhere, default.nix on dev
                        hosts (adds dev-tools, ssh agent, Claude Code)
-pkgs/night-shift/      The night shift's dispatcher, for forge and the Mac
+pkgs/                  night-shift, preflight, cve-scan, dns-top-domains
+tests/                 VM tests (tests/default.nix) and fixtures
 docs/                  Runbooks, see below
-scripts/               preflight, the check every change gets; dns-top-domains
+scripts/               What the apps run
 .github/workflows/     Evaluation gate, binary cache builds, weekly lock bumps
 ```
 

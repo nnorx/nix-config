@@ -24,11 +24,9 @@ before changing it.
   outside what commands may write.
 - The x86 hosts, gate and forge, can be built locally with `nix build
   --no-link`; most of the closure comes from caches.
-- The NixOS VM tests are `checks.x86_64-linux` in `flake.nix`. Preflight only
-  evaluates them, and check.yml's `vm-tests` job runs them on pull requests.
-  `cache-vm-tests.yml` builds them on main and pushes them to Cachix, so a pull
-  request runs only the tests whose inputs it changes and copies the rest. A
-  test pushed from main is public, so it uses stand-ins for secrets. A change
+- The NixOS VM tests are `checks.x86_64-linux`, listed in `tests/default.nix`,
+  whose header says how CI runs and caches them. A test cached from main is
+  public, so it uses stand-ins for secrets. A change
   to gate's firewall or DNS, to the resolvers' AdGuard Home or Unbound, or to
   forge's DNS, should run the matching test locally first, with
   `nix build --no-link .#checks.x86_64-linux.<name>`. On forge the nix daemon

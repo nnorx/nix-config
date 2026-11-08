@@ -1,5 +1,5 @@
 # Every check a change needs, in one command, and the one CI runs. Built by
-# flake.nix as `apps.<system>.preflight` with writeShellApplication, which adds
+# pkgs/preflight as `apps.<system>.preflight` with writeShellApplication, which adds
 # the shebang, errexit, nounset and pipefail. PREFLIGHT_EVAL and
 # PREFLIGHT_BRIEF name preflight-eval.nix and preflight-brief.jq in the store.
 #

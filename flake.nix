@@ -1,5 +1,5 @@
 {
-  description = "Nick's reproducible development environment";
+  description = "A homelab fleet (a router and three Pis) and the dev machines that run it";
 
   inputs = {
     # Use stable nixpkgs
@@ -106,16 +106,13 @@
       ...
     }:
     let
-      # SSH public keys for fleet access, one per admin machine (lib/ssh-keys.nix)
+      # Public keys, one per admin machine: fleet SSH, the Pis' deploy login,
+      # and the diag login.
       sshPubKeys = builtins.attrValues (import ./lib/ssh-keys.nix);
-
-      # The Pis' deploy login's keys, one per admin machine (lib/deploy-keys.nix)
       deployPubKeys = builtins.attrValues (import ./lib/deploy-keys.nix);
-
-      # The diag login's keys, one per admin machine (lib/diag-keys.nix)
       diagPubKeys = builtins.attrValues (import ./lib/diag-keys.nix);
 
-      # LAN topology — single source of truth for addressing (see lib/net.nix)
+      # Addresses, VLANs and ports: the one place they are written.
       net = import ./lib/net.nix;
 
       systems = [
@@ -124,7 +121,6 @@
         "aarch64-darwin"
       ];
 
-      # Import nixpkgs once per system and reuse everywhere
       pkgsFor = nixpkgs.lib.genAttrs systems (
         system:
         import nixpkgs {
@@ -148,400 +144,70 @@
         }
       );
 
-      forAllSystems =
-        f:
-        nixpkgs.lib.genAttrs systems (
-          system:
-          f {
-            pkgs = pkgsFor.${system};
-            unstable = unstableFor.${system};
-          }
-        );
+      forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f pkgsFor.${system});
 
-      # The specialArgs and modules every host gets, whichever nixosSystem
-      # builds it.
-      #
-      # Shared as pieces rather than behind one helper because core5 cannot go
-      # through mkHost: it is built by `nixos-raspberrypi.lib.nixosSystem`,
-      # which adds that flake's overlays to the package set and sets
-      # `nixpkgs.hostPlatform` itself, so it must not be handed the `system`
-      # argument mkHost passes.
-      #
-      # What sharing buys: a module added here reaches every host. It used to
-      # reach three, and nothing failed. core5 simply did not have it.
-      fleetSpecialArgs =
-        { hostname, system }:
-        {
-          inherit
-            hostname
-            sshPubKeys
-            deployPubKeys
-            diagPubKeys
-            net
-            ;
-          unstable = unstableFor.${system};
-        };
-
-      fleetModules =
-        { hostname, system }:
-        [
-          ./hosts/common
-          ./hosts/${hostname}
-        ]
-        ++ systemModules {
-          inherit system;
-          username = hostname;
-          homeModule = import ./home/common.nix;
-        };
-
-      # What every NixOS host here gets, the fleet through fleetModules and
-      # forge directly: secrets, the revision it was built from, and Home
-      # Manager embedded for its one user. forge stays out of fleetModules
-      # because hosts/common is the servers' contract, not because any of this
-      # differs for it.
-      systemModules =
-        {
-          system,
-          username,
-          homeModule,
-          extraSpecialArgs ? { },
-        }:
-        [
-          sops-nix.nixosModules.sops
-          { system.configurationRevision = self.rev or self.dirtyRev or "unknown"; }
-          home-manager.nixosModules.home-manager
-          {
-            home-manager.useGlobalPkgs = true;
-            home-manager.useUserPackages = true;
-            home-manager.users.${username} = homeModule;
-            home-manager.extraSpecialArgs = {
-              inherit username;
-              homeDirectory = "/home/${username}";
-              unstable = unstableFor.${system};
-            }
-            // extraSpecialArgs;
-          }
-        ];
-
-      # Helper function to create a NixOS configuration for any host
-      mkHost =
-        {
-          hostname,
-          system ? "aarch64-linux",
-          extraModules ? [ ],
-        }:
-        nixpkgs.lib.nixosSystem {
-          inherit system;
-          specialArgs = fleetSpecialArgs { inherit hostname system; };
-          modules = fleetModules { inherit hostname system; } ++ extraModules;
-        };
-
-      # Raspberry Pi hosts — mkHost plus the SD-card boot and filesystem layout
-      mkPi =
-        {
-          hostname,
-          hardwareModules ? [ ],
-          extraModules ? [ ],
-        }:
-        mkHost {
-          inherit hostname;
-          extraModules = [ ./hosts/common/pi.nix ] ++ hardwareModules ++ extraModules;
-        };
-
-      # The Raspberry Pi bcm2711 kernel that nixos-raspberrypi builds, for a
-      # Pi 4 otherwise set up by nixos-hardware. That module's own kernel is
-      # built from our nixpkgs and is in no public cache, so every nixpkgs
-      # bump costs cache.yml hours compiling it. This one is built from
-      # nixos-raspberrypi's own nixpkgs pin and cached upstream, the same way
-      # core5's is; a nixpkgs.follows on that input (see its comment) would
-      # make it ours to compile again.
-      #
-      # Only the kernel moves. U-Boot, extlinux and the device-tree filter
-      # stay nixos-hardware's, and the dtbs come from this kernel. Its
-      # kernelPackages default is mkDefault, so a plain value wins.
-      pi4CachedKernel = {
-        boot.kernelPackages = nixos-raspberrypi.packages.aarch64-linux.linuxPackages_rpi4;
+      mk = import ./lib/mk.nix {
+        inherit
+          self
+          nixpkgs
+          home-manager
+          nixos-raspberrypi
+          sops-nix
+          claude-plugins
+          improve
+          pkgsFor
+          unstableFor
+          net
+          sshPubKeys
+          deployPubKeys
+          diagPubKeys
+          ;
       };
-
-      # Helper function to create an SD card installer image for Pi 3/4
-      mkPiInstaller =
-        hostname:
-        (nixpkgs.lib.nixosSystem {
-          system = "aarch64-linux";
-          modules = [
-            "${nixpkgs}/nixos/modules/installer/sd-card/sd-image-aarch64.nix"
-            (
-              { lib, ... }:
-              {
-                services.openssh.enable = true;
-                security.sudo.wheelNeedsPassword = false;
-                users.users.nixos = {
-                  isNormalUser = true;
-                  extraGroups = [ "wheel" ];
-                  openssh.authorizedKeys.keys = sshPubKeys;
-                };
-                # Disable ZFS — not used on Pis, and its services hang during nixos-rebuild switch
-                boot.supportedFilesystems.zfs = lib.mkForce false;
-              }
-            )
-          ];
-        }).config.system.build.sdImage;
-
-      # Claude Code plugin marketplaces, keyed by the `name` field in each
-      # marketplace's .claude-plugin/marketplace.json. Shared by the standalone
-      # Home Manager configs and forge's embedded one.
-      claudeMarketplaces = {
-        nnorx = claude-plugins;
-        improve = improve;
-      };
-
-      # A standalone Home Manager configuration with the dev profile, for the
-      # machines that do not run NixOS. The NixOS hosts embed theirs through
-      # systemModules.
-      mkHome =
-        {
-          system,
-          username,
-          homeDirectory,
-          extraModules ? [ ],
-        }:
-        home-manager.lib.homeManagerConfiguration {
-          pkgs = pkgsFor.${system};
-
-          modules = [ ./home ] ++ extraModules;
-
-          extraSpecialArgs = {
-            inherit username homeDirectory;
-            unstable = unstableFor.${system};
-            inherit claudeMarketplaces net;
-          };
-        };
+      inherit (mk)
+        fleetSpecialArgs
+        fleetModules
+        systemModules
+        mkHost
+        mkPi
+        mkHome
+        pi4CachedKernel
+        claudeMarketplaces
+        ;
     in
     {
-      # NixOS VM tests. `nix flake check --no-build`, in preflight, only
-      # evaluates these. check.yml's `vm-tests` job builds, and so runs, every
-      # attribute here on pull requests, so a new test needs no workflow edit.
-      # cache-vm-tests.yml builds them on main and pushes them to Cachix, so a
-      # pull request copies each test whose inputs it leaves alone instead of
-      # running it. To run one locally, on a machine with KVM:
-      # `nix build --no-link .#checks.x86_64-linux.<name>`.
-      checks.x86_64-linux =
-        nixpkgs.lib.genAttrs
-          [
-            "gate-dns"
-            "gate-metrics"
-            "gate-iot-egress"
-            "gate-servers-egress"
-            "deploy-agent"
-            "diag-login"
-            "dns-metrics"
-            "forge-dns"
-            "unbound-root-zone"
-            "alerting"
-            "grafana"
-          ]
-          (
-            name:
-            let
-              test = import ./tests/${name}.nix;
-            in
-            # Each test gets the arguments it names: most take `net`, grafana
-            # takes `unstable` too, and deploy-agent takes none.
-            pkgsFor.x86_64-linux.testers.runNixOSTest (
-              test (
-                builtins.intersectAttrs (builtins.functionArgs test) {
-                  inherit net;
-                  unstable = unstableFor.x86_64-linux;
-                }
-              )
-            )
-          )
-        // {
-          # Not a VM: vmalert-tool, in the build.
-          alert-rules = import ./tests/alert-rules.nix {
-            pkgs = pkgsFor.x86_64-linux;
-            inherit net;
-          };
-        };
+      checks.x86_64-linux = import ./tests {
+        pkgs = pkgsFor.x86_64-linux;
+        unstable = unstableFor.x86_64-linux;
+        inherit net;
+      };
 
-      # Formatter for `nix fmt`
-      formatter = forAllSystems ({ pkgs, ... }: pkgs.nixfmt-tree);
+      formatter = forAllSystems (pkgs: pkgs.nixfmt-tree);
 
-      # `nix run .#preflight`: every check a change needs, and what CI runs.
-      # See scripts/preflight.sh.
       apps = forAllSystems (
-        { pkgs, ... }:
-        {
-          preflight = {
+        pkgs:
+        builtins.mapAttrs
+          (_: drv: {
             type = "app";
-            meta.description = "Format, flake check, evaluate every config, and report what a change touches";
-            program = pkgs.lib.getExe (
-              pkgs.writeShellApplication {
-                name = "preflight";
-                runtimeInputs = with pkgs; [
-                  git
-                  jq
-                  coreutils
-                  gnused
-                  # GNU time, for each evaluation's peak memory.
-                  time
-                  # The rest for the night-shift dispatcher's tests
-                  # (tests/night-shift/run.sh), which run it as forge does,
-                  # and fleet-deploy's (tests/fleet-deploy/run.sh).
-                  gawk
-                  gnugrep
-                  # flock, and script for the case that needs a terminal. On
-                  # macOS, the portable flock instead, since util-linux is
-                  # built for Linux first; the terminal case skips there.
-                  (if stdenv.hostPlatform.isLinux then util-linux else flock)
-                ];
-                runtimeEnv = {
-                  PREFLIGHT_EVAL = "${./scripts/preflight-eval.nix}";
-                  PREFLIGHT_BRIEF = "${./scripts/preflight-brief.jq}";
-                };
-                text = builtins.readFile ./scripts/preflight.sh;
-              }
-            );
-          };
-
-          # `nix run .#dns-top-domains`: the domains each segment looks up
-          # most, from the resolvers' query logs, for docs/privacy.md. See
-          # scripts/dns-top-domains.sh.
-          dns-top-domains = {
-            type = "app";
-            meta.description = "Summarise the resolvers' query logs as top domains per segment, without client addresses";
-            program = pkgs.lib.getExe (
-              pkgs.writeShellApplication {
-                name = "dns-top-domains";
-                runtimeInputs = with pkgs; [
-                  curl
-                  jq
-                  coreutils
-                  gawk
-                ];
-                runtimeEnv = {
-                  DNS_TOP_NET = pkgs.writeText "net.json" (builtins.toJSON net);
-                  DNS_TOP_ROWS = "${./scripts/dns-top-domains.jq}";
-                };
-                text = builtins.readFile ./scripts/dns-top-domains.sh;
-              }
-            );
-          };
-
-          # `nix run .#cve-scan`: vulnix on every host and home config, from
-          # their .drv files, with the whitelist's dead rules. See
-          # scripts/cve-scan.sh.
-          cve-scan = {
-            type = "app";
-            meta.description = "Scan every host and home config for CVEs with vulnix, and list dead whitelist rules";
-            program = pkgs.lib.getExe (
-              pkgs.writeShellApplication {
-                name = "cve-scan";
-                runtimeInputs = with pkgs; [
-                  vulnix
-                  curl
-                  jq
-                  gzip
-                  coreutils
-                  gnused
-                  diffutils
-                  git
-                  nix
-                  # For http.server, which serves the feeds to vulnix.
-                  python3
-                ];
-                runtimeEnv = {
-                  CVE_SCAN_REPORT = "${./scripts/cve-scan-report.jq}";
-                };
-                text = builtins.readFile ./scripts/cve-scan.sh;
-              }
-            );
-          };
-        }
+            program = pkgs.lib.getExe drv;
+            meta.description = drv.meta.description;
+          })
+          {
+            preflight = pkgs.callPackage ./pkgs/preflight { };
+            dns-top-domains = pkgs.callPackage ./pkgs/dns-top-domains { inherit net; };
+            cve-scan = pkgs.callPackage ./pkgs/cve-scan { };
+          }
       );
 
-      # Installer image for Pi 5 — includes SSH key for headless access
-      # Build with: nix build .#packages.aarch64-linux.core5-installer --accept-flake-config
-      packages.aarch64-linux.core5-installer =
-        (nixos-raspberrypi.lib.nixosInstaller {
-          specialArgs = {
-            inherit nixos-raspberrypi;
-          };
-          modules = [
-            (
-              { nixos-raspberrypi, ... }:
-              {
-                imports = with nixos-raspberrypi.nixosModules; [
-                  raspberry-pi-5.base
-                  raspberry-pi-5.page-size-16k
-                ];
-              }
-            )
-            {
-              users.users.nixos.openssh.authorizedKeys.keys = sshPubKeys;
-            }
-          ];
-        }).config.system.build.sdImage;
+      packages = import ./lib/images.nix { inherit nixpkgs nixos-raspberrypi sshPubKeys; };
 
-      # Headless x86 recovery ISO. The stock NixOS minimal image assumes a
-      # monitor and keyboard; this one boots on DHCP with sshd and the fleet
-      # key, so a box that will not boot its own generations is still reachable
-      # over the network. Recovery is then `nixos-enter` against the mounted
-      # root, or picking an older generation with `bootctl`.
-      #
-      # Build with: nix build .#packages.x86_64-linux.recovery-iso --accept-flake-config
-      packages.x86_64-linux.recovery-iso =
-        (nixpkgs.lib.nixosSystem {
-          system = "x86_64-linux";
-          modules = [
-            "${nixpkgs}/nixos/modules/installer/cd-dvd/installation-cd-minimal.nix"
-            (
-              { lib, ... }:
-              {
-                # No host in this fleet uses ZFS, and on a rescue image the
-                # default is actively wrong: boot.zfs.forceImportRoot defaults
-                # to true, which imports a pool even when another system has it
-                # marked in use. Booting rescue against a live pool is how one
-                # gets corrupted. Dropping ZFS removes the hazard rather than
-                # muting the warning, and matches mkPiInstaller above.
-                boot.supportedFilesystems.zfs = lib.mkForce false;
-              }
-            )
-            {
-              # The live environment's only account is root and it has no
-              # password, so the key is the sole way in. The installer profile
-              # already enables sshd with PermitRootLogin, but leaves
-              # PasswordAuthentication on, which only fails closed because
-              # sshd's own PermitEmptyPasswords default is "no". Say it
-              # explicitly rather than resting on that.
-              services.openssh.settings.PasswordAuthentication = false;
-              users.users.root.openssh.authorizedKeys.keys = sshPubKeys;
-            }
-          ];
-        }).config.system.build.isoImage;
-
-      # Installer images for Pi 3/4 — includes SSH key for headless access.
-      # The image is host-agnostic: both outputs are the same derivation, and
-      # the host config is applied by nixos-rebuild after first boot. It said
-      # three until core3 was retired.
-      #
-      # core5 is not among them. The Pi 5 needs nixos-raspberrypi's own
-      # installer, which is a separate derivation built above.
-      # Build with: nix build .#packages.aarch64-linux.{core4,lifeline}-installer --accept-flake-config
-      packages.aarch64-linux.core4-installer = mkPiInstaller "core4";
-      packages.aarch64-linux.lifeline-installer = mkPiInstaller "lifeline";
-
-      # NixOS configurations: the Pis, the router, and the laptop
       nixosConfigurations = {
-        # Pi 5 uses nixos-raspberrypi for boot firmware + kernel support
-        # Not mkPi. core5's nixosSystem comes from nixos-raspberrypi; see
-        # fleetModules above. It shares the fleet's specialArgs and modules,
-        # but not the call.
+        # Not mkPi: core5's nixosSystem comes from nixos-raspberrypi (see
+        # fleetSpecialArgs in lib/mk.nix). It shares the fleet's specialArgs
+        # and modules, but not the call.
         #
         # `inherit nixpkgs` puts core5 on the fleet's nixpkgs. The wrapper
-        # defaults to its own pin, which only moves when upstream bumps it; by
-        # 2026-10 that had left core5 two months behind the other hosts. The
-        # kernel and firmware still come from `nixos-raspberrypi.packages`,
+        # defaults to its own pin, which moves only when upstream bumps it.
+        # The kernel and firmware still come from `nixos-raspberrypi.packages`,
         # built from that pin and cached upstream.
         #
         # The kernel runs 16K pages (base's bcm2712 kernel), but core5 leaves
@@ -549,14 +215,10 @@
         # overlay building jemalloc for 16K pages, and rustc links jemalloc,
         # so it moved the Rust toolchain and everything built with it off
         # cache.nixos.org. nixpkgs builds jemalloc for 64K pages on aarch64,
-        # which works on a 16K kernel at some cost in memory, so nothing is
-        # rebuilt for core5's page size.
+        # which works on a 16K kernel at some cost in memory.
         #
         # `nixos-raspberrypi` is deliberately absent from specialArgs: the
         # wrapper injects it and its own value wins the merge.
-        #
-        # pi.nix sits last, matching core4 and lifeline through mkPi. Every
-        # option it sets is mkDefault, so the position is not load-bearing.
         core5 =
           let
             hostname = "core5";
@@ -579,7 +241,7 @@
             ++ [ ./hosts/common/pi.nix ];
           };
 
-        # Pi 3/4 use U-Boot via nixos-hardware
+        # Pi 4s boot U-Boot through nixos-hardware.
         core4 = mkPi {
           hostname = "core4";
           hardwareModules = [
@@ -592,8 +254,7 @@
           hardwareModules = [ nixos-hardware.nixosModules.raspberry-pi-4 ];
         };
 
-        # The router. x86_64 and UEFI, so it takes mkHost directly rather than
-        # mkPi, and brings its own hardware-configuration.nix.
+        # The router: x86_64 and UEFI, with its own hardware-configuration.nix.
         gate = mkHost {
           hostname = "gate";
           system = "x86_64-linux";
@@ -630,18 +291,15 @@
           };
       };
 
-      # Standalone Home Manager, for the dev machines without NixOS. The NixOS
-      # hosts, the fleet and forge, embed it and have no entry here.
+      # Standalone Home Manager, for the dev machines without NixOS: WSL and
+      # macOS. The NixOS hosts embed it and have no entry here.
       homeConfigurations = {
-        # WSL configuration
         "nick" = mkHome {
           system = "x86_64-linux";
           username = "nick";
           homeDirectory = "/home/nick";
           extraModules = [ ./home/wsl.nix ];
         };
-
-        # macOS configuration
         "nicknorcross" = mkHome {
           system = "aarch64-darwin";
           username = "nicknorcross";
