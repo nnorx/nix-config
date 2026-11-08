@@ -5,7 +5,7 @@ import { writeBacklog, writeProjectDocs } from "./backlog.ts";
 import { check, workCheck } from "./check.ts";
 import { fileDrafts } from "./drafts.ts";
 import { type Env, loadEnv } from "./env.ts";
-import { EXIT, Linear, LinearError, loadKey } from "./linear.ts";
+import { type Doc, EXIT, Linear, LinearError, loadKey } from "./linear.ts";
 import { status } from "./status.ts";
 import { die, Fatal, warn } from "./util.ts";
 
@@ -15,10 +15,10 @@ const linear = (env: Env) => new Linear(loadKey(env), env.linearUrl);
  * backlog.md, then the project docs. Snapshots never fail the work before
  * them, so any error is reported, not thrown, and one does not stop the other.
  */
-async function snapshots(env: Env, l: Linear, then: string): Promise<boolean> {
+async function snapshots(env: Env, l: Linear, then: string, fresh: Doc[] = []): Promise<boolean> {
   const steps: [string, () => Promise<void>][] = [
     ["backlog.md not written", () => writeBacklog(env, l)],
-    ["project docs not exported", () => writeProjectDocs(env, l)],
+    ["project docs not exported", () => writeProjectDocs(env, l, fresh)],
   ];
   let ok = true;
   for (const [failed, step] of steps) {
@@ -45,9 +45,9 @@ async function main(argv: string[]): Promise<number> {
     case "file": {
       if (env.mode !== "forge") die("file is forge's: in work mode, issues are filed in Linear by hand");
       const l = linear(env);
-      await fileDrafts(env, l);
+      const fresh = await fileDrafts(env, l);
       // So what was just filed is there without waiting for a run.
-      await snapshots(env, l, "the next run will");
+      await snapshots(env, l, "the next run will", fresh);
       return 0;
     }
     case "_backlog":

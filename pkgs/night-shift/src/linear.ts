@@ -102,10 +102,13 @@ export interface Doc {
 
 // Paged at the top level: documents nested in projects multiply past
 // Linear's query complexity cap.
+/** What the export needs of a doc, from a list or from a create or update. */
+export const DOC_FIELDS = "id title content updatedAt project { id name status { type } }";
+
 export const DOCS = `query($after: String) {
   documents(first: 50, after: $after) {
     pageInfo { hasNextPage endCursor }
-    nodes { id title content updatedAt project { id name status { type } } } } }`;
+    nodes { ${DOC_FIELDS} } } }`;
 
 export const PROJECTS = `query($after: String) {
   projects(first: 100, after: $after) {

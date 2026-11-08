@@ -2,7 +2,7 @@ import { lstatSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, 
 import { tmpdir } from "node:os";
 import { basename, dirname } from "node:path";
 import { QUEUED, type Env } from "./env.ts";
-import { all, DOCS, type Doc, type Linear, LinearError, PROJECTS } from "./linear.ts";
+import { all, DOC_FIELDS, DOCS, type Doc, type Linear, LinearError, PROJECTS } from "./linear.ts";
 import { askTty, commonDir, die, git, run, say, warn } from "./util.ts";
 
 // Drafts for `night-shift file`: <repo>/.git/linear-handoff/<any>.md, written
@@ -105,6 +105,8 @@ interface Filing {
   mutation: string;
   variables: Record<string, unknown>;
   filed: (data: any) => string;
+  /** The doc as Linear now has it, for the export, whose list can lag a write. */
+  doc?: (data: any) => Doc;
 }
 
 function issueFiling(d: Draft, repoDir: string, ws: Workspace): Filing | string {
@@ -191,10 +193,10 @@ function docFiling(d: Draft, projects: { id: string; name: string }[], allDocs: 
       shown: `doc · ${projectName} · new`,
       title,
       preview: d.body,
-      mutation:
-        "mutation($i: DocumentCreateInput!) { documentCreate(input: $i) { success document { url } } }",
+      mutation: `mutation($i: DocumentCreateInput!) { documentCreate(input: $i) { success document { url ${DOC_FIELDS} } } }`,
       variables: { i: { projectId: project.id, title, content: d.body } },
       filed: (data) => `filed doc '${title}'  ${data.documentCreate.document.url}`,
+      doc: (data) => data.documentCreate.document,
     };
   }
   if (!updated) return `${projectName} has a doc '${title}' already; start from its export, with updated:`;
@@ -207,10 +209,10 @@ function docFiling(d: Draft, projects: { id: string; name: string }[], allDocs: 
     shown: `doc · ${projectName} · update`,
     title,
     preview: diff(content, d.body),
-    mutation:
-      "mutation($id: String!, $i: DocumentUpdateInput!) { documentUpdate(id: $id, input: $i) { success document { url } } }",
+    mutation: `mutation($id: String!, $i: DocumentUpdateInput!) { documentUpdate(id: $id, input: $i) { success document { url ${DOC_FIELDS} } } }`,
     variables: { id: existing.id, i: { content: d.body } },
     filed: (data) => `filed doc '${title}'  ${data.documentUpdate.document.url}`,
+    doc: (data) => data.documentUpdate.document,
   };
 }
 
@@ -258,11 +260,12 @@ function written(path: string): string {
   return `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())} ${p(t.getHours())}:${p(t.getMinutes())}`;
 }
 
-export async function fileDrafts(env: Env, linear: Linear): Promise<void> {
+/** Files each draft Nick confirms; returns the docs filed, as Linear answered. */
+export async function fileDrafts(env: Env, linear: Linear): Promise<Doc[]> {
   const found = findDrafts(env);
   if (found.length === 0) {
     say(`no drafts in ${env.projects}/*/.git/linear-handoff/`);
-    return;
+    return [];
   }
   const drafts = found.map((f) => {
     const st = lstatSync(f.path);
@@ -288,6 +291,7 @@ export async function fileDrafts(env: Env, linear: Linear): Promise<void> {
 
   say(`Filing as ${ws.viewer.displayName}, one draft at a time.`);
   let filed = 0;
+  const fresh: Doc[] = [];
   for (const [n, f] of (filings as Filing[]).entries()) {
     const path = found[n]!.path;
     say();
@@ -307,7 +311,9 @@ export async function fileDrafts(env: Env, linear: Linear): Promise<void> {
     const filing = path.replace(/\.md$/, ".filing");
     renameSync(path, filing);
     try {
-      say(f.filed(await linear.gql(f.mutation, f.variables)));
+      const data = await linear.gql(f.mutation, f.variables);
+      say(f.filed(data));
+      if (f.doc) fresh.push(f.doc(data));
       rmSync(filing);
       filed++;
     } catch (e) {
@@ -322,4 +328,5 @@ export async function fileDrafts(env: Env, linear: Linear): Promise<void> {
     }
   }
   say(`filed ${filed} of ${found.length}`);
+  return fresh;
 }
