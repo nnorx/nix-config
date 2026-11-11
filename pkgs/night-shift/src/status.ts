@@ -31,7 +31,7 @@ export function status(env: Env): void {
       for (const line of lines) say(`    ${line}`);
     }
   }
-  // Work mode's settings for a session land_one kept after forgetting the
+  // Work mode's settings for a session land kept after forgetting the
   // issue: delete one with `claude rm` of its session.
   for (const f of files.filter((f) => f.endsWith(".settings"))) {
     const ident = f.slice(0, -".settings".length);

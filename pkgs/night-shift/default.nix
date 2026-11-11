@@ -3,9 +3,9 @@
 # (home/night-shift.nix). Each passes its own environment, which picks the
 # mode and the platform, and forge adds the tools only it calls.
 #
-# night-shift.sh is the entry point; forge's runs and the other commands are
-# TypeScript (src/), run on Node, which strips the types. preflight
-# type-checks them.
+# night-shift.sh is the entry point, which holds a run's lock; the dispatcher
+# is TypeScript (src/), run on Node, which strips the types. preflight
+# type-checks it.
 {
   lib,
   stdenv,

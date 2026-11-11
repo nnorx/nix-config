@@ -1,16 +1,15 @@
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { closeSync, mkdtempSync, openSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import type { Platform } from "./env.ts";
 
-// claude in a scope of its own, outside forge's unit (work mode's, on a Mac,
-// is night-shift.sh's). Any claude command can start the background daemon,
-// which hosts every agent: in the unit's cgroup, stopping or finishing a run
-// would kill them.
-//
-// --expand-environment=no, because systemd-run otherwise expands "${...}" in
-// its arguments the way ExecStart= does, and the prompt is one of them. An
-// issue quoting a workflow's ${{ github.ref }} reached the agent with it
-// emptied. The prompt has to arrive as Nick wrote it.
+// claude outside the run, so the background daemon it may start, which hosts
+// every agent, outlives it. On forge, in a scope of its own outside the unit,
+// whose cgroup a stop or a finished run would kill. --expand-environment=no,
+// because systemd-run otherwise expands "${...}" in its arguments the way
+// ExecStart= does, and the prompt is one of them: it has to arrive as Nick
+// wrote it. On a Mac, in a process group of its own, so the run's deadline,
+// which ends the run's group, leaves the daemon be.
 //
 // Output goes through files, never pipes: a daemon that claude leaves running
 // could inherit a pipe and hold this process's read open for as long as it
@@ -23,15 +22,21 @@ export interface Said {
 }
 
 /** stdout is kept only when asked for, and otherwise goes nowhere, as stderr never does. */
-export function cl(args: string[], cwd?: string, keepOut = false): Said {
-  const argv = ["--user", "--scope", "--collect", "--quiet", "--expand-environment=no", "--", "claude", ...args];
+export async function cl(platform: Platform, args: string[], cwd?: string, keepOut = false): Promise<Said> {
+  const [cmd, argv] = platform === "darwin"
+    ? ["claude", args]
+    : ["systemd-run", ["--user", "--scope", "--collect", "--quiet", "--expand-environment=no", "--", "claude", ...args]];
   const dir = mkdtempSync(`${tmpdir()}/night-shift-claude.`);
   const out = keepOut ? openSync(`${dir}/out`, "w") : "ignore";
   const err = openSync(`${dir}/err`, "w");
   try {
-    const r = spawnSync("systemd-run", argv, { cwd, stdio: ["ignore", out, err] });
+    const child = spawn(cmd, argv, { cwd, stdio: ["ignore", out, err], detached: platform === "darwin" });
+    const status = await new Promise<number>((done) => {
+      child.on("error", () => done(127));
+      child.on("exit", (code) => done(code ?? 1));
+    });
     return {
-      status: r.status ?? 1,
+      status,
       stdout: keepOut ? readFileSync(`${dir}/out`, "utf8") : "",
       stderr: readFileSync(`${dir}/err`, "utf8"),
     };
@@ -55,8 +60,8 @@ export interface Session {
 }
 
 /** Every session in the roster, or undefined when it could not be read. */
-export function roster(): Session[] | undefined {
-  const r = cl(["agents", "--json", "--all"], undefined, true);
+export async function roster(platform: Platform): Promise<Session[] | undefined> {
+  const r = await cl(platform, ["agents", "--json", "--all"], undefined, true);
   if (r.status !== 0) return undefined;
   try {
     const sessions = JSON.parse(r.stdout);
@@ -70,6 +75,6 @@ export function roster(): Session[] | undefined {
  * The background agent with that name in that worktree. `claude --bg` picks
  * its ids itself and ignores --session-id, so this asks its roster.
  */
-export function agent(name: string, worktree: string): Session | undefined {
-  return roster()?.filter((s) => s.name === name && s.cwd === worktree).at(-1);
+export async function agent(platform: Platform, name: string, worktree: string): Promise<Session | undefined> {
+  return (await roster(platform))?.filter((s) => s.name === name && s.cwd === worktree).at(-1);
 }

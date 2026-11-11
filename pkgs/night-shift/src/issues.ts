@@ -1,5 +1,6 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import type { Mode } from "./env.ts";
 import type { Linear } from "./linear.ts";
 import { cmp, die, now } from "./util.ts";
 
@@ -14,27 +15,43 @@ export interface Issue {
   url: string;
   state: { name: string; type: string };
   creator: { id: string } | null;
-  team: { states: { nodes: { id: string; name: string; type: string; position: number }[] } };
-  labels: { nodes: { name: string; parent: { name: string } | null }[] };
+  team: { key?: string; states: { nodes: { id: string; name: string; type: string; position: number }[] } };
+  labels: { nodes: { id?: string; name: string; parent?: { name: string } | null }[] };
   comments: { nodes: { body: string; createdAt: string; user: { id: string } | null }[] };
-  history: {
-    pageInfo: { hasNextPage: boolean };
-    nodes: { createdAt: string; actorId: string | null; toState: { name: string } | null }[];
-  };
+  history: { pageInfo: { hasNextPage: boolean }; nodes: Change[] };
+  // Work mode's alone (work-fields.graphql).
+  createdAt?: string;
+  updatedAt?: string;
+  botActor?: { id: string } | null;
+  assignee?: { id: string } | null;
+}
+
+export interface Change {
+  createdAt: string;
+  actorId: string | null;
+  toState?: { name: string } | null;
+  botActor?: { id: string } | null;
+  addedLabelIds?: string[] | null;
+  updatedDescription?: boolean | null;
+  fromTitle?: string | null;
 }
 
 // The whole history, in whatever order Linear returns it, so the check on
-// who queued it does not depend on the order.
-const ISSUE = `query($id: String!) { issue(id: $id) { id identifier title description url
+// who queued it does not depend on the order. Work mode asks for fields of
+// its own, so a field Linear renames breaks only the mode that asks for it;
+// `night-shift check` asks Linear about the same file.
+const FORGE_FIELDS = `id identifier title description url
   state { name type }
   creator { id }
   team { states { nodes { id name type position } } }
   labels { nodes { name parent { name } } }
   comments(first: 100) { nodes { body createdAt user { id } } }
-  history(first: 250) { pageInfo { hasNextPage } nodes { createdAt actorId toState { name } } } } }`;
+  history(first: 250) { pageInfo { hasNextPage } nodes { createdAt actorId toState { name } } }`;
+const WORK_FIELDS = readFileSync(new URL("../work-fields.graphql", import.meta.url), "utf8");
 
-export async function getIssue(linear: Linear, id: string): Promise<Issue> {
-  return (await linear.gql<{ issue: Issue }>(ISSUE, { id })).issue;
+export async function getIssue(linear: Linear, id: string, mode: Mode): Promise<Issue> {
+  const fields = mode === "work" ? WORK_FIELDS : FORGE_FIELDS;
+  return (await linear.gql<{ issue: Issue }>(`query($id: String!) { issue(id: $id) { ${fields} } }`, { id })).issue;
 }
 
 export const closed = (i: { state: { type: string } }) => i.state.type === "completed" || i.state.type === "canceled";
@@ -55,17 +72,18 @@ export async function comment(linear: Linear, i: Issue, markdown: string): Promi
   });
 }
 
+export const trimEnd = (s: string) => s.replace(/\n+$/, "");
+
 /** Nick's comments, oldest first, after `since` when given, without this dispatcher's own. */
 export function answers(i: Issue, viewer: string, since = ""): string {
-  return i.comments.nodes
-    .filter((c) => c.user?.id === viewer && !c.body.startsWith(MARKER) && (!since || c.createdAt > since))
-    .sort((a, b) => cmp(a.createdAt, b.createdAt))
-    .map((c) => `[${c.createdAt.slice(0, 16).replace("T", " ")}] ${c.body}`)
-    .join("\n\n")
-    .replace(/\n+$/, "");
+  return trimEnd(
+    i.comments.nodes
+      .filter((c) => c.user?.id === viewer && !c.body.startsWith(MARKER) && (!since || c.createdAt > since))
+      .sort((a, b) => cmp(a.createdAt, b.createdAt))
+      .map((c) => `[${c.createdAt.slice(0, 16).replace("T", " ")}] ${c.body}`)
+      .join("\n\n"),
+  );
 }
-
-const trimEnd = (s: string) => s.replace(/\n+$/, "");
 
 /** The task as Nick wrote it, which both the agent's prompt and its issue file open with. */
 export function task(i: Issue, viewer: string): string {

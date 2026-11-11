@@ -6,8 +6,8 @@
 # by hand or in a live run, and this checks them again on every change.
 # scripts/preflight.sh runs it right after the brief's rules.
 #
-# Each case starts from an empty directory and runs the script the way it
-# re-runs itself in child(), `$BASH -euo pipefail night-shift.sh <command>`,
+# Each case starts from an empty directory and runs the script the way _tick
+# re-runs it, `$BASH -euo pipefail night-shift.sh <command>`,
 # with an environment of the case's own (env -i): HOME, XDG_STATE_HOME,
 # GIT_CONFIG_GLOBAL and NIGHT_SHIFT_PROJECTS all point inside it. The stubs
 # under stubs/ come first on PATH, as curl, claude, systemd-run, bwrap and
@@ -215,7 +215,7 @@ kept() {
   expect "the issue forgotten" test ! -e "$c/state/night-shift/TST-1.json"
 }
 
-# Refused by start_one: in Needs you, with nothing made and no agent started.
+# Refused by start: in Needs you, with nothing made and no agent started.
 refused() {
   ns run
   expect "exit 0" is "$status" 0
@@ -228,7 +228,7 @@ refused() {
   expect "a push saying why" one ".tool == \"ntfy\" and .body == \"TST-1: $2\""
 }
 
-# --- 1. land_one, through run ------------------------------------------------
+# --- 1. land, through run -----------------------------------------------------
 
 # A handoff whose PR merged at <sha>.
 merged_handoff() {
@@ -288,7 +288,7 @@ case_land_busy() {
   kept "a session there is still at work: job-2 is running."
 }
 
-# --- 2. start_one's refusals, through run ---------------------------------------
+# --- 2. start's refusals, through run -------------------------------------------
 
 case_start_not_creator() {
   repo demo
@@ -323,7 +323,7 @@ case_start_no_repo_label() {
   refused "Not started: give it a \`repo\` label naming a repository in $c/projects with an \`origin\`." "No repo"
 }
 
-# --- 3. start_one's happy path, through run -------------------------------------
+# --- 3. start's happy path, through run -----------------------------------------
 
 case_start() {
   repo demo
@@ -374,7 +374,7 @@ case_start_battery() {
 
 # claude --bg fails, as with no claude installed or a directory never
 # trusted: its first line with anything on it reaches the comment, and what
-# start_one made goes.
+# start made goes.
 bg_fails() {
   repo demo
   issue issue-1
@@ -424,7 +424,7 @@ EOF
   expect "the branch kept" branch_exists "$BRANCH"
 }
 
-# --- 4. finish_one ---------------------------------------------------------------
+# --- 4. finish --------------------------------------------------------------------
 
 # A running agent on TST-1, started <started>, that wrote <result>, if given.
 # The roster says its session is at work.
@@ -745,7 +745,7 @@ work_agent() {
     '[{id: "job-1", sessionId: "session-1", name: $name, cwd: $wt, state: "done"}]' >"$c/roster.json"
 }
 
-# github_origin: repo demo's origin on GitHub, for github_repo().
+# github_origin: repo demo's origin on GitHub, for githubRepo().
 github_origin() { g -C "$c/projects/demo" remote set-url origin git@github.com:test/demo.git; }
 
 # work_merged: the worktree's tip merged as PR #7, as gh lists it, from a
@@ -811,7 +811,7 @@ case_work_start() {
   expect "never forge's unit" none '.tool == "systemctl"'
 }
 
-# Refused by work_start_one: nothing made, no agent, nothing written to
+# Refused by workStart: nothing made, no agent, nothing written to
 # Linear, and said once, in a notification and the report.
 work_refused() {
   nsw run
@@ -839,7 +839,7 @@ case_work_start_bot() {
 }
 
 # Linear's filter leaves it out of the queue, so a run passes it over in
-# silence; work_start_one refuses it all the same when handed it.
+# silence; workStart refuses it all the same when handed it.
 case_work_start_not_assignee() {
   work '.assignee.id = "user-teammate"'
   nsw run
