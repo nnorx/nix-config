@@ -33,7 +33,7 @@ let
   cache = "${home}/.cache/night-shift";
   log = "${home}/Library/Logs/night-shift.log";
   # Seconds between runs: launchd's schedule, and how long each run keeps
-  # the Mac awake while an agent works (awake in night-shift.sh).
+  # the Mac awake while an agent works (awake in src/machine.ts).
   interval = 600;
   # The launchd job's, which `night-shift resume` starts.
   label = "org.nix-community.home.night-shift";
@@ -86,7 +86,7 @@ let
       GIT_TERMINAL_PROMPT = "0";
       SSH_AUTH_SOCK = "";
       # LFS objects come with a login, which the agents have none of. Setup
-      # fetched them (work_bootstrap in night-shift.sh).
+      # fetched them (bootstrap in src/work.ts).
       GIT_LFS_SKIP_SMUDGE = "1";
     };
 
@@ -128,8 +128,8 @@ let
     disableAllHooks = true;
 
     # The one plugin the agents use, for its pr-handoff skill. The dispatcher
-    # turns off every other plugin any scope enables (work_settings in
-    # night-shift.sh), since their LSP servers also run outside the sandbox.
+    # turns off every other plugin any scope enables (writeSettings in
+    # src/work.ts), since their LSP servers also run outside the sandbox.
     enabledPlugins."core@nnorx" = true;
   };
   settingsFile = pkgs.writeText "night-shift-settings.json" (builtins.toJSON settings);
@@ -163,13 +163,13 @@ in
     nsres = "night-shift resume";
     # An interactive session in the night shift's sandbox, for a task worth
     # the containment, built for the directory it starts in as an agent's
-    # is (work_safe in night-shift.sh). Plain claude keeps the Mac's usual
+    # is (safe in src/work.ts). Plain claude keeps the Mac's usual
     # unsandboxed one, which docker and the dev stack need.
     cld-safe = "night-shift safe";
   };
 
   # The dispatcher also writes the sandbox into each agent's worktree, as
-  # .claude/settings.local.json (work_settings in night-shift.sh). Not for
+  # .claude/settings.local.json (writeLocalSettings in src/work.ts). Not for
   # the agent to commit.
   programs.git.ignores = [ ".claude/settings.local.json" ];
 

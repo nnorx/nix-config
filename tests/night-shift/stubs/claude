@@ -8,15 +8,19 @@
 # it is empty; first it runs the script claude-before, when that exists,
 # where it was called. `stop <id>` marks that session stopped, as claude's
 # roster soon does; with the file stop-slow, the roster still lists it as
-# before for the next two looks. rm and --resume only log. A call given
-# --settings leaves a copy of them at $NS_CASE/settings-given.json, for a case
-# to read once the caller has removed the file.
+# before for the next two looks. rm only logs, and so does --resume, unless
+# the file resume-copy exists: then it says on stderr that it started a copy
+# with that file's id, as claude does. Any call whose environment carries
+# the test key touches key-seen. A call given --settings leaves a copy of them
+# at $NS_CASE/settings-given.json, for a case to read once the caller has
+# removed the file.
 set -euo pipefail
 
 dir=$NS_CASE
 roster=$dir/roster.json
 printf '%s\0' "$@" | jq -Rsc --arg cwd "$PWD" '{tool: "claude", args: (split("\u0000") | .[:-1]), cwd: $cwd}' >>"$dir/log.jsonl"
 [[ -f $roster ]] || echo '[]' >"$roster"
+if env | grep -qF test-key; then touch "$dir/key-seen"; fi
 for ((i = 1; i < $#; i++)); do
   [[ ${!i} != --settings ]] || { j=$((i + 1)); cp "${!j}" "$dir/settings-given.json"; }
 done
@@ -38,6 +42,10 @@ case ${1-} in
     mv "$roster.tmp" "$roster"
     ;;
   --bg)
+    if [[ ${2-} == --resume && -f $dir/resume-copy ]]; then
+      echo "claude: session busy, started a copy as $(<"$dir/resume-copy")" >&2
+      exit 0
+    fi
     [[ ! -f $dir/claude-before ]] || "$BASH" "$dir/claude-before"
     [[ ! -f $dir/claude-fail ]] || {
       if [[ -s $dir/claude-fail ]]; then

@@ -1,6 +1,6 @@
 # The night shift: Nick queues issues in Linear, and background Claude Code
 # agents on forge work them into PR handoffs while he is away from the desk.
-# pkgs/night-shift/night-shift.sh is the dispatcher, shared with the Mac's
+# pkgs/night-shift/ is the dispatcher, shared with the Mac's
 # work mode (home/night-shift.nix); docs/night-shift.md is how to set it up
 # and use it.
 #
@@ -36,7 +36,7 @@
 let
   user = "nick";
   # Minutes between runs: the timer's, and the dispatcher's measure of how
-  # much work one run can count (quiet in night-shift.sh). A divisor of 60.
+  # much work one run can count (quiet in src/run.ts). A divisor of 60.
   interval = 10;
   home = config.users.users.${user}.home;
   secrets = [
@@ -118,9 +118,9 @@ in
       TimeoutStartSec = "1h";
       # KillMode stays the default, so a run ends whole, its children with it.
       # The agents outlive it because the dispatcher starts claude in a scope
-      # of its own (`cl` in night-shift.sh), outside this unit's cgroup.
+      # of its own (`cl` in src/claude.ts), outside this unit's cgroup.
       # Counts runs that failed, however they ended, and pushes when they
-      # keep failing (after_run in night-shift.sh).
+      # keep failing (afterRun in src/machine.ts).
       ExecStopPost = "${lib.getExe night-shift} _after";
     };
   };
@@ -135,7 +135,7 @@ in
   };
 
   # Plasma's power inhibition, the one a video player takes, held while an
-  # agent works on AC: each run starts or stops this (awake in night-shift.sh),
+  # agent works on AC: each run starts or stops this (awake in src/machine.ts),
   # and nothing else does. It blocks idle sleep only, so the screen still locks
   # and turns off, and a closed lid still suspends. Holding it is a D-Bus
   # connection to PowerDevil, released when kde-inhibit exits.

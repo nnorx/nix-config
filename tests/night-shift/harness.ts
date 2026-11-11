@@ -16,8 +16,15 @@ const bash = process.env.NIGHT_SHIFT_BASH ?? "bash";
 const work = mkdtempSync(join(tmpdir(), "night-shift-ts."));
 const bin = `${work}/bin`;
 mkdirSync(bin);
-for (const tool of ["claude", "osascript"]) {
-  writeFileSync(`${bin}/${tool}`, `#!${bash}\nexec ${bash} -euo pipefail ${here}/stubs/${tool} "$@"\n`);
+// As run.sh has them: a run in forge mode starts claude through systemd-run,
+// preflight through bwrap, and the shell lets forge sleep through systemctl.
+const stubs: [string, string, string?][] = [
+  ["claude", "claude"], ["osascript", "osascript"], ["systemctl", "systemctl"], ["nix", "nix"],
+  ["systemd-run", "scope", "systemd-run"], ["bwrap", "scope", "bwrap"],
+];
+for (const [tool, stub, as] of stubs) {
+  const env = as ? `export NS_STUB=${as}; ` : "";
+  writeFileSync(`${bin}/${tool}`, `#!${bash}\n${env}exec ${bash} -euo pipefail ${here}/stubs/${stub} "$@"\n`);
   chmodSync(`${bin}/${tool}`, 0o755);
 }
 const path = `${bin}:${process.env.PATH}`;
@@ -47,6 +54,8 @@ const quote = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`;
 export interface Logged {
   tool: string;
   op?: string;
+  args?: string[];
+  cwd?: string;
   variables?: any;
   title?: string;
   body?: string;
@@ -82,8 +91,9 @@ export class Case {
       PATH: path, HOME: `${this.dir}/home`, TMPDIR: `${this.dir}/tmp`, XDG_STATE_HOME: `${this.dir}/state`,
       GIT_CONFIG_GLOBAL: `${this.dir}/gitconfig`, GIT_CONFIG_NOSYSTEM: "1", NS_CASE: this.dir,
       NIGHT_SHIFT_KEY_FILE: `${this.dir}/key`, NIGHT_SHIFT_NTFY_FILE: `${this.dir}/ntfy`,
-      NIGHT_SHIFT_PROJECTS: `${this.dir}/projects`, NIGHT_SHIFT_TS: ts,
+      NIGHT_SHIFT_PROJECTS: `${this.dir}/projects`, NIGHT_SHIFT_TS: ts, NIGHT_SHIFT_POWER: `${this.dir}/power`,
       NIGHT_SHIFT_LINEAR_URL: `http://127.0.0.1:${port}/${this.name}/graphql`,
+      NIGHT_SHIFT_GITHUB_URL: `http://127.0.0.1:${port}/${this.name}/github`,
       ...extra,
     };
   }

@@ -1,0 +1,12 @@
+# shellcheck shell=bash
+# nix, for the brief that preflight writes on an agent's branch: logs the call
+# to $NS_CASE/log.jsonl as {tool: "nix", args, cwd}, then copies
+# $NS_CASE/brief.json to the path after --json, or fails without one.
+set -euo pipefail
+
+printf '%s\0' "$@" | jq -Rsc --arg cwd "$PWD" '{tool: "nix", args: (split("\u0000") | .[:-1]), cwd: $cwd}' >>"$NS_CASE/log.jsonl"
+[[ -f $NS_CASE/brief.json ]] || exit 1
+while (($#)) && [[ $1 != --json ]]; do
+  shift
+done
+cp "$NS_CASE/brief.json" "$2"

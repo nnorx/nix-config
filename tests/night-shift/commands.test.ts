@@ -1,5 +1,5 @@
-// The commands in TypeScript (check, status, file, and the snapshots a run
-// writes), run through night-shift.sh against the stubs. run.sh has the rest.
+// The commands in TypeScript (check, status, file, the snapshots, and a run's
+// brief), run through night-shift.sh against the stubs. run.sh has the rest.
 import assert from "node:assert/strict";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
@@ -281,4 +281,119 @@ kase("file_no_backlog", "file: a team with no backlog state: into the first not-
   const { out } = await c.ns(["file"]);
   assert.ok(out.includes("· into Todo"), "into Todo");
   assert.ok(!out.includes("· into Queued"), "never Queued");
+});
+
+// --- a run's brief -----------------------------------------------------------------
+// run.sh has the rest of a run in forge mode; these are the cases on a repo with
+// preflight, whose brief a handoff's comment carries.
+
+const BRANCH = "worktree-tst-1-fix-the-widget";
+
+/** An agent on TST-1 that handed off, by default in a repo with preflight's rules. */
+function handedOff(c: Case, preflight = true): { repo: string; wt: string } {
+  const repo = c.repo("demo");
+  if (preflight) {
+    mkdirSync(`${repo}/scripts`);
+    writeFileSync(`${repo}/scripts/preflight-brief.jq`, "");
+  }
+  const wt = `${repo}/.claude/worktrees/tst-1-fix-the-widget`;
+  c.git("-C", repo, "worktree", "add", "-q", "--no-track", "-b", BRANCH, wt, "origin/main");
+  writeFileSync(`${c.state}/TST-1.json`, JSON.stringify({ id: "issue-1", ident: "TST-1", repo, worktree: wt, branch: BRANCH,
+    name: "tst-1-fix-the-widget", session: "session-1", phase: "running", started: now(), since: now() }));
+  writeFileSync(`${c.dir}/roster.json`, JSON.stringify([{ id: "job-1", sessionId: "session-1", name: "tst-1-fix-the-widget", cwd: wt, state: "done" }]));
+  mkdirSync(`${repo}/.git/night-shift`);
+  writeFileSync(`${repo}/.git/night-shift/TST-1.md`, "handoff\nFixed the widget.\n");
+  c.issue("issue-1", (i) => (i.state = { name: "Running", type: "started" }));
+  return { repo, wt };
+}
+
+const now = () => new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+const comments = (c: Case) => JSON.parse(readFileSync(`${c.dir}/linear/issues/issue-1.json`, "utf8")).comments.nodes.map((n: any) => n.body).join("\n");
+const pushed = (c: Case) => c.log().filter((l) => l.tool === "ntfy").map((l) => l.body);
+
+kase("run_brief", "run: a handoff in a repo with preflight: its verdict and findings, notes left out, preflight confined", async (c) => {
+  const { repo } = handedOff(c);
+  writeFileSync(`${c.dir}/brief.json`, JSON.stringify({
+    verdict: { level: "review", text: "One host changes." },
+    hosts: { gate: { findings: [{ level: "review", text: "its firewall changes" }, { level: "note", text: "its revision moves" }] } },
+    plan: [{ level: "review", text: "merge by day" }],
+  }));
+  mkdirSync(`${c.dir}/secret-dir`);
+  writeFileSync(`${c.dir}/home/token-a`, "");
+  const { status } = await c.ns(["run"], { env: { NIGHT_SHIFT_HIDE: `${c.dir}/secret-dir\n~/token-*\n${c.dir}/absent` } });
+  assert.equal(status, 0);
+  const text = comments(c);
+  assert.ok(text.includes("Fixed the widget.\n\n**Preflight: review.** One host changes.\n- gate, review: its firewall changes\n- review: merge by day\n\nTo publish:"), text);
+  assert.ok(!text.includes("its revision moves"), "notes left out");
+  assert.deepEqual(pushed(c), ["TST-1: Handoff ready (review)"]);
+  const bwrap = c.log().find((l) => l.tool === "bwrap")!;
+  const args = bwrap.args!.join(" ");
+  assert.ok(args.startsWith(`--dev-bind / / --tmpfs ${c.dir}/secret-dir --ro-bind /dev/null ${c.dir}/home/token-a -- nix run .#preflight -- --head ${BRANCH} --json `), args);
+  assert.equal(c.log().find((l) => l.tool === "nix")!.cwd, repo, "in the repo, on the agent's branch");
+});
+
+kase("run_brief_fails", "run: preflight fails on the branch: the comment says so and how to see why", async (c) => {
+  handedOff(c);
+  const { status } = await c.ns(["run"]);
+  assert.equal(status, 0);
+  assert.ok(comments(c).includes(`**Preflight failed** on this branch. Run \`nix run .#preflight -- --head ${BRANCH}\` to see why.`));
+  assert.deepEqual(pushed(c), ["TST-1: Handoff ready"]);
+});
+
+// --- a run's guards on what reaches claude -------------------------------------------
+
+kase("run_prompt_verbatim", "run: the task reaches claude as written, ${...} unexpanded, and the key in no child's reach", async (c) => {
+  c.repo("demo");
+  c.issue("issue-1", (i) => (i.description = "Use ${HOME} and ${{ github.ref }} as written."));
+  const { status } = await c.ns(["run"]);
+  assert.equal(status, 0);
+  const scope = c.log().find((l) => l.tool === "systemd-run" && l.args!.includes("--bg"))!;
+  const own = scope.args!.slice(0, scope.args!.indexOf("--"));
+  assert.ok(own.includes("--expand-environment=no"), `systemd-run told not to expand: ${own.join(" ")}`);
+  const bg = c.log().find((l) => l.tool === "claude" && l.args![0] === "--bg")!;
+  assert.ok(bg.args![5]!.includes("Use ${HOME} and ${{ github.ref }} as written."), "the prompt as Nick wrote it");
+  assert.ok(!existsSync(`${c.dir}/key-seen`), "no claude call had the key in its environment");
+  assert.ok(!c.log().some((l) => l.args?.some((a) => a.includes("test-key"))), "nor in its arguments");
+});
+
+kase("run_resume_copy", "run: a resume that starts a copy: the copy stopped, Needs you, the original named", async (c) => {
+  handedOff(c, false);
+  c.issue("issue-1", (i) => (i.comments.nodes = [{ body: "Use the blue one.", createdAt: "2030-01-01T00:00:00.000Z", user: { id: "user-nick" } }]));
+  writeFileSync(`${c.dir}/resume-copy`, "abc123");
+  const { status } = await c.ns(["run"]);
+  assert.equal(status, 0);
+  assert.ok(c.log().some((l) => l.tool === "claude" && l.args?.join(" ") === "stop abc123"), "the copy stopped");
+  assert.equal(JSON.parse(readFileSync(`${c.dir}/linear/issues/issue-1.json`, "utf8")).state.name, "Needs you");
+  assert.ok(comments(c).includes("Not resumed: claude started a copy (abc123) instead of continuing the session, and the copy was stopped. `claude attach job-1` opens the original."));
+  assert.ok(pushed(c).includes("TST-1: Did not resume"));
+  assert.equal(JSON.parse(readFileSync(`${c.state}/TST-1.json`, "utf8")).phase, "waiting", "not counted as running");
+});
+
+// --- what a run refuses before it starts anything ------------------------------------
+
+kase("run_tie", "run: two moves into Queued at the same moment: the later in Linear's list decides, as jq's max_by did", async (c) => {
+  c.repo("demo");
+  c.issue("issue-1", (i) => {
+    const at = "2026-10-02T10:00:00.000Z";
+    i.history.nodes = [{ createdAt: at, actorId: "user-nick", toState: { name: "Queued" } }, { createdAt: at, actorId: "user-sync", toState: { name: "Queued" } }];
+  });
+  await c.ns(["run"]);
+  assert.equal(JSON.parse(readFileSync(`${c.dir}/linear/issues/issue-1.json`, "utf8")).state.name, "Needs you");
+  assert.ok(comments(c).includes("Not started: only issues you move to Queued yourself are taken."));
+});
+
+kase("run_bad_max", "run: a limit that is not a whole number: fails, saying so, and starts nothing", async (c) => {
+  c.repo("demo");
+  c.issue("issue-1");
+  const { status, out } = await c.ns(["run"], { env: { NIGHT_SHIFT_MAX: "abc" } });
+  assert.equal(status, 1);
+  assert.match(out, /NIGHT_SHIFT_MAX is a whole number, not 'abc'/);
+  assert.ok(!c.log().some((l) => l.tool === "claude" && l.args?.[0] === "--bg"), "no agent started");
+});
+
+kase("work_bootstrap_string", "work: a bootstrap that is one string, not a list: fails, saying so", async (c) => {
+  writeFileSync(`${c.dir}/config.json`, JSON.stringify({ repos: { TST: { dir: c.repo("demo"), bootstrap: "pnpm install" } } }));
+  const { status, out } = await c.nsw(["run"]);
+  assert.equal(status, 1);
+  assert.match(out, /repos\.TST\.bootstrap in .* is a list of commands/);
 });
