@@ -522,7 +522,7 @@ Run `direnv allow` once in a fresh clone.
 | `ph` / `phm <N>` | Short for `pr-handoff` and `pr-handoff merge <N>` |
 | `phd` / `phds` | What the current branch changes since it left the default branch, in full or as a file list: what its PR will show |
 | `phg [<base>]` | The same change opened in GitLens, in the VS Code window already open, so you can move between files; against `<base>` for a stacked branch |
-| `wt [query]` | cd into an agent's worktree, picked with fzf; a query that matches one jumps straight there (dev hosts) |
+| `wt [query]` | Pick a branch with fzf and go where it lives: cd to its worktree if it has one, else switch the main checkout to it; repos under `WT_ROOTS` (default `~/projects`) and the current one; a query that matches one jumps straight there (dev hosts) |
 | `ns`, `nsr`, `nss`, `nsf` | `night-shift`, and its `run`, `status` and `file` (`nsf` on forge only) |
 | `nsres <ID> "<answer>"` | Resume a night-shift agent that stopped, with your answer (Mac) |
 | `cld-safe` | Claude Code in the night shift's sandbox, for an interactive session on the Mac |
