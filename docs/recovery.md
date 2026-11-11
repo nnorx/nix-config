@@ -177,7 +177,7 @@ rather than a monitor and keyboard at the rack.
    sudo dd if=result/iso/*.iso of=/dev/sdX bs=4M status=progress conv=fsync
    ```
 
-3. **USB precedes the internal disk in gate's boot order**, set during Phase 0.
+3. **USB precedes the internal disk in gate's boot order**, in its firmware.
    That is what makes recovery headless: plug the stick in, reboot over SSH, and
    it comes up in the live environment with no firmware interaction.
 
@@ -228,7 +228,7 @@ the fallback exists, it is that falling back is **silent**. What is missing is
 detection: something that notices a host's booted root device or running
 generation is not the expected one and says so.
 
-That is a monitoring requirement, tracked in Phase 8 of [router.md](router.md).
+That is a monitoring requirement, planned in Linear's Observability project.
 Until something watches for it, `fleet-status` on an admin machine is the
 manual check: it prints each host's running revision against main and its root
 device. A Pi still behind main after a night whose upgrade it reports as a

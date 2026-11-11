@@ -10,7 +10,7 @@
 #
 # The automatic upgrade adds itself to both wherever it is enabled, and every
 # offbox-push job adds itself (modules/offbox-push.nix). Until this existed,
-# all three failed only into the journal (docs/router.md, Phase 8).
+# all three failed only into the journal.
 #
 # Both services are hosted, deliberately: an alert that depends on the house
 # being up cannot report the house being down. What leaves the host is the

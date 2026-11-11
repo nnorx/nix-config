@@ -105,7 +105,7 @@ scripts/               What the apps run
 | | |
 |---|---|
 | [network.md](docs/network.md) | The network as it is: segments, trunk, DNS, policy |
-| [router.md](docs/router.md) | How gate was built, and what is still open |
+| [router.md](docs/router.md) | gate's hardware, WAN, DNS checks and remote access |
 | [pi-install.md](docs/pi-install.md) | Flashing a Pi, NVMe migration, EEPROM boot order |
 | [recovery.md](docs/recovery.md) | deploy-guard, generation rollback, the rescue USB |
 | [unifi.md](docs/unifi.md) | Controller, backups, adopting and re-adopting devices |
@@ -270,7 +270,7 @@ every peer gets the fleet's DNS, and `segments.vpn.grants` in
 enforces in [`hosts/gate/wireguard.nix`](hosts/gate/wireguard.nix): forge adds
 the AdGuard UI, SSH to the fleet and a full-tunnel exit, and the phone has
 nothing more. Neither gets the UniFi UI. The design and its reasoning are
-"Inbound remote access" in [docs/router.md](docs/router.md).
+"Inbound remote access" in [docs/router.md](docs/router.md#inbound-remote-access).
 
 Keys follow the SSH model. A peer generates its own key pair and only the
 public half goes in [`lib/wireguard-keys.nix`](lib/wireguard-keys.nix). gate's

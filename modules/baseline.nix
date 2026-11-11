@@ -35,8 +35,7 @@ in
       # which fills our own cache, runs off the same push to main that an
       # upgrade picks up. A run that outruns it fails and the next night
       # retries. The cost: a host that has quietly stopped upgrading looks like
-      # one with nothing to do, until the wrong-boot detection in
-      # docs/router.md exists.
+      # one with nothing to do, until a wrong-boot check exists.
       "--max-jobs"
       "0"
 

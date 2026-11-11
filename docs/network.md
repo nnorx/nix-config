@@ -212,8 +212,10 @@ the same segments the redirect covers, gate rejects TCP and UDP 853 out `wan`,
 with a reset or port-unreachable so the client falls back at once rather than
 timing out. A device that tries encrypted DNS first and then plaintext ends up
 on the fleet. One that never falls back, like an Android phone with Private
-DNS in strict mode, loses DNS instead. See [router.md](router.md) for whether
-this is deployed yet, and how to exempt a segment.
+DNS in strict mode, loses DNS instead. A segment whose devices need DoT goes
+in `dotExempt` in `hosts/gate/routing.nix`, which gives it 853 back and keeps
+its port 53 redirected. [router.md](router.md#checking-the-dns-rules) has the
+check.
 
 **DoH is advisory, not enforceable.** Known DoH endpoint IPs can be blocked,
 but browsers ship encrypted DNS over 443 and the endpoint lists change. Browser

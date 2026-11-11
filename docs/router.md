@@ -1,414 +1,115 @@
-# The gate build
-
-`gate` is a CWWK N100 with four Intel i226 NICs. It replaced the Google Nest as
-the house router at the Phase 7 cutover on **2026-09-05**. The goals, in order,
-were multi-gig routing on the LAN side, getting Google out of the network path,
-and remote access into the fleet. The first two are done; the third is Phase 8.
-
-This is the build record and the list of what is still open. For the network as
-it stands, see [network.md](network.md).
-
-**There is no rollback.** The Nest is gone, so reverting means sourcing another
-router. That was not the plan going in, where the Nest was to be kept unreset
-as a revert path, and it raises what a bad deploy costs: the recovery USB and
-`deploy-guard` are now the only ways back. See [recovery.md](recovery.md).
-gate deploys by hand.
-
-## Still open
-
-- [ ] **Port-53 DNAT redirect for hardcoded resolvers.** Written but **not
-      deployed and never observed matching**, so this stays open until the
-      checklist items below have been run. It is the `dns-redirect` chain in
-      `hosts/gate/routing.nix`: a query to any resolver other than the fleet's,
-      from trusted, iot or work, is rewritten to core4 or lifeline with the
-      client's source address intact. The servers segment was paid for to make
-      exactly this possible.
-
-      servers and guest are excluded, each for its own reason, and the
-      exclusion is derived from where the resolvers actually sit rather than
-      listed, so it follows them if one ever moves.
-
-      The `work` segment is redirected like the others, and
-      `modules/adguardhome.nix` gives it a persistent client with
-      `ignore_querylog`, so that machine is filtered without being recorded.
-      Before the redirect existed, a machine there ignoring DHCP was unlogged
-      only because it was not talking to the fleet at all; that is no longer
-      the reason, so the property is now written down instead of incidental.
-
-      It catches plaintext DNS only. DoT and DoQ on 853 are refused by the
-      next item, so a device that falls back from them lands here. DoH on 443
-      still bypasses the fleet's resolvers: it is not distinguishable from
-      other HTTPS traffic at the firewall.
-
-      It also cannot help a host that recurses for itself. The rule excludes
-      whole segments, and the only recursers in the fleet (gate and the two
-      Pis) are already outside it, but a workstation running its own resolver
-      on trusted would have its queries to authoritative servers rewritten.
-- [ ] **Refuse outbound DoT and DoQ.** Built and tested in VMs 2026-10-11,
-      **pending deploy**: tick this once the check below has been run on the
-      house network. A device that tries DNS-over-TLS (TCP 853) or
-      DNS-over-QUIC (UDP 853) to an outside resolver is refused, so if it
-      falls back to plaintext it lands on the redirect above and is filtered
-      and logged like everything else on its segment.
-
-      It covers exactly the segments the redirect does: trusted, iot, work and
-      the tunnel, derived from the same `redirectOn` in
-      `hosts/gate/routing.nix`, so the two cannot drift. servers and guest
-      keep 853. Of the tunnel's peers it matters only to forge's full-tunnel
-      profile: the phone has no exit through gate, and its split profile does
-      not send outside traffic into the tunnel at all.
-
-      It rejects rather than drops, so a client gives up at once instead of
-      waiting out its own timeout: a TCP reset for DoT, ICMP port-unreachable
-      for DoQ. `tests/gate-dns.nix` checks both, and that plaintext 53 is
-      still redirected, against the real ruleset in VMs:
-      `nix build .#checks.x86_64-linux.gate-dns`.
-
-      The work laptop is centrally managed and may require DoT. If it loses
-      DNS on the house network after this deploys, put `"work"` in
-      `dotExempt` in `hosts/gate/routing.nix`, which gives that segment its
-      853 back while keeping its port 53 redirected.
-
-      What this does not do:
-
-      - DoH on 443 still bypasses the fleet, as above. Browser policy is the
-        lever for that, not the firewall.
-      - An Android phone with Private DNS set to a specific hostname (strict
-        mode) loses DNS entirely rather than falling back, since strict mode
-        never uses plaintext. Automatic mode falls back. A phone here in
-        strict mode needs switching to automatic, or off.
-
-      After deploying, from a trusted client, in one sitting:
-
-      ```
-      kdig +tls @1.1.1.1 example.com     # fails at once, connection refused
-      dig @1.1.1.1 <a name the fleet filters>   # the fleet's blocked answer
-      ssh gate 'sudo nft list chain inet nixos-fw forward-allow'
-      ```
-
-      `kdig` failing after a pause rather than at once means the packets are
-      being dropped somewhere, not rejected by this rule. The two
-      `dport 853` counters should be non-zero; like the redirect's, they reset
-      whenever a deploy changes the ruleset.
-- [ ] **Confirm AdGuard logs real client IPs** rather than the gateway. The
-      mechanism is in place (Kea hands out the Pi addresses directly, and nat
-      masquerades only outbound on `wan`), but it has not been verified against
-      the query log.
-- [x] **Is gate behind CGNAT?** No. 2026-10-01: `wan` holds a public,
-      routable IPv4 address, classified on gate without printing it (see
-      network.md on identifying data), and no global IPv6. Phase 8 is therefore
-      inbound WireGuard; see remote access below. To check again, for instance
-      after an ISP change:
-
-      ```
-      ssh gate 'ip -4 -br addr show wan; ip route | head -1'
-      ```
-
-      `100.64.0.0/10` would mean CGNAT, and Tailscale instead.
-- [ ] **Service tier actually purchased**, for the WAN speed test below.
-- [ ] Static reservations in `lib/net.nix` for anything that needs a stable
-      address. The switch and AP have statics set in the controller instead,
-      which is where the rest of their config lives anyway. Reservations are
-      keyed on MAC addresses, which do not go in this repo. Designed
-      2026-10-11, in ["Naming a device"](network.md#naming-a-device): addresses in
-      `lib/net.nix`, MACs in gate's sops file, and no private flake input.
-      The Govee lights come first.
-
-### Validation checklist
-
-These are the tests that distinguish a network that works from one that
-happens to be working. The DNS half was run on **2026-09-12** and the port
-scan on **2026-10-02**, and both are recorded below. The throughput,
-segmentation and gate-reboot items are still open.
-
-- [ ] `iperf3` between two clients on different VLANs, forwarded through gate,
-      confirming the routing path does multi-gig rather than just the links
-      negotiating at 2.5G
-- [ ] WAN speed test matching the service tier
-- [x] External port scan of the WAN address showing nothing listening.
-      2026-10-02, from a phone hotspot with WireGuard off: all 65535 TCP ports
-      filtered with no response, and UDP 53, 67, 123 and 443 `open|filtered`
-      with none `closed`, so gate drops silently and WireGuard stays quiet
-      without a valid key. A control scan of `scanme.nmap.org` over the same
-      connection found 22 and 80 open, so the carrier was not masking ports.
-      nmap also reports an IPv6 address for the DDNS name from a mobile
-      network; that is the carrier's DNS64, not a record (the zone holds an A
-      record only). Rescan over IPv6 once Phase 8 brings it.
-- [x] `dnssec-failed.org` fails to resolve, proving DNSSEC validation is live.
-      2026-09-12: SERVFAIL on both resolvers, against Unbound directly on 5335
-      and through AdGuard on 53. A signed control zone returns NOERROR with the
-      `ad` flag, so this is validation rather than a coincidental failure
-- [x] A DNS leak test showing the fleet's resolver, not the ISP's. 2026-09-12:
-      both resolvers recurse from gate's own WAN address as seen by an
-      authoritative server, so nothing forwards through the ISP
-- [x] One Pi powered off, house still resolves. 2026-09-12: core4 powered
-      down, 10/10 queries answered from a DHCP-configured client. Median
-      latency rose from roughly 580 ms to 880 ms on uncached names, which is
-      the stub failing over rather than anything breaking
-- [ ] `gate` rebooted, everything returns with no manual intervention,
-      including Kea leases and the WAN lease
-- [ ] iot cannot reach trusted; guest cannot reach anything
-- [ ] A client with DNS hardcoded to 8.8.8.8 still resolves, its queries appear
-      in AdGuard under the client's own address, and a filtered domain is
-      blocked for it. Then read the counter:
-
-      ```
-      ssh gate 'nft list chain ip nixos-nat dns-redirect'
-      ```
-
-      A counter still at zero means the rule is not on the path it was believed
-      to be on. **Read it in the same sitting as the test.** The nftables unit
-      deletes and re-adds the table on every reload, so any later
-      `nixos-rebuild switch` that changes the ruleset resets the counter to
-      zero, which reads identically to the rule never having matched.
-
-      Partly done. 2026-09-12, from a trusted-segment client: queries sent to
-      8.8.8.8, 1.1.1.1 and 9.9.9.9 all came back with the fleet's blocklist
-      answer for a filtered domain while unfiltered names resolved normally,
-      so the rewrite is on the path for all three. The two halves still open
-      are the counter read, which needs root, and confirming the queries land
-      in AdGuard under the client's own address rather than the gateway's
-- [x] The Pis still resolve. Their own Unbound recursion leaves from the
-      servers segment, which the redirect excludes, and getting that wrong
-      takes DNS down completely rather than degrading it. Confirmed
-      2026-09-12
-- [ ] Nothing from the work segment appears in AdGuard's query log, which is
-      what `logQueries = false` in `lib/net.nix` is meant to guarantee now that
-      the segment is redirected rather than bypassing the fleet
-- [x] One Pi powered off, and a client with a **hardcoded** resolver still
-      resolves. This is a different test from the one above: a DHCP-configured
-      client holds both resolver addresses and fails over in its own stub,
-      while a redirected client has its destination chosen per connection by
-      `numgen`, so roughly half its queries dead-end and rely on a retry
-      landing elsewhere. That class did not depend on the Pis at all before the
-      redirect.
-
-      2026-09-12, core4 powered down: **exactly 10 of 20** single-shot queries
-      (`+tries=1`) dead-ended, so "roughly half" is the literal behaviour, not
-      an approximation. With retries allowed, 20 of 20 answered and filtering
-      still applied. The cost of losing one resolver is therefore latency
-      rather than failure, for this class as well as the DHCP one.
-
-      This is the argument for staggering automatic upgrades rather than
-      enabling them fleet-wide on one schedule: the degradation is survivable
-      for one resolver at a time and total if both windows overlap
-
-### Phase 8: afterwards
-
-One at a time, weeks apart, now that the house is boring.
-
-- [ ] **Alert when a host boots the wrong system.** core5 fell back to its SD
-      card on 2026-09-04 with a loose NVMe ribbon and ran a two-week-old
-      generation for hours, looking healthy from every angle. Whatever the stack
-      ends up being, it needs to compare each host's booted root device and
-      running system generation against what the flake says it should be,
-      because a host that is up, answering and wrong is invisible to liveness
-      checks. See [recovery.md](recovery.md).
-- [ ] **Decide the monitoring stack, then instrument gate.** Deliberately not
-      "wire gate into pimon": pimon did host liveness, and the questions here
-      are WAN state, conntrack pressure, per-interface throughput, DHCP pool
-      exhaustion and DNS failure ratios, plus *alerting*, since a router fault
-      you learn about by noticing the internet is broken is one monitoring did
-      not catch.
-
-      The conventional answer is Prometheus or VictoriaMetrics with Grafana on
-      core5, scraping `node_exporter` fleet-wide plus exporters for AdGuard,
-      UniFi and nftables. core5 is on NVMe as of 2026-08-31, which was the
-      blocker: a TSDB writes harder and more continuously than even the UniFi
-      database does, and that is not a workload for an SD card.
-
-      Note this is also what would force gate to have an `ip` in `lib/net.nix`,
-      since core5's firewall opened a port per `pimonAgents` entry and read that
-      attribute. Decide what the address would mean first.
-
-      Decided 2026-10-10 in [observability.md](observability.md):
-      VictoriaMetrics and Grafana on core5, pulling from every host, with
-      alerts to the same ntfy topic. Instrumenting gate is the second of its
-      follow-up issues. pimon was retired in NNO-70, once node metrics and
-      `HostDown` had run two weeks without a gap.
-
-      Alerting no longer waits on this. `modules/alerts.nix` sends a push
-      notification when the Pis' upgrades or core5's off-box backups fail,
-      and pings healthchecks.io on each success, so a job that stops running
-      alerts too. Both are hosted, so they work with the house down. Whatever
-      stack lands here can add to `fleetAlerts` rather than replace it. The
-      questions above (WAN state, conntrack, DHCP pools, DNS failure ratios)
-      are still open, and so is the wrong-boot check.
-- [x] **Inbound remote access.** The one with clear payoff: SSH into the fleet
-      and filtered DNS from a hotel. Designed 2026-10-01, built 2026-10-02:
-      gate's half in #97 (hosts/gate/wireguard.nix), forge's profiles after it
-      (hosts/forge/vpn.nix). Tested from outside the house the same day, the
-      phone on mobile data and forge on the phone's hotspot, both profiles:
-      SSH to every host, filtered DNS, UniFi refused, the ISP device denied,
-      and in the full tunnel no IPv6 leaking past it.
-
-      Two things the test found, neither visible from inside the house. A
-      phone sharing its hotspot while still on home Wi-Fi sends a tethered
-      laptop out through the house, where the tunnel cannot work, so test with
-      the phone's Wi-Fi off. And the tunnel MTU is 1280, not WireGuard's 1420:
-      over the hotspot the handshake and pings worked while anything larger
-      vanished, so the tunnel looked up and carried nothing. `vpnMtu` in
-      lib/net.nix has the measurement.
-
-      Plain WireGuard terminating on gate, not Tailscale or Headscale. gate has
-      a routable address, so there is nothing for a coordination server to
-      solve, and either one adds a party that can enroll devices: Tailscale's
-      servers, or for Headscale a public HTTPS service at home. What that costs
-      is key hygiene, since nothing expires a WireGuard key; revoking a peer is
-      deleting it and deploying gate.
-
-      It listens on UDP 443 rather than 51820, because restrictive Wi-Fi blocks
-      unusual UDP ports more often than the one HTTP/3 uses. WireGuard answers
-      nothing without a valid key, so the WAN port scan in the checklist above
-      should still find nothing listening.
-
-      Clients get a `vpn` segment in `lib/net.nix`, one fixed address per peer,
-      and the policy is per peer in gate's nftables. forge gets DNS, the
-      AdGuard UI and SSH to the fleet. The phone gets DNS only, since it is the
-      device most likely to be lost. Neither gets the UniFi UI, which
-      administers the network itself. This is through the tunnel only: at home
-      forge is on trusted, as before.
-
-      forge has two profiles. Split, the default, carries the home subnets and
-      DNS. Full tunnel is for untrusted networks; it moves what is visible from
-      the local network to the home ISP rather than hiding it, and is bounded by
-      the home upload. The phone is split only, with `PersistentKeepalive = 25`
-      for carrier NAT.
-
-      Keys follow the SSH model: each peer's private key is generated on its
-      device and only the public half is in the repo. gate's private key and a
-      pre-shared key per peer go in sops; the pre-shared keys add a symmetric
-      layer against recorded traffic being decrypted later.
-
-      The WAN address comes from the ISP over DHCP, so gate updates an A record
-      on Cloudflare. It is DNS only, not proxied, since the proxy carries no
-      UDP. The token is scoped to DNS edit on that one zone, and the hostname
-      lives in sops, because it is identifying in the way network.md
-      describes. The record answers anyone who asks, so that only holds while
-      the name is hard to guess: a random label, not `vpn.` or `home.`, and
-      never a TLS certificate for it, since certificate transparency logs
-      publish every name one is issued for.
-
-      gate's deploys for this go behind `deploy-guard`, since they change its
-      firewall.
-- [ ] **IPv6**: DHCPv6-PD, a /64 per VLAN, `corerad` for advertisements, and an
-      explicit v6 default-deny inbound. Genuinely unexplored: the Nest ran with
-      v6 disabled, so whether the ISP delegates a prefix at all is unknown until
-      gate asks for one. There is no NAT hiding anything on v6, so every device
-      is globally routable and the forward chain is the only thing standing in
-      front of the IoT VLAN. Disabling v6 on the WAN was a legitimate temporary
-      choice through the cutover, but it should be revisited rather than
-      forgotten.
-
-      Planned in the IPv6 project in Linear: a read-only check and then a
-      `nixos-rebuild test` probe for what the ISP delegates, and if it
-      delegates anything, IPv6 for trusted, then guest, then work if wanted,
-      behind an explicit inbound deny, with DNS staying on IPv4.
-- [ ] **Policy-based routing through a commercial VPN**, only if wanted.
-      WireGuard on an N100 tops out well under line rate, so route one VLAN
-      through it rather than everything, and add a kill switch so the tunnel
-      dropping does not silently leak to WAN.
-
-## What was built
-
-Each phase had an exit test, and none started until the previous one passed.
-Everything up to Phase 7 happened with gate sitting behind the Nest on a DHCP
-lease, so nothing was load-bearing until the cutover.
-
-**Phase 0, recon.** Cabled and powered 2026-08-30. Sockets ETH0-ETH3 map to
-`enp2s0`-`enp5s0` in PCI order, from the chassis labels. IPv6 on the LAN turned
-out to be nothing useful: only a ULA the Nest generated itself, because the Nest
-had IPv6 disabled, so it said nothing about what the ISP offers. The recovery
-USB was built and booted once, which is where the real find was: `sudo` did not
-work on the box at all, because the pre-flake `configuration.nix` defined
-`users.users.nick` with no password field. That would have blocked every
-subsequent phase and was invisible until something needed root.
-
-The Nest's WAN MAC was never recorded. It stopped mattering when the Nest left.
-
-**Phase 1, addressing.** Four segments, the schema landing in `lib/net.nix`
-without anything wired to it yet. `work` was added later, in #63, once the shape
-had proven itself. See [network.md](network.md) for the reasoning that survived.
-
-**Phase 2, the host.** gate's config merged and deployed. The first deploy had
-to name the flake attribute explicitly, since the box's hostname was still
-`router`, and used `boot` plus a reboot rather than `switch`, because it moved
-the box off NetworkManager onto scripted networking over the live SSH session.
-The console password was changed off the public `initialPassword` at the same
-time.
-
-**Phase 3, interface renames.** systemd `.link` files matched on PCI path, done
-before a single firewall rule existed, which was the point of doing it then.
-
-**Phase 4, routing behind the Nest.** nftables with `filterForward`, so the
-forward chain defaults to drop; `networking.nat` for masquerade rather than a
-hand-written ruleset, because a box becoming the house router is a poor place to
-be original; Kea with a persistent lease file; conntrack raised off its desktop
-default. SSH moved from a global `allowedTCPPorts = [ 22 ]` to per-interface
-scoping named in `lib/net.nix`.
-
-**Phase 5, DNS.** gate got its own recursive Unbound on loopback so it can be
-rebuilt with the Pis down. 8.8.8.8 was dropped from `fallbackDns` on both Pis,
-from the `bootstrapDns` default, and from core5's `networking.nameservers`,
-which the original survey missed. Quad9 replaced it rather than nothing, so
-redundancy survives and comes from a second operator rather than a second
-address belonging to the first.
-
-**Phase 6, VLANs and UniFi.** The largest phase, and the one that cost the most
-hours. The controller went up on core5 in pinned containers; the Flex switch and
-U7 Pro were adopted; VLAN interfaces and per-segment Kea subnets landed; the
-switch uplink moved from the Nest to `lan0`; SSIDs were tagged per segment.
-
-The switch adoption was expected to cycle PoE and hard-reset all three Pis, and
-did not: provisioning alone does not require a reboot. **A firmware update
-does**, and automatic device updates were turned off before adopting, so that
-reboot is deferred rather than avoided.
-
-Three things went wrong here and are worth keeping:
-
-- Making every segment tagged looked tidier and stranded the switch for two
-  hours. The untagged-native invariant in [network.md](network.md) is the
-  result.
-- The switch became unadoptable and needed a specific recovery order. That is
-  now a runbook in [unifi.md](unifi.md).
-- gate answered ARP for addresses belonging to other segments, so the AP renewed
-  a lease from the wrong subnet indefinitely. `arp_ignore` and `arp_announce`
-  in `hosts/gate/routing.nix` are the fix, and the comment there has the full
-  account.
-
-**Phase 7, cutover.** 2026-09-05. Power off the modem, move the WAN cable, power
-the modem back on and wait for sync, confirm the lease, verify from a client,
-unplug the Nest. The modem power-cycle is what clears its cached CPE MAC.
-
-`"wan"` was deleted from `gate.sshInterfaces` as part of it, which is the
-difference between a router and a router with sshd listening on the internet. It
-was removed only after a replacement path was proven rather than assumed: SSH
-from a trusted-segment address over `br-trusted`, verified before the line
-changed and not after.
-
-The fleet renumber was already done, on 2026-09-02, ahead of this phase, so the
-cutover was the cable move and that one edit.
-
-## Hardware notes
-
-**i226-V link flapping.** ASPM-related drops are common on these NICs. If links
-flap intermittently, `pcie_aspm=off` as a kernel parameter is the usual fix.
-Early steppings also had firmware bugs. `ethtool` and `pciutils` are installed
-on gate for exactly this.
-
-**Thermals.** Fanless CWWK chassis run warm. Worth a look at `sensors` under
-sustained load.
-
-## The lesson that generalises
-
-**An address on the wrong wire fails silently, and in one direction.** Through
-the Phase 6 cutover each Pi held its flat-LAN address alongside its segment
-address, which is what kept it reachable while the switch uplink moved. Once
-`end0` was carrying the servers VLAN, the flat address was unreachable from
-everywhere, but it kept its directly-connected route: core5 answered nothing on
-`192.168.86.49` and *also* sent everything bound for `192.168.86.0/24` onto the
-servers VLAN rather than via gate. The visible symptom was the controller
-reporting the switch unreachable while gate could ping that same switch fine.
-
-Dual addressing is the right tool during a cutover and a liability the moment it
-finishes. Retire the old address in the same session that completes the move.
+# gate
+
+`gate` is a CWWK N100 with four Intel i226 NICs, and the house's only router.
+[network.md](network.md) has the network it routes. There is no fallback
+router, so the recovery USB and `deploy-guard` are the ways back from a bad
+deploy ([recovery.md](recovery.md)). gate deploys by hand. Its validation
+checklist is in Linear's Net Security project.
+
+## Hardware
+
+- **Ports.** Sockets ETH0 to ETH3 are `enp2s0` to `enp5s0` in PCI order.
+  systemd `.link` files rename them by PCI path (`hosts/gate/default.nix`),
+  which survives a change in predictable naming and keeps MACs out of the
+  repo.
+- **i226-V link flapping.** ASPM-related drops are common on these NICs. If
+  links flap, `pcie_aspm=off` is the usual fix. `ethtool` and `pciutils` are
+  installed for this.
+- **Thermals.** The fanless chassis runs warm. `sensors` under sustained load.
+
+## WAN
+
+`wan` takes a public, routable IPv4 address from the ISP over DHCP, so the
+tunnel is plain inbound WireGuard. To check again, after an ISP change for
+instance:
+
+```
+ssh gate 'ip -4 -br addr show wan; ip route | head -1'
+```
+
+An address in `100.64.0.0/10` would mean CGNAT, which inbound WireGuard
+cannot cross; a coordination service such as Tailscale would be the answer
+then. gate drops that range upstream with the private ones.
+
+The house has no global IPv6: gate asks for no prefix delegation and sends no
+router advertisements, and Unbound recurses over IPv4 alone. The IPv6
+project in Linear plans it.
+
+## What gate is watched for
+
+core5 scrapes gate ([observability.md](observability.md),
+`hosts/gate/metrics.nix`) for the questions a router fault raises before
+anyone notices the internet is broken: WAN link and lease, conntrack
+pressure, per-interface throughput, Kea's pools, and each tunnel peer's last
+handshake. The resolvers' DNS failures come from core4 and lifeline.
+`tests/gate-metrics.nix` checks the answers carry no WAN address.
+
+## Checking the DNS rules
+
+network.md's DNS section has how the port 53 redirect and the 853 refusal
+work. After a deploy that touches them, from a trusted client, in one
+sitting:
+
+```
+kdig +tls @1.1.1.1 example.com            # fails at once, connection refused
+dig @1.1.1.1 <a name the fleet filters>   # the fleet's blocked answer
+ssh gate 'sudo nft list chain ip nixos-nat dns-redirect'
+ssh gate 'sudo nft list chain inet nixos-fw forward-allow'
+```
+
+`kdig` failing after a pause rather than at once means the packets are
+dropped somewhere, not rejected by this rule. The redirect's counter and the
+two `dport 853` counters should be non-zero. Read them in the same sitting:
+the nftables unit recreates the table on every reload, so any later switch
+that changes the ruleset zeroes them, which reads the same as never matching.
+`tests/gate-dns.nix` checks the rules against the real ruleset in VMs.
+
+## Inbound remote access
+
+SSH into the fleet and filtered DNS from away, over WireGuard terminating on
+gate (`hosts/gate/wireguard.nix`, `hosts/forge/vpn.nix`). README, "Remote
+access", has the setup.
+
+- **Plain WireGuard, not Tailscale or Headscale.** gate has a routable
+  address, so a coordination server has nothing to solve, and either adds a
+  party that can enroll devices. Nothing expires a WireGuard key, so revoking
+  a peer is deleting it and deploying gate.
+- **UDP 443**, not 51820: restrictive Wi-Fi blocks unusual UDP ports more
+  often than the one HTTP/3 uses. WireGuard answers nothing without a valid
+  key, so a WAN port scan finds nothing listening.
+- **Per-peer policy.** Peers get fixed addresses on the `vpn` segment, and
+  what each reaches is `segments.vpn.grants` in `lib/net.nix`. forge gets
+  DNS, the AdGuard UI and SSH to the fleet; the phone, DNS alone. Neither gets
+  the UniFi UI.
+- **forge's two profiles.** Split, the default, carries the home subnets and
+  DNS. Full tunnel is for untrusted networks: it moves what the local network
+  sees to the home ISP, bounded by the home upload. The phone is split only,
+  with `PersistentKeepalive = 25` for carrier NAT.
+- **MTU 1280**, not WireGuard's 1420: over a phone hotspot larger packets
+  vanished while the handshake and pings worked. `vpnMtu` in `lib/net.nix`
+  has the measurement. Test from a hotspot with the phone's own Wi-Fi off, or
+  a tethered laptop goes out through the house.
+- **Keys** follow the SSH model: each peer's private key is made on its
+  device, public halves in the repo, gate's key and a PSK per peer in sops
+  ([keys.md](keys.md#wireguard)).
+- **The endpoint name.** gate updates an A record on Cloudflare
+  (`hosts/gate/ddns.nix`), DNS only, since Cloudflare's proxy carries no UDP.
+  The hostname lives in sops, as a random label, and never gets a TLS
+  certificate, since certificate transparency logs publish every name one is
+  issued for.
+
+gate's firewall changes go behind `deploy-guard`.
+
+## An address on the wrong wire
+
+An address on the wrong wire fails silently, and in one direction. During
+the VLAN cutover each Pi held its flat-LAN address beside its segment
+address, which kept it reachable while the switch uplink moved. Once its
+port carried the servers VLAN, the flat address answered nothing but kept its
+directly connected route, so the Pi sent everything for the old subnet onto
+the servers VLAN rather than through gate. The symptom was the controller
+reporting the switch unreachable while gate pinged it fine.
+
+Dual addressing is the right tool during a cutover and a liability the moment
+it finishes. Retire the old address in the same session that completes the
+move.
