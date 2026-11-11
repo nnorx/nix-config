@@ -3,7 +3,7 @@
 # a connection it already had survives until `conntrack -D` ends it;
 # and another iot address still reaches the internet and the Pis; flushing the
 # chain gives the member its internet back, and reloading the ruleset empties
-# the set. docs/privacy.md, "Internet for iot", has the design and the
+# the set. docs/privacy.md, "The trial set, by hand", has the
 # commands this runs, as Nick would run them on gate.
 #
 # `nix build .#checks.x86_64-linux.gate-iot-egress`. It needs KVM, which

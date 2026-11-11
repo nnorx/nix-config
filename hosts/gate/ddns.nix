@@ -51,7 +51,7 @@ in
     # experimental.)
     provider.ipv4 = "local";
 
-    # No global IPv6 here; see the IPv6 item in docs/router.md.
+    # No global IPv6 here (docs/router.md, "WAN").
     provider.ipv6 = "none";
 
     proxied = "false";

@@ -90,8 +90,7 @@ in
         # DHCPv6-PD delegation and sends no router advertisements, so there is
         # no v6 prefix and no v6 default route. AAAA-glue upstreams would be
         # unreachable and any query reaching one would dead-end in SERVFAIL.
-        # Revisit alongside the IPv6 work in Phase 8 of docs/router.md, which is
-        # what would give this network a prefix in the first place.
+        # Revisit with the IPv6 project, which would give this network a prefix.
         do-ip6 = false;
 
         access-control = [ "127.0.0.1/32 allow" ];

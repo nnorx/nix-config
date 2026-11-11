@@ -263,12 +263,8 @@
       # this is a security control and deriving it would mean a future
       # interface silently becoming an SSH surface.
       #
-      # `wan` was here while it was the management path, facing the Nest's LAN
-      # rather than the internet. It was removed at the Phase 7 cutover on
-      # 2026-09-05, once a trusted-segment path was proven: SSH from
-      # 192.168.10.101 over `br-trusted`, verified before this line changed and
-      # not after. Deleting it is the difference between a router and a router
-      # with SSH on its WAN.
+      # Never `wan`. Before removing an interface here, prove SSH over another
+      # one first, not after.
       #
       # `br-trusted` is where admin machines live. `lan0` is the trunk, whose
       # untagged VLAN is `servers`, so it is how the switch and AP reach the
@@ -290,7 +286,7 @@
       # against the thing that actually reorders interfaces, which is systemd's
       # predictable-naming scheme changing between releases and turning enp2s0
       # into something else, while keeping hardware identifiers out of a public
-      # repo. See "What stays out of this repo" in docs/router.md. The residual
+      # repo. See "What stays out of this repo" in docs/network.md. The residual
       # risk it does not cover is firmware renumbering the PCI buses, which
       # fixed hardware with no hotplug does not do, and which a MAC check after
       # the rename catches.
@@ -298,7 +294,7 @@
       # Physical sockets are labelled ETH0-ETH3 on the chassis and map in
       # order, so wan is ETH0.
       #
-      # Roles, settled in Phase 1:
+      # Roles:
       #   wan   ETH0  the modem
       #   lan0  ETH1  tagged trunk to the Flex switch, every segment on it
       #   lan1  ETH2  untagged, bridged into trusted: a dedicated 2.5G run to

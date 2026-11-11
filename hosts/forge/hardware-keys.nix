@@ -1,6 +1,6 @@
 # Hardware security keys: PIV through pcscd, for age identities, and FIDO2,
-# for SSH. docs/keys.md has what each key is for and the order of work; the
-# identities and resident keys themselves are made by hand, not here.
+# for SSH. docs/keys.md has what each key is for; the identities and
+# resident keys themselves are made by hand, not here.
 #
 # FIDO2 needs nothing from this file to reach a key. systemd's 60-fido-id.rules
 # marks a hidraw node that speaks FIDO as a security token, and its

@@ -2,11 +2,8 @@
 #
 # Routes and NATs every segment in lib/net.nix and serves DHCP on those with a
 # pool; see ./routing.nix. Remote peers arrive over WireGuard; see
-# ./wireguard.nix. `wan` faces the modem as of the Phase 7 cutover on
-# 2026-09-05, so this is the house's only path to the internet and the Nest is
-# out of the network entirely.
-#
-# See docs/router.md for what remains.
+# ./wireguard.nix. `wan` faces the modem, so this is the house's only path to
+# the internet. docs/router.md is its runbook.
 {
   pkgs,
   lib,
@@ -102,11 +99,10 @@ in
   # LAN-side address is static and generated from lib/net.nix in ./routing.nix.
   #
   # A cable modem caches the CPE MAC for the lease, so swapping the box on this
-  # port needs the modem power-cycled before it will hand out a new one. That
-  # is why the Phase 7 sequence started there rather than with the cable.
+  # port needs the modem power-cycled before it will hand out a new one.
   networking.interfaces.${host.wanIface}.useDHCP = true;
 
-  # Keep gate's name out of its requests to the ISP (F12 in docs/privacy.md).
+  # Keep gate's name out of its requests to the ISP (docs/privacy.md, "gate").
   # NixOS's dhcpcd.conf starts with a bare `hostname`, which sends the system
   # hostname, and the module has no option to drop it. A later `hostname ""`
   # clears it again (dhcpcd's if-options.c, despite what its man page says

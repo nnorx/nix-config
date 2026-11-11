@@ -169,8 +169,8 @@ in
   services.openssh.listenAddresses = [ { addr = vpn.gateway; } ];
 
   networking.firewall = {
-    # WireGuard answers nothing without a valid key, so the WAN port scan in
-    # docs/router.md still finds nothing listening.
+    # WireGuard answers nothing without a valid key, so a WAN port scan still
+    # finds nothing listening.
     interfaces.${wan}.allowedUDPPorts = [ net.ports.wireguard ];
 
     # SSH to gate itself, per peer. Not `sshInterfaces`, which would open it to

@@ -1,8 +1,7 @@
 # gate routes, for every segment in lib/net.nix.
 #
-# `wan` faces the modem as of the Phase 7 cutover on 2026-09-05. This is the
-# house's only route to the internet now, so a bad ruleset here is an outage
-# rather than an inconvenience.
+# `wan` faces the modem, and this is the house's only route to the internet,
+# so a bad ruleset here is an outage rather than an inconvenience.
 #
 # `lan0` is the tagged trunk to the Flex switch. `servers` is the *untagged*
 # VLAN on it, deliberately: the switch and the AP have to reach the controller
@@ -117,7 +116,7 @@ let
     "172.16.0.0/12"
     "192.168.0.0/16"
     "169.254.0.0/16"
-    "100.64.0.0/10" # CGNAT: docs/router.md leaves this open, so cover it
+    "100.64.0.0/10" # CGNAT, which docs/router.md, "WAN", says how to check for
   ];
   managesUpstream = [ trustedBr ];
   deniedUpstream = lib.filter (i: !(builtins.elem i managesUpstream)) segmentIfaces;

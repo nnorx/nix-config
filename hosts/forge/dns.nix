@@ -1,7 +1,7 @@
 # DNS away from home: over TLS to `encryptedResolvers` in lib/net.nix, never in
 # plaintext to whatever network forge has joined. At home every lookup still
-# goes to the fleet's AdGuard. F11 in docs/privacy.md has the options this was
-# chosen over; tests/forge-dns.nix runs each case below in VMs.
+# goes to the fleet's AdGuard. docs/privacy.md, "DNS away from home", has the
+# options this was chosen over; tests/forge-dns.nix runs each case below in VMs.
 #
 # NetworkManager hands each connection's resolvers to systemd-resolved, which
 # sends a lookup to every link whose routing domains match it. When none
