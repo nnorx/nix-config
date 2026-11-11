@@ -378,13 +378,10 @@ advice and never fails the check. The rules are in
 
 `cache.yml` exists because `linux_rpi4` is in no public cache. Without it a
 kernel bump costs each Pi 4 roughly 9 to 15 hours of compiling, separately, with
-no shared output between them. core5, in a job of its own, takes its kernel
-from nixos-raspberrypi's cache and the rest from cache.nixos.org, so its job
-builds only the fleet's own derivations. The caches are written once, in
-`flake.nix`'s `nixConfig`, and applied in two ways, both needed: as flake
-settings, which are client-supplied, so Nix ignores them for anyone outside
-`trusted-users`, and through `modules/baseline.nix`, which reads that list and
-is what actually lands in each host's `nix.conf`.
+no shared output between them. Its jobs also read nixos-raspberrypi's cache,
+and each push carries the whole closure, so the hosts trust only the fleet's
+cache and cache.nixos.org. That list is written once, in `flake.nix`'s
+`nixConfig`, and `modules/baseline.nix` puts it in each host's `nix.conf`.
 
 GitHub Actions are pinned to commit SHAs, since `cache.yml` pushes to a cache
 every host trusts, and Dependabot keeps the pins current.
