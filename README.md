@@ -114,7 +114,7 @@ scripts/               What the apps run
 | [observability.md](docs/observability.md) | The metrics and alerting stack: what runs, access, and what to do when an alert fires |
 | [night-shift.md](docs/night-shift.md) | Agents on forge, and in a sandbox on the work Mac, working issues queued in Linear |
 | [privacy.md](docs/privacy.md) | What leaves the house, per host and service, and what could stop |
-| [keys.md](docs/keys.md) | Every key, token and password hash: what each unlocks, rotating it, the hardware-key plan, rebuilding forge |
+| [keys.md](docs/keys.md) | Every key, token and password hash: what each unlocks, rotating it, rebuilding forge |
 
 Plans for what is not built yet are design docs in Linear, one per project.
 A Claude session reads them from `~/.local/state/night-shift/projects/`, in
