@@ -1,34 +1,13 @@
-# Fleet network topology — single source of truth for LAN addressing.
-#
-# Hosts and modules read addresses from here instead of embedding literals, so
-# a renumbering touches one file. Consumers reference attribute *names*, never
-# values.
-#
-# The file is public and stays one file. Nothing in it identifies hardware: a
-# device has a role name and an address here, and the MAC its address is
-# reserved for is in gate's sops file. docs/network.md, "Naming a device", has
-# the split and what a role name may say.
+# The fleet's network topology, the one source of LAN addressing. Consumers
+# read attribute names, never values, so renumbering touches one file. Nothing
+# here identifies hardware: a device has a role name and an address, and its
+# MAC is in gate's sops file (docs/network.md, "Naming a device").
 {
-  # The live topology. Every host and every DHCP client is addressed from
-  # here; the flat network the fleet grew up on is gone.
-  #
-  # The third octet is the VLAN id, so an address names its own segment.
-  #
-  # 192.168 rather than 10.x, and not for taste: a centrally managed VPN client
-  # on one of the laptops here routes a wide slice of 10/8 into its tunnel, wide
-  # enough to swallow a /16 picked anywhere in that space. A home LAN numbered
-  # there would be unreachable from that machine whenever the tunnel was up, and
-  # the policy is not ours to change locally. Managed profiles rarely claim
-  # 192.168, because that is where home networks live. Verified with
-  # `route -n get` against the tunnel rather than assumed.
-  #
-  # `subnet` is carried explicitly rather than derived from gateway and prefix:
-  # Kea and nftables both want the network address in CIDR form, and deriving
-  # it in Nix means string arithmetic on octets for no gain.
-  #
-  # gate holds .1 in every segment: that is what `gateway` is. Below .100 is
-  # reserved for statics and DHCP reservations, .100-.240 is the dynamic pool,
-  # and .241+ is left alone.
+  # The third octet is the VLAN id. gate holds .1 in every segment
+  # (`gateway`); below .100 is statics and reservations, .100-.240 the pool,
+  # and .241+ is left alone. 192.168 rather than 10/8, because a managed VPN
+  # client on one laptop routes a wide slice of 10/8 into its tunnel.
+  # `subnet` is explicit because Kea and nftables want CIDR.
   segments = {
     # Laptops and phones. Full access.
     trusted = {
@@ -42,30 +21,14 @@
       };
     };
 
-    # The Pis, the switch, the AP. Reachable from trusted.
+    # The Pis, the switch, the AP. Reachable from trusted. Its own segment
+    # because the port-53 redirect keeps the client's source only across
+    # subnets: on one, the reply comes from an address the client never asked.
     #
-    # Separate from trusted for a specific mechanical reason, not tidiness:
-    # the port-53 redirect that catches hardcoded resolvers only preserves the
-    # client's source address when the resolver is on a *different* subnet. On
-    # the same subnet the reply comes back from an address the client never
-    # sent to, so it drops it, and masquerading the hairpin to fix that
-    # destroys the source address the redirect existed to preserve.
-    # No `pool`, deliberately, and that absence is load-bearing in two ways.
-    #
-    # Everything here is statically addressed: the Pis from their own NixOS
-    # config, the switch and the AP from the UniFi controller. Infrastructure
-    # that does not depend on DHCP being up is a better property for the
-    # devices the rest of the network is reached through.
-    #
-    # It is also what keeps Kea off the trunk parent. servers is the untagged
-    # VLAN on `lan0`, and Kea's raw sockets on a trunk parent also receive
-    # tagged frames, because the kernel delivers to AF_PACKET taps before VLAN
-    # demux. A DHCP request from an iot device would arrive on `lan0.30` *and*
-    # on `lan0`, and the `lan0` copy would be answered from this pool. The
-    # device would end up with a servers address while physically on VLAN 30,
-    # which does not work at all: gate would ARP for it untagged and never find
-    # it. hosts/gate/routing.nix serves DHCP only where a pool exists, so no
-    # pool here means nothing binds `lan0`.
+    # No `pool`: its devices are static, so they do not depend on DHCP, and
+    # Kea stays off the trunk parent `lan0`, where raw sockets also see tagged
+    # frames (AF_PACKET before VLAN demux) and would hand iot devices servers
+    # addresses. hosts/gate/routing.nix serves DHCP only where a pool exists.
     servers = {
       id = 20;
       subnet = "192.168.20.0/24";
@@ -85,36 +48,18 @@
       };
     };
 
-    # One centrally managed laptop, and nothing else. Segmented for the same
-    # reason guest is, but the threat model runs both ways: its software is
-    # administered by someone else and cannot be audited from here, so on
-    # trusted it could enumerate every device in the house. Equally, the house's
-    # iot chatter has no business reaching a machine held to a security policy
-    # that is not ours.
-    #
-    # This is not hypothetical. The 192.168 note above exists because that
-    # machine's VPN client claims a wide slice of 10/8: it already makes routing
-    # decisions on its administrator's behalf, not ours. This subnet is clear of
-    # that range.
-    #
-    # It reaches the internet and the fleet resolvers on port 53, and nothing
-    # else. Filtering is kept deliberately, but query logging is off (see
-    # `logQueries` below): a timestamped record of that machine's lookups is an
-    # awkward thing to hold, in both directions, and filtering does not require
-    # retaining it.
+    # One centrally managed laptop. Isolated both ways: its software cannot be
+    # audited from here, and the house's traffic has no business reaching a
+    # machine held to someone else's policy. It reaches the internet and the
+    # fleet resolvers on port 53, and nothing else.
     work = {
       id = 50;
       subnet = "192.168.50.0/24";
       gateway = "192.168.50.1";
       prefixLength = 24;
 
-      # Filtered, but not recorded. modules/adguardhome.nix reads this flag and
-      # writes the matching per-client rule on every resolver, so the property
-      # holds without anyone having to tick a box in a UI.
-      #
-      # Load-bearing since gate started redirecting hardcoded resolvers: before
-      # that, a machine here ignoring DHCP went unlogged because it was not
-      # talking to the fleet at all.
+      # Filtered but not logged, since a record of that machine's lookups is
+      # not ours to hold. modules/adguardhome.nix reads this on every resolver.
       logQueries = false;
       pool = {
         first = "192.168.50.100";
@@ -134,15 +79,11 @@
       };
     };
 
-    # Remote peers, over WireGuard terminating on gate. See "Inbound remote
-    # access" in docs/router.md for the design.
-    #
-    # Not a VLAN: nothing on the switch carries it, and `id` only keeps the
-    # third-octet convention and 60 out of use as a tag. No `pool` either,
-    # because WireGuard has no DHCP. Each peer's address is fixed here, and it
-    # is the peer's identity in gate's firewall: WireGuard drops any packet
-    # whose source is not the address its key is bound to, so a source address
-    # arriving on the tunnel is authenticated by the key that sent it.
+    # Remote peers over WireGuard on gate ("Inbound remote access" in
+    # docs/router.md). Not a VLAN: `id` keeps the third-octet convention and
+    # keeps 60 out of use as a tag. No pool. A peer's address is its identity
+    # in gate's firewall, authenticated by its key: WireGuard drops a packet
+    # whose source is not the address bound to the key that sent it.
     vpn = {
       id = 60;
       subnet = "192.168.60.0/24";
@@ -153,31 +94,18 @@
         phone = "192.168.60.20";
       };
 
-      # What each peer may reach through the tunnel beyond DNS, and the one
-      # place that is written: gate's forward rules read it, and so will each
-      # proxy.
-      #
+      # What each peer may reach beyond DNS, read by gate's forward rules:
       #   adguard   the AdGuard UI on the fleet resolvers
       #   ssh       SSH to every server, and to gate itself
       #   internet  out `wan`, for a full-tunnel profile
+      # Nothing grants the UniFi UI, which administers the network. The phone
+      # gets DNS only, as the device most likely to be lost.
       #
-      # Nothing grants the UniFi UI, which administers the network itself. The
-      # phone gets DNS only, since it is the device most likely to be lost.
-      #
-      # DNS to the fleet resolvers is every peer's, and deliberately not a
-      # grant, because it could not be withheld. hosts/gate/routing.nix
-      # redirects port 53 on the tunnel as on any segment, and the firewall's
-      # `ct status dnat accept` passes redirected traffic ahead of every tunnel
-      # rule, so a peer asking 8.8.8.8 is answered by the fleet whatever this
-      # table says. A grant that cannot be refused would be worse than none.
-      #
-      # This applies through the tunnel only. At home forge is on trusted, as
-      # before, and the tunnel does not work from inside the house anyway: the
-      # WAN port is opened on `wan`, and a packet from the LAN to gate's public
-      # address arrives on a LAN interface.
-      #
-      # modules/net-assertions.nix holds every entry to a peer in `peers` and
-      # every grant to a name in `grantNames`.
+      # DNS is every peer's and not a grant, because it cannot be refused: port
+      # 53 is redirected on the tunnel too, ahead of every tunnel rule. The
+      # tunnel does not work from the LAN, where a packet to gate's public
+      # address arrives on a LAN interface. modules/net-assertions.nix checks
+      # every entry.
       grants = {
         forge = [
           "adguard"
@@ -187,10 +115,8 @@
         phone = [ ];
       };
 
-      # The names a grant above may take. Each but `internet` is a forward rule
-      # in hosts/gate/wireguard.nix, which asserts that its rules and this list
-      # agree, so a name here without a rule fails evaluation rather than
-      # rendering nothing.
+      # Each but `internet` is a forward rule in hosts/gate/wireguard.nix,
+      # which asserts that its rules and this list agree.
       grantNames = [
         "adguard"
         "ssh"
@@ -199,8 +125,7 @@
     };
   };
 
-  # Per-host wired NIC. `iface` is the kernel name — the Pi 4 and 5 enumerate
-  # their onboard NIC as end0.
+  # Per-host wired NIC. The Pi 4 and 5 name their onboard NIC end0.
   hosts = {
     core4 = {
       ip = "192.168.20.32";
@@ -217,9 +142,7 @@
       sshInterfaces = [ "end0" ];
     };
 
-    # Second, independent DNS path. Static, like the other servers-segment
-    # hosts: that segment carries no DHCP pool at all, so nothing can be
-    # leased an address that collides with one of these.
+    # Second, independent DNS path.
     lifeline = {
       ip = "192.168.20.11";
 
@@ -228,79 +151,38 @@
       sshInterfaces = [ "end0" ];
     };
 
-    # gate (CWWK N100, 4x i226) has no `ip` and no `iface`. Both exist for the
-    # hosts/common model of one host, one address, one default gateway, and
-    # gate fits none of it: it holds `.1` in every segment and takes its default
-    # route from the ISP over `wan`. There is no single address to name here and
-    # nothing for hosts/common to configure, so its addresses are generated from
-    # `segments` in hosts/gate/routing.nix instead.
-    #
-    # The WAN port is therefore `wanIface`, deliberately not `iface`. `iface`
-    # means "the NIC hosts/common binds this host's static address and default
-    # gateway to", and on a router that is a LAN port. Under the other name,
-    # adding an `ip` here would silently configure a LAN address and a LAN
-    # default gateway on the interface facing the internet.
-    #
-    # Nothing may assume gate has an `ip`. Consumers read `net.hosts.<h>.ip`
-    # unguarded for the hosts a list names (hosts/forge/dns.nix, for each of
-    # `resolvers`), so naming gate in such a list fails some other host's
-    # evaluation with a bare "attribute 'ip' missing". A list that may name
-    # gate reads its address another way, as `metricsTargets` does through
-    # `metricsSegment` below, and modules/net-assertions.nix checks it.
-    #
-    # Metrics did not force one either. What the scraper needs is narrower:
-    # the address gate is reached at from the collector's segment, which is
-    # `metricsSegment` below.
+    # gate (CWWK N100, 4x i226) has no `ip` or `iface`, which serve
+    # hosts/common's one address and gateway: it holds .1 in every segment
+    # (hosts/gate/routing.nix) and routes out `wan`. The WAN port is
+    # `wanIface`, not `iface`, so an `ip` added here cannot configure a LAN
+    # address on the port facing the internet. Nothing may assume gate has an
+    # `ip`: consumers read `.ip` unguarded for the hosts a list names, so a list
+    # that may name gate reads it another way, as `metricsTargets` does.
     gate = {
-      # The segment gate's exporters bind and are scraped on: its gateway
-      # address there, and that address alone. hosts/gate/metrics.nix opens
-      # their ports on the interface carrying it, to the collector alone.
-      # modules/net-assertions.nix holds it to the collector's own segment, so
-      # a scrape never crosses gate's forward chain.
+      # The segment gate's exporters bind and are scraped on, at its gateway
+      # address. modules/net-assertions.nix holds it to the collector's
+      # segment, so a scrape never crosses gate's forward chain.
       metricsSegment = "servers";
 
-      # Interfaces sshd is reachable on. Listed rather than derived, because
-      # this is a security control and deriving it would mean a future
-      # interface silently becoming an SSH surface.
-      #
-      # Never `wan`. Before removing an interface here, prove SSH over another
-      # one first, not after.
-      #
-      # `br-trusted` is where admin machines live. `lan0` is the trunk, whose
-      # untagged VLAN is `servers`, so it is how the switch and AP reach the
-      # controller. Both are listed, because this list is read literally: when
-      # lan0 stopped meaning trusted and started meaning servers, the value
-      # here did not change but its meaning did, and SSH silently became
-      # reachable from vendor firmware and unreachable from a laptop. An
+      # Listed rather than derived, because this is a security control: a new
+      # interface must not become an SSH surface unasked. Never `wan`. Before
+      # removing one, prove SSH over another. `br-trusted` holds the admin
+      # machines; `lan0` is the trunk, untagged servers. Read literally: an
       # interface name is not a stable description of what is behind it.
       sshInterfaces = [
         "lan0"
         "br-trusted"
       ];
 
-      # Role names, and the PCI path each is pinned to. hosts/gate turns these
-      # into systemd .link files; the kernel never generates names in this
-      # shape, so there is no rename collision.
-      #
-      # Matching on PCI path rather than MAC address is deliberate. It defends
-      # against the thing that actually reorders interfaces, which is systemd's
-      # predictable-naming scheme changing between releases and turning enp2s0
-      # into something else, while keeping hardware identifiers out of a public
-      # repo. See "What stays out of this repo" in docs/network.md. The residual
-      # risk it does not cover is firmware renumbering the PCI buses, which
-      # fixed hardware with no hotplug does not do, and which a MAC check after
-      # the rename catches.
-      #
-      # Physical sockets are labelled ETH0-ETH3 on the chassis and map in
-      # order, so wan is ETH0.
-      #
-      # Roles:
+      # Role names, pinned to PCI paths by .link files in hosts/gate; the
+      # kernel never generates names in this shape. A PCI path rather than a
+      # MAC, so a systemd naming change cannot reorder the ports and no
+      # hardware id enters the repo; a MAC check after the rename catches
+      # firmware renumbering the buses. Sockets ETH0-ETH3 map in order.
       #   wan   ETH0  the modem
       #   lan0  ETH1  tagged trunk to the Flex switch, every segment on it
-      #   lan1  ETH2  untagged, bridged into trusted: a dedicated 2.5G run to
-      #               one machine that does not contend with the Pis and the
-      #               AP for the switch uplink. See hosts/gate/routing.nix for
-      #               why it is bridged rather than given its own subnet
+      #   lan1  ETH2  untagged trusted, a dedicated 2.5G run to one machine,
+      #               bridged (see hosts/gate/routing.nix)
       #   lan2  ETH3  spare, left down
       nics = {
         wan = "pci-0000:02:00.0";
@@ -310,27 +192,20 @@
       };
       wanIface = "wan";
 
-      # The tagged trunk to the Flex switch, whose untagged VLAN is servers,
-      # and the untagged port bridged into trusted. Named here, beside
-      # `wanIface`, so hosts/gate reads one copy of each: a second copy is what
-      # does not follow a rename, as `sshInterfaces` above shows.
-      # modules/net-assertions.nix holds each role to a name in `nics`.
+      # Named here beside `wanIface` so hosts/gate reads one copy of each,
+      # which follows a rename. modules/net-assertions.nix holds each to `nics`.
       trunkIface = "lan0";
       wiredIface = "lan1";
 
-      # The WireGuard interface, carrying the `vpn` segment. Not in
-      # `sshInterfaces`: that would open SSH to every peer, and only some may
-      # have it, so hosts/gate/wireguard.nix opens it per peer instead.
+      # Not in `sshInterfaces`, which would open SSH to every peer;
+      # hosts/gate/wireguard.nix opens it per peer.
       vpnIface = "wg0";
     };
   };
 
-  # Devices a rule names: a role and an address, nothing that identifies the
-  # hardware. Each one's MAC, which Kea reserves the address for, is
-  # `mac-<name>` in secrets/gate.yaml. Addresses sit below the segment's pool,
-  # in the range reserved for statics and reservations, so Kea leases them to
-  # nothing else. A role name says what a rule needs and no more: no model, no
-  # room.
+  # Devices a rule names, by role. Each one's MAC is `mac-<name>` in
+  # secrets/gate.yaml, and its address sits below the pool, so Kea leases it
+  # to nothing else. A role name says what a rule needs: no model, no room.
   devices = {
     govee-1 = {
       segment = "iot";
@@ -346,62 +221,46 @@
     };
   };
 
-  # The Govee lights, for the rules in hosts/gate/govee.nix and core5. Named
-  # rather than derived from `devices`: a rule reads a role, not "every device
-  # on iot".
+  # For hosts/gate/govee.nix and core5. Named rather than derived from
+  # `devices`: a rule reads a role, not "every device on iot".
   goveeLights = [
     "govee-1"
     "govee-2"
     "govee-3"
   ];
 
-  # The MTU of the WireGuard tunnel, on gate and on every peer. WireGuard's
-  # default is 1420, which assumes a clean 1500-byte path. Mobile networks are
-  # not one: over a T-Mobile hotspot, measured 2026-10-02 with don't-fragment
-  # pings through the tunnel, the largest inner packet that survived was 1376
-  # bytes, so about 1436 on the wire once WireGuard's 60 bytes of IPv4
-  # framing are added. Anything bigger, which is an SSH key exchange or most
-  # of a web page, vanished without an error, while pings and the handshake
-  # itself worked, so the tunnel looked up and carried nothing.
-  #
-  # 1280 is as low as it can go: the full-tunnel profile carries IPv6 inside,
-  # and IPv6 refuses a link smaller than that. On the wire it is 1340 bytes,
-  # with ample room under that measurement and under most mobile and hotel
-  # paths, though not a guarantee on all of them. TCP negotiates its segments
-  # down to match, at a cost of a few percent of throughput. Peers configured
-  # by hand, like the phone, need the same value set in their app.
+  # The tunnel MTU, on gate and every peer. Over a mobile hotspot,
+  # don't-fragment pings found 1376 the largest inner packet to survive (1436
+  # on the wire); larger ones vanished silently, so WireGuard's default 1420
+  # left the tunnel up and carrying nothing. 1280 is the floor, because IPv6
+  # inside the tunnel refuses anything smaller: 1340 on the wire. Peers set by
+  # hand, like the phone, need it in their app.
   vpnMtu = 1280;
 
-  # The fleet's DNS resolvers, AdGuard over Unbound, which DHCP hands out and
-  # gate redirects stray port-53 traffic to. Named by host so consumers can
-  # read both the address and the segment it sits on.
+  # AdGuard over Unbound, handed out by DHCP and the target of gate's port-53
+  # redirect. Named by host, so consumers read both address and segment.
   resolvers = [
     "core4"
     "lifeline"
   ];
 
-  # The name core5 asks each resolver every 30 seconds, to see that it answers
-  # (modules/blackbox.nix). In `lan`, which Unbound answers NXDOMAIN itself
-  # (modules/unbound.nix), so the probe needs neither the WAN nor the cache, and
-  # AdGuard leaves it out of its log and statistics (modules/adguardhome.nix).
+  # What core5's probe asks each resolver (modules/blackbox.nix). Unbound
+  # answers it NXDOMAIN itself, so the probe needs neither the WAN nor the
+  # cache, and AdGuard leaves it out of its log (modules/adguardhome.nix).
   resolverProbe = "resolver-probe.lan";
 
-  # Public resolvers, for what must not depend on the fleet's own: AdGuard's
-  # bootstrap and fallback, core5, and the guest segment. Two operators, so
-  # one outage does not take both, and not Google: keeping it out of the DNS
-  # path is one of the reasons this fleet exists.
+  # For what must not depend on the fleet's own: AdGuard's bootstrap, core5
+  # and guest. Two operators, so one outage does not take both, and not
+  # Google, which the fleet exists partly to keep out of its DNS path.
   publicResolvers = [
     "1.1.1.1" # Cloudflare
     "9.9.9.9" # Quad9
   ];
 
-  # forge's DNS away from home, over TLS: hosts/forge/dns.nix. `name` is what
-  # the certificate must carry. One operator at both of its addresses rather
-  # than two operators, since systemd-resolved stays on whichever server last
-  # answered, so a second operator would collect lookups after any hiccup in
-  # the first. Quad9 because it is already one of the two above, keeps no
-  # client addresses, sends no client subnet from these two, and refuses
-  # known-malicious names, which is some of what AdGuard does at home.
+  # forge's DNS away from home, over TLS (hosts/forge/dns.nix). One operator,
+  # since systemd-resolved stays on whichever server last answered, so a
+  # second would collect lookups after any hiccup in the first. Quad9 keeps no
+  # client addresses and refuses known-malicious names, as AdGuard does.
   encryptedResolvers = [
     {
       ip = "9.9.9.9";
@@ -413,13 +272,9 @@
     }
   ];
 
-  # Where each Unbound fetches its copy of the root zone (RFC 8806,
-  # modules/unbound.nix): the root servers that allow zone transfers, and
-  # ICANN's two transfer hosts. The list Unbound's own example configuration
-  # carries, in the version this flake pins. IPv4 alone, since Unbound
-  # recurses over IPv4 alone. Unbound tries them in turn, so one going away
-  # costs a timeout, and all of them going away costs the local copy, not
-  # resolution: the resolvers fall back to asking the root.
+  # Where each Unbound fetches the root zone (RFC 8806, modules/unbound.nix):
+  # the list from Unbound's example configuration, IPv4 alone as Unbound
+  # recurses over IPv4. Losing them all costs the local copy, not resolution.
   rootZoneSources = [
     "170.247.170.2" # b.root-servers.net
     "192.33.4.12" # c.root-servers.net
@@ -431,17 +286,12 @@
     "192.0.32.132" # xfr.lax.dns.icann.org
   ];
 
-  # The multicast group Govee lights listen on for the LAN API's scan. It is
-  # SSDP's group, but gate lets only `ports.goveeScan` through to iot, not
-  # SSDP's own port.
+  # The Govee LAN API's scan group. It is SSDP's, but gate lets only
+  # `ports.goveeScan` through to iot.
   goveeGroup = "239.255.255.250";
 
-  # The fleet's metrics, by pull: the collector runs the store and Grafana
-  # (modules/metrics.nix) and scrapes node_exporter on each target
-  # (modules/node-exporter.nix), which opens its port to the collector alone.
-  # See docs/observability.md. Named rather than derived from `hosts`: being a
-  # host is not the same fact as being scraped, and each target opens a port.
-  # gate has no `ip`, and is scraped at its `metricsSegment`.
+  # Named rather than derived from `hosts`, since each target opens a port to
+  # the collector (docs/observability.md). gate is scraped at `metricsSegment`.
   metricsCollector = "core5";
   metricsTargets = [
     "core4"
@@ -450,100 +300,72 @@
     "gate"
   ];
 
-  # Ports forming contracts *between* hosts, so they can't live in one module:
-  # core4 and lifeline each dial their own unbound on loopback; every AdGuard
-  # host opens adguardWeb on its LAN interface.
+  # Ports forming contracts between hosts, so they cannot live in one module:
+  # each resolver's AdGuard dials its own unbound; each opens adguardWeb.
   ports = {
     unbound = 5335;
 
     adguardWeb = 3000;
 
-    # UniFi controller, in containers on core5. Ports the switch and AP need
-    # to reach, so they are contracts between hosts like the rest of this set.
+    # UniFi controller, in containers on core5, which the switch and AP reach.
     unifiUi = 8443; # HTTPS admin UI
     unifiInform = 8080; # devices POST their state here
     unifiStun = 3478; # UDP, keeps devices reachable behind NAT
     unifiDiscovery = 10001; # UDP, device discovery
 
-    # Home Assistant's frontend and API, on core5. Phones on trusted reach it,
-    # which gate's "trusted reaches servers" rule already allows. No WireGuard
-    # peer does: nothing in `segments.vpn.grants` grants it.
+    # Home Assistant on core5, reached from trusted; no tunnel grant names it.
     homeAssistant = 8123;
 
-    # Govee's LAN API, between Home Assistant on core5 and the lights on iot.
-    # The numbers are Govee's, fixed in the lights' firmware. gate routes the
-    # scan into iot and lets the other two cross; see hosts/gate/govee.nix.
+    # Govee's LAN API, fixed in the lights' firmware; see hosts/gate/govee.nix.
     goveeScan = 4001; # UDP, multicast discovery, to the lights
     goveeReply = 4002; # UDP, scan replies and status, to core5
     goveeCommand = 4003; # UDP, control, to each light
 
-    # The metrics stack, docs/observability.md. node_exporter is a contract
-    # between core5 and every target. VictoriaMetrics is on core5's loopback
-    # and is here because the rule is every port: the store itself at
-    # victoriaMetricsStore, for Grafana, vmalert and its own scrape, and
-    # vmauth at victoriaMetrics, the store's own default, passing its read
-    # paths alone (modules/metrics.nix). So a query at the usual port is a
-    # query through vmauth. Grafana is on core5's address, at 3030 rather than
-    # its default 3000, which is adguardWeb: gate's tunnel grants match on the
-    # number.
+    # The metrics stack (docs/observability.md). vmauth holds the store's
+    # default port and passes reads alone, so a query there goes through it.
+    # Grafana is at 3030, since 3000 is adguardWeb and tunnel grants match on
+    # the number.
     nodeExporter = 9100;
     victoriaMetrics = 8428;
     victoriaMetricsStore = 8430;
     grafana = 3030;
 
-    # The alerting on the collector, on its loopback (modules/alerting.nix).
-    # vmalert's own default, 8880, is the UniFi controller's guest portal on
-    # the same host, though nothing publishes that.
+    # On the collector's loopback (modules/alerting.nix). vmalert's default,
+    # 8880, is the UniFi guest portal on the same host.
     vmalert = 8881;
     alertmanager = 9093;
 
-    # Kea's statistics, on gate's metricsSegment address beside node_exporter.
-    # Kea keeps pool usage itself but serves it only as JSON over its control
-    # socket, which this exporter translates.
+    # Kea's pool usage, from its control socket, on gate's metricsSegment.
     keaExporter = 9547;
 
-    # Unbound's statistics, on each resolver's address beside node_exporter,
-    # read over Unbound's local control socket (modules/unbound.nix).
+    # Unbound's statistics, from its control socket (modules/unbound.nix).
     unboundExporter = 9167;
 
-    # Probes from core5, on its loopback: DNS to each resolver, ICMP to the
-    # public resolvers (modules/blackbox.nix).
+    # core5's DNS and ICMP probes, on its loopback (modules/blackbox.nix).
     blackboxExporter = 9115;
 
-    # The NVMe drive's own health log, on core5's loopback
-    # (modules/smartctl.nix).
+    # The NVMe drive's health log, on core5's loopback (modules/smartctl.nix).
     smartctlExporter = 9633;
 
-    # WireGuard on gate's WAN, which every peer's config names. 443 rather
-    # than 51820, because restrictive Wi-Fi blocks unusual UDP ports more often
-    # than the one HTTP/3 uses.
+    # WireGuard on gate's WAN. 443 rather than 51820, because restrictive
+    # Wi-Fi blocks unusual UDP ports more often than HTTP/3's.
     wireguard = 443;
   };
 
-  # The house's web UIs, each at https://<name>.<domain> through the proxy on
-  # its host. <domain> is `services-domain` in the sops file
-  # of each host that serves or answers these names, and never here. A service
-  # joins this set in the pull request that puts it behind its proxy.
-  #
-  # Two attributes are optional: `upstream`, "http" unless set, and
-  # `grantable`, true unless set. The defaults live in the readers, each of
-  # which writes `upstream or "http"` and `grantable or true`, so an entry
-  # carries only what differs and this file stays data.
-  # modules/net-assertions.nix refuses an attribute it does not know, so a
-  # misspelt `grantable = false` fails evaluation rather than reading as the
-  # default.
+  # The house's web UIs, at https://<name>.<domain> through each host's proxy;
+  # <domain> is `services-domain` in sops, never here. `upstream` ("http") and
+  # `grantable` (true) are optional, defaulted in the readers, and
+  # modules/net-assertions.nix refuses an attribute it does not know.
   services = {
     grafana = {
       host = "core5";
-      # A name in `ports`: where the service itself listens, on loopback.
+      # A name in `ports`: where the service listens, on loopback.
       port = "grafana";
-      # Segments that reach it. Tunnel peers are not listed here: what a
-      # peer may reach is `segments.vpn.grants`.
+      # Segments that reach it; what a peer reaches is `segments.vpn.grants`.
       segments = [ "trusted" ];
       # What core5's probe asks for. It must answer without a login.
       probe = "/api/health";
-      # The offboxPush entry that copies its state off the host, or null.
-      # Grafana's is provisioned from this repo.
+      # The offboxPush entry backing up its state; null, as it is provisioned.
       backup = null;
     };
   };
