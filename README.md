@@ -26,19 +26,11 @@ Alongside the fleet, **forge** is a Framework 16 laptop running NixOS as a
 desktop: Plasma, Steam, LUKS and Secure Boot. It is not a server and does not
 share `hosts/common`; see [docs/laptop.md](docs/laptop.md).
 
-Six segments: trusted (10), servers (20), iot (30), guest (40), work (50), and
-vpn (60) for WireGuard peers, which is not a VLAN.
-core4 and lifeline share no state, so either can serve DNS alone. gate resolves
-through its own Unbound so it can be rebuilt while both are down.
-
-**[docs/network.md](docs/network.md) is the real description**: segments, port
-roles, the switch topology and the invariant that keeps it bootstrappable, how
-DNS flows, and what deliberately stays out of this public repo.
-
-Addressing lives in [`lib/net.nix`](lib/net.nix) and reaches every host through
-`specialArgs`. Nothing else in the tree hardcodes an address, so renumbering is
-a one-file change, and [`modules/net-assertions.nix`](modules/net-assertions.nix)
-fails the build if that file stops agreeing with itself.
+[docs/network.md](docs/network.md) describes the network: six segments, the
+trunk, DNS, and what stays out of this public repo. Addressing lives in
+[`lib/net.nix`](lib/net.nix) alone, reaching every host through `specialArgs`,
+and [`modules/net-assertions.nix`](modules/net-assertions.nix) fails the build
+if it stops agreeing with itself.
 
 ## Layout
 
@@ -113,7 +105,7 @@ scripts/               What the apps run
 | [laptop.md](docs/laptop.md) | Installing forge, enabling Secure Boot, preparing for Windows |
 | [observability.md](docs/observability.md) | The metrics and alerting stack: what runs, access, and what to do when an alert fires |
 | [night-shift.md](docs/night-shift.md) | Agents on forge, and in a sandbox on the work Mac, working issues queued in Linear |
-| [privacy.md](docs/privacy.md) | What leaves the house, per host and service, and what could stop |
+| [privacy.md](docs/privacy.md) | What leaves the house, per host and service, and what keeps it narrow |
 | [keys.md](docs/keys.md) | Every key, token and password hash: what each unlocks, rotating it, rebuilding forge |
 
 Plans for what is not built yet are design docs in Linear, one per project.
@@ -129,9 +121,8 @@ nrs    # nixos-rebuild switch --flake github:nnorx/nix-config --accept-flake-con
 nrb    # nixos-rebuild boot, same flags
 ```
 
-`nixos-rebuild` resolves the flake attribute from the hostname, so one literal
-string is correct everywhere. `--refresh` matters: `github:` refs are cached for
-an hour, so without it you can silently deploy a stale `main`.
+The flake attribute comes from the hostname. `--refresh` matters: `github:`
+refs are cached for an hour, so without it you can deploy a stale `main`.
 
 **Use `nrb` plus a reboot, not `nrs`, for anything that reconfigures the
 interface you are connected over.** A static address moving, an interface
@@ -264,17 +255,10 @@ its own while forge's tunnel is up.
 
 ## Remote access
 
-WireGuard terminates on gate, on UDP 443. Peers land on the `vpn` segment, and
-every peer gets the fleet's DNS, and `segments.vpn.grants` in
-[`lib/net.nix`](lib/net.nix) is the rest of what each may reach, which gate
-enforces in [`hosts/gate/wireguard.nix`](hosts/gate/wireguard.nix): forge adds
-the AdGuard UI, SSH to the fleet and a full-tunnel exit, and the phone has
-nothing more. Neither gets the UniFi UI. The design and its reasoning are
+WireGuard terminates on gate. Each peer reaches the fleet's DNS and what
+`segments.vpn.grants` in [`lib/net.nix`](lib/net.nix) gives it, rendered by
+[`hosts/gate/wireguard.nix`](hosts/gate/wireguard.nix). The design is
 "Inbound remote access" in [docs/router.md](docs/router.md#inbound-remote-access).
-
-Keys follow the SSH model. A peer generates its own key pair and only the
-public half goes in [`lib/wireguard-keys.nix`](lib/wireguard-keys.nix). gate's
-private key and a pre-shared key per peer are in `secrets/gate.yaml`.
 
 To add a peer:
 
@@ -296,8 +280,7 @@ To add a peer:
    address or no grants.
 4. Merge and deploy gate behind `deploy-guard`, since it changes the firewall.
 
-Revoking a peer is deleting its key line and deploying gate. Nothing expires a
-WireGuard key, so that is the only revocation there is.
+Revoking a peer is deleting its key line and deploying gate.
 
 forge connects with two NetworkManager profiles, split and full tunnel; using
 them, and why neither works from inside the house, is "Remote access" in
@@ -328,8 +311,7 @@ ssh-keyscan -t ed25519 <host> | cut -d' ' -f2,3 | ssh-to-age
 sops updatekeys secrets/<host>.yaml
 ```
 
-The failure mode if you skip this is an unrelated-looking deploy error much
-later, not a clear message at the point of the mistake.
+Skipping it shows up later as an unrelated-looking deploy error.
 
 ## Alerts
 
@@ -341,16 +323,14 @@ catches a timer that never fired or a host that is off. Both services are
 hosted, so they still work when the house is down. Only the host's and unit's
 names leave the host.
 
-Each covered host needs two secrets, and evaluation fails without them. sops-nix
-would only notice when the system is built, after CI, which only evaluates, had
-let the change merge, and the Pis would then stop upgrading with nothing
-installed yet to say so. From the repo, in your own terminal, inside `nix
-shell nixpkgs#sops nixpkgs#openssl` if either is missing. The first half makes
-one random topic for the whole fleet, so the phone needs one subscription, and
-prints it: note it before the end clears it. At `read`, paste the
-healthchecks.io project's ping key, from its settings page; it does not echo.
-The block has no comments, since interactive zsh runs a pasted `#` line as a
-command.
+Each covered host needs two secrets, and evaluation fails without them, so CI
+catches a missing one before the Pis do. From the repo, in your own terminal,
+inside `nix shell nixpkgs#sops nixpkgs#openssl` if either is missing. The
+first half makes one random topic for the whole fleet, so the phone needs one
+subscription, and prints it: note it before the end clears it. At `read`,
+paste the healthchecks.io project's ping key, from its settings page; it does
+not echo. The block has no comments, since interactive zsh runs a pasted `#`
+line as a command.
 
 ```bash
 topic=$(openssl rand -hex 16)
@@ -367,15 +347,13 @@ unset topic key
 ```
 
 Checks appear in healthchecks.io on their first ping, named `<host>-<unit>`,
-with its default one-day period. Raise each one's grace from the default hour
-to 6 hours when it appears, since a ping cannot set it. Healthy gaps run past
-25 hours: the timers keep local time, so the night the clocks go back is 25
-hours long; the backups add up to 20 minutes of random delay; and an upgrade
-pings when it finishes, which a large download onto an SD card can push back
-by an hour or more. A night with no success still alerts, about 30 hours after
-the last one. Point the project's notifications at the same
-ntfy topic so both kinds of alert arrive in one place. To cover another unit,
-add it to `fleetAlerts.failure` or `fleetAlerts.heartbeat` in its host.
+with its default one-day period. Raise each one's grace to 6 hours when it
+appears, since a ping cannot set it: healthy gaps run past 25 hours (the
+night the clocks go back, the backups' random delay, a slow upgrade). A missed
+night still alerts, about 30 hours after the last success. Point the
+project's notifications at the same ntfy topic, so both kinds of alert arrive
+in one place. To cover another unit, add it to `fleetAlerts.failure` or
+`fleetAlerts.heartbeat` in its host.
 
 The metrics have alerts of their own, on core5: [docs/observability.md](docs/observability.md)
 has them, and what to do when one fires.
@@ -392,13 +370,9 @@ has them, and what to do when one fires.
 | `update-flake.yml` | Mondays 12:00 UTC | Opens a PR bumping `flake.lock` |
 | `image-updates.yml` | Tuesdays 12:00 UTC | Keeps an `images` issue open while a pinned container image is behind its registry |
 
-**Run `nix run .#preflight` before pushing.** It is exactly what the check gate
-runs: formatting, `nix flake check`, every host's toplevel and every Home
-Manager config evaluated, and a brief on which of them the change touches.
-For each host it says whether merging reboots it that night, changes its boot
-path, networking or logins, which services restart and which packages move,
-and it ends on a verdict: `routine`, `review`, or `be there`, for a change to
-merge only when someone can be at home while the Pis upgrade. The verdict is
+**Run `nix run .#preflight` before pushing.** It is what `check.yml` runs, and
+ends on a verdict per change: `routine`, `review`, or `be there`, for a change
+to merge only when someone can be home while the Pis upgrade. The verdict is
 advice and never fails the check. The rules are in
 [`scripts/preflight-brief.jq`](scripts/preflight-brief.jq).
 
@@ -412,9 +386,8 @@ settings, which are client-supplied, so Nix ignores them for anyone outside
 `trusted-users`, and through `modules/baseline.nix`, which reads that list and
 is what actually lands in each host's `nix.conf`.
 
-GitHub Actions are pinned to commit SHAs. That token signs into a cache every
-host trusts as root, so the blast radius of a compromised action is the whole
-fleet. Dependabot closes the staleness side of that trade.
+GitHub Actions are pinned to commit SHAs, since `cache.yml` pushes to a cache
+every host trusts, and Dependabot keeps the pins current.
 
 ## Dev environment
 
@@ -440,8 +413,7 @@ After that, `hms` applies changes and `nfu && hms` updates everything first.
 The NixOS hosts have no standalone config: their Home Manager comes with the
 system, so a rebuild applies it.
 
-Package lists live in `home/common-tools.nix` and `home/dev-tools.nix` rather
-than being mirrored here, where they would rot.
+Package lists live in `home/common-tools.nix` and `home/dev-tools.nix`.
 
 Per-project toolchains are not here. Each project carries its own `flake.nix`
 and an `.envrc` with `use flake`, and direnv with nix-direnv loads it on `cd`,
