@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# osascript, for tests/night-shift/run.sh: notify() on a Mac, which passes the
+# osascript, for harness.ts's cases: notify on a Mac, which passes the
 # title and the message as the last two arguments to a run handler. Logs
 # {tool: "notify", title, body, script} to $NS_CASE/log.jsonl, where script
 # is everything before them, so a case can check that no text reached the

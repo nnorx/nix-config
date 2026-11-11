@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# claude, for tests/night-shift/run.sh. Logs every call to $NS_CASE/log.jsonl
+# claude, for harness.ts's cases. Logs every call to $NS_CASE/log.jsonl
 # as {tool: "claude", args, cwd}. `agents --json --all` prints the roster,
 # $NS_CASE/roster.json, or [] without one. `--bg -n <name>` adds a running
 # session to the roster, the way claude lists one it started, so the

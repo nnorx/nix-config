@@ -2,12 +2,11 @@
   "prose": 28429,
   "comments": {
     "nix": 32.1,
-    "sh": 18.3
+    "sh": 22.1
   },
   "shell": {
     "default": 300,
     "allow": {
-      "tests/night-shift/run.sh": 1430,
       "home/fleet-deploy.sh": 458,
       "tests/fleet-deploy/run.sh": 419,
       "home/agents-status.sh": 413,

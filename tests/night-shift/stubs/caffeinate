@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# caffeinate, for tests/night-shift/run.sh: what awake runs on a Mac while an
+# caffeinate, for harness.ts's cases: what awake runs on a Mac while an
 # agent works. Logs {tool: "caffeinate", args, lock}, lock saying whether it
 # was handed the run lock's descriptor, 9, to $NS_CASE/log.jsonl, and returns
 # at once, rather than holding anything awake.

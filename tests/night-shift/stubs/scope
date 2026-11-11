@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# systemd-run and bwrap, for tests/night-shift/run.sh: logs the call to
+# systemd-run and bwrap, for harness.ts's cases: logs the call to
 # $NS_CASE/log.jsonl as {tool: <name>, args}, then runs what follows --, in
 # place, the way both run their command. NS_STUB names which was called.
 set -euo pipefail

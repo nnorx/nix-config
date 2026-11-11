@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# systemctl, for tests/night-shift/run.sh: logs the call to $NS_CASE/log.jsonl
+# systemctl, for harness.ts's cases: logs the call to $NS_CASE/log.jsonl
 # as {tool: "systemctl", args} and succeeds, so a case can see what the
 # dispatcher asked of the user manager without one.
 set -euo pipefail

@@ -1,5 +1,5 @@
 # shellcheck shell=bash disable=SC2016 # jq's variables, and the queries', not the shell's
-# curl, for tests/night-shift/run.sh. Answers the dispatcher's three kinds of
+# curl, for harness.ts's cases. Answers the dispatcher's three kinds of
 # request from the case's directory, $NS_CASE, and appends each to its
 # log.jsonl, one JSON object a line, for the case to assert on:
 #
