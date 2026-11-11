@@ -13,8 +13,8 @@
 #      suppresses something, or keeps one that suppresses nothing.
 #   2. The night-shift dispatcher, pkgs/night-shift/, type-checked (Node runs
 #      its TypeScript with the types stripped, unchecked), then run against
-#      stubbed Linear, GitHub, ntfy and Claude (tests/night-shift/: run.sh, and
-#      commands.test.ts for the commands in TypeScript). It runs
+#      stubbed Linear, GitHub, ntfy and Claude (tests/night-shift/*.test.ts,
+#      through harness.ts). It runs
 #      unattended, acts as Nick in Linear and deletes worktrees and branches,
 #      and nothing else checks its guards once a change lands. Second, since
 #      it needs no evaluation and takes seconds, so a broken guard shows
@@ -147,8 +147,7 @@ if [[ $flake_check != only ]]; then
   step "night-shift dispatcher"
   # From the checkout under --head too: the working tree's dispatcher, not the
   # commit's.
-  "$BASH" tests/night-shift/run.sh
-  NIGHT_SHIFT_BASH="$BASH" node --test tests/night-shift/commands.test.ts
+  NIGHT_SHIFT_BASH="$BASH" node --test tests/night-shift/*.test.ts
 
   step "fleet-deploy"
   "$BASH" tests/fleet-deploy/run.sh

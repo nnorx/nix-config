@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# launchctl, for tests/night-shift/run.sh: `night-shift resume` starting the
+# launchctl, for harness.ts's cases: `night-shift resume` starting the
 # launchd job. Logs {tool: "launchctl", args} to $NS_CASE/log.jsonl. Fails as
 # launchctl does for a job it cannot find when the file launchctl-fail exists.
 set -euo pipefail

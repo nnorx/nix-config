@@ -1,23 +1,9 @@
-// The commands in TypeScript (check, status, file, the snapshots, and a run's
-// brief), run through night-shift.sh against the stubs. run.sh has the rest.
+// check, status, file, the snapshots a run writes, a run's preflight brief,
+// and its guards on what reaches claude. forge.test.ts and work.test.ts have
+// the runs themselves.
 import assert from "node:assert/strict";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
-import { after, test } from "node:test";
-import { Case, done, here } from "./harness.ts";
-
-after(done);
-
-/** A case of its own, failing on any request the stubs do not know. */
-function kase(name: string, what: string, body: (c: Case) => Promise<void>, tty = false): void {
-  test(what, { skip: tty && !hasTty && "no util-linux script" }, async () => {
-    const c = new Case(name);
-    await body(c);
-    assert.deepEqual(c.unknown(), [], "no request the stubs do not know");
-  });
-}
-
-const hasTty = spawnSync("script", ["--version"], { encoding: "utf8" }).stdout?.includes("util-linux");
+import { type Case, here, kase } from "./harness.ts";
 
 // --- check and status --------------------------------------------------------
 
@@ -284,8 +270,8 @@ kase("file_no_backlog", "file: a team with no backlog state: into the first not-
 });
 
 // --- a run's brief -----------------------------------------------------------------
-// run.sh has the rest of a run in forge mode; these are the cases on a repo with
-// preflight, whose brief a handoff's comment carries.
+// forge.test.ts has the rest of a run in forge mode; these are the cases on a
+// repo with preflight, whose brief a handoff's comment carries.
 
 const BRANCH = "worktree-tst-1-fix-the-widget";
 

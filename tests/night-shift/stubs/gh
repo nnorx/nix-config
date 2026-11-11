@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# gh, for tests/night-shift/run.sh: merged_pr_gh's `gh pr list`. Logs
+# gh, for harness.ts's cases: mergedPrGh's `gh pr list`. Logs
 # {tool: "gh", args} to $NS_CASE/log.jsonl and prints $NS_CASE/gh-prs, the
 # merged PRs as gh's --json gives them, or [] without one. Fails as gh does
 # without a login when the file gh-fail exists.
