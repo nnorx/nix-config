@@ -283,7 +283,8 @@ Away from home, with neither tunnel up, every lookup goes to Quad9 over
 DNS-over-TLS and never in plaintext; at home they all go to AdGuard, as before.
 forge tells the two apart by the resolvers DHCP hands it, each time a
 connection comes up. [`hosts/forge/dns.nix`](../hosts/forge/dns.nix) has the
-mechanism, and F11 in [privacy.md](privacy.md) the reasons.
+mechanism, and [privacy.md](privacy.md#forge), "DNS away from home", the
+reasons.
 
 **Captive portals** refuse TLS until you log in, so nothing resolves and the
 login page cannot be found. Hand that network its own resolver back, in

@@ -62,9 +62,8 @@ Everything not named in the policy column is refused by the default-drop
 forward chain rather than by a deny rule, so `guest` is isolated by not
 appearing in the ruleset at all.
 
-"Internet" is all of it: the nat module accepts every segment out `wan`. How
-iot is to keep it only for the devices that need it is designed in
-[privacy.md](privacy.md#internet-for-iot).
+"Internet" is the nat module's accept out `wan`. iot's passes the trial set
+in [privacy.md](privacy.md#internet-for-iot) first.
 
 **192.168 rather than 10.x, for a concrete reason.** A centrally managed VPN
 client on one of the laptops here routes a wide slice of 10/8 into its tunnel.

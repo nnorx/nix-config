@@ -1,472 +1,198 @@
 # What leaves the house
 
 Every outbound flow this repo causes, per host and service: where it goes,
-what it carries, why it exists, and whether it could be narrowed or turned
-off. It is the evidence the Privacy project's issues start from. The repo
-side was read from `main` at 6e1014b, on 2026-10-10, and each claim below
-names the file it comes from. Defaults the repo does not set were read from
-the pinned nixpkgs rather than assumed.
-
-What the repo cannot show is what the devices in the house talk to. That is
-[the device side](#the-device-side), from the resolvers' query logs.
-
-Each flow is marked with one of three verdicts:
-
-- **needed**: the flow is the point of the service, or the cost of something
-  the fleet depends on. Nothing to file.
-- **narrow**: it could carry less or go to fewer places. A follow-up is
-  suggested.
-- **off**: it could be turned off without losing anything wanted. A
-  follow-up is suggested.
-
-The follow-ups are collected, as issue titles, at the end.
+what it carries, and what keeps it narrow. What the devices in the house send
+on their own is in the resolvers' query logs, under
+[the device side](#the-device-side). Plans to narrow more are in Linear's
+Privacy project.
 
 ## Summary
 
-| Host | Flow | Destination | Verdict |
+| Host | Flow | Destination | Narrowed by |
 |---|---|---|---|
-| every NixOS host | Binary substitution | cache.nixos.org, two Cachix caches | needed |
-| every NixOS host | Flake fetches | GitHub | needed |
-| every NixOS host | Time | NixOS's NTP pool | needed |
-| gate | Recursive DNS | Root, TLD and authoritative servers | needed |
-| gate | DDNS | Cloudflare's API | needed |
-| gate | DHCP on `wan` | The ISP | narrow (F12) |
-| core4, lifeline | Recursive DNS | Root, TLD and authoritative servers | needed |
-| core4, lifeline | AdGuard fallback DNS | Cloudflare and Quad9, plaintext | narrow (F6) |
-| core4, lifeline | Blocklist downloads | Eight list operators | narrow (F7) |
-| Pis | Nightly upgrade | GitHub and the caches | needed |
-| Pis | Alerts and heartbeats | ntfy.sh, healthchecks.io | needed |
-| core5 | All of its DNS | Cloudflare and Quad9, plaintext | narrow (F5) |
-| core5 | Off-box backups | A private GitHub repo, age-encrypted | needed |
-| core5 | Container image pulls | Docker Hub, lscr.io | needed |
-| core5 | UniFi controller and devices | Ubiquiti | narrow (F10) |
-| core5 | Home Assistant weather | api.met.no | narrow (F8) |
-| core5 | Home Assistant's other defaults | Home Assistant's servers | off (F9) |
-| guest segment | All of its DNS | Cloudflare and Quad9 | needed |
-| forge | Firefox | Mozilla | off (F1), done |
-| forge | Brave | Brave | off (F2), done |
-| forge | VS Code | Microsoft, the extension marketplace | off (F4), done |
-| forge, WSL, Mac | Claude Code | Anthropic | off (F3) for telemetry, done |
-| forge | Night shift | Linear, ntfy.sh, GitHub's API | narrow (F14), done |
-| forge | Firmware metadata | LVFS | needed |
-| forge | Location lookups | beacondb | off (F13), done |
-| forge | DNS away from home | Quad9, over TLS | narrow (F11), done |
-| forge | Steam, Plasma | Valve, KDE | needed |
-| GitHub Actions | CI, cache, lock bumps | GitHub, Cachix, registries | needed |
+| every NixOS host | Binary substitution | cache.nixos.org, two Cachix caches | |
+| every NixOS host | Flake fetches | GitHub | |
+| every NixOS host | Time | NixOS's NTP pool | |
+| gate | Recursive DNS | Root, TLD and authoritative servers | QNAME minimisation, a local root zone |
+| gate | DDNS | Cloudflare's API | A token for one zone, writes only on change |
+| gate | DHCP on `wan` | The ISP | No hostname, no vendor class |
+| core4, lifeline | Recursive DNS | Root, TLD and authoritative servers | As gate's, and local names answered locally |
+| core4, lifeline | AdGuard fallback DNS | Cloudflare and Quad9, plaintext | Used only on a transport error |
+| core4, lifeline | Blocklist downloads | Eight list operators | |
+| Pis | Nightly upgrade | GitHub and the caches | |
+| Pis | Alerts and heartbeats | ntfy.sh, healthchecks.io | No log lines, a secret topic |
+| core5 | All of its DNS | Cloudflare and Quad9, plaintext | |
+| core5 | Off-box backups | A private GitHub repo | age-encrypted |
+| core5 | Container image pulls | Docker Hub, lscr.io | Pinned by digest |
+| core5 | UniFi controller | Ubiquiti | Remote management and analytics off |
+| servers | Switch and AP | Ubiquiti | Dropped at gate, NTP aside |
+| core5 | Home Assistant weather | api.met.no | |
+| core5 | Home Assistant's `default_config` | Home Assistant's servers | |
+| guest segment | All of its DNS | Cloudflare and Quad9 | |
+| forge | Firefox, Brave | Mozilla, Brave | Telemetry and crash reports off by policy |
+| forge | VS Code | Microsoft, the extension marketplace | Telemetry off |
+| forge, WSL, Mac | Claude Code | Anthropic | Telemetry and error reports off |
+| forge | Night shift | Linear, ntfy.sh, GitHub's API | Pushes carry the identifier, not the title |
+| forge | Firmware metadata | LVFS | |
+| forge | DNS away from home | Quad9, over TLS | Never plaintext |
+| forge | Steam, Plasma | Valve, KDE | |
+| GitHub Actions | CI, cache, lock bumps | GitHub, Cachix, registries | Vendor telemetry off |
 
 ## Every NixOS host
 
 gate, the three Pis and forge all import `modules/baseline.nix`.
 
-**Binary substitution.** `nix.settings.substituters` is
-`nixos-raspberrypi.cachix.org`, `nnorx-nix-config.cachix.org`, and
-cache.nixos.org, which NixOS adds after them. Each build or upgrade asks the
-caches for the store paths it needs, which tells them what the host is
-installing, and downloads what they have. The source address is the house's
-WAN address. **needed**: a Pi that cannot substitute compiles its kernel for
-half a day (README, "CI and the binary cache").
-
-**Flake fetches.** `nrs`, `nrb` and the Pis' upgrade fetch
-`github:nnorx/nix-config` with `--refresh`, so GitHub sees each deploy. Inputs
-in `flake.lock` come from GitHub too, and `nix run nixpkgs#...` reads the flake
-registry from channels.nixos.org. **needed**.
-
-**Time.** `services.timesyncd` with NixOS's default servers,
-`0-3.nixos.pool.ntp.org`, which nothing in the repo overrides. NTP carries no
-payload beyond timestamps; each pool server sees the house's address.
-**needed**. gate could serve time to the Pis, which would turn three hosts'
-NTP traffic into one, but the pool learns nothing from three that it does not
-learn from one.
+- **Binary substitution.** `nixos-raspberrypi.cachix.org`,
+  `nnorx-nix-config.cachix.org`, then cache.nixos.org. Each build asks them
+  for the store paths it needs, from the house's WAN address. A Pi that
+  cannot substitute compiles its kernel for half a day.
+- **Flake fetches.** `nrs`, `nrb` and the Pis' upgrade fetch
+  `github:nnorx/nix-config` with `--refresh`, so GitHub sees each deploy;
+  `flake.lock`'s inputs come from GitHub too.
+- **Time.** `services.timesyncd` with NixOS's default pool. Each pool server
+  sees the house's address and nothing else.
 
 ## gate
 
 **Recursive DNS.** gate resolves only through its own Unbound
-(`hosts/gate/default.nix`, `modules/unbound.nix`), which recurses from the
-root servers with no forwarder. Every cache miss goes, in plaintext, to the
-authoritative servers for that name, with `qname-minimisation` limiting each
-server to the labels it needs. `unbound-anchor` keeps the DNSSEC root key
-current over DNS, and reaches data.iana.org over HTTPS only if the stored key
-is unusable. **needed**: it is what lets gate be rebuilt with both Pis down
-(docs/network.md, "DNS").
+(`modules/unbound.nix`), from the root servers with no forwarder. Each cache
+miss goes in plaintext to the zone's authoritative servers, with
+`qname-minimisation` limiting each to the labels it needs. Recursion means
+each zone's operator sees its own names, rather than one resolver seeing all
+of them; the ISP can read names on the wire either way.
+[network.md](network.md) has why the fleet recurses.
 
-Recursion trades one resolver operator's view of everything for each zone's
-operator seeing its own names, and the ISP can read the names on the wire
-either way. Forwarding to an encrypted resolver would hide them from the ISP
-and give them all to that resolver. That is a decision rather than a
-follow-up, and docs/network.md records why the fleet recurses.
+**DDNS.** `hosts/gate/ddns.nix` runs `cloudflare-ddns` every five minutes,
+with a token scoped to DNS edit on one zone. It reads the WAN address locally
+and writes the A record only when it changes. WireGuard peers dial that name.
 
-**DDNS.** `hosts/gate/ddns.nix` runs `cloudflare-ddns` every five minutes
-against Cloudflare's API, with a token scoped to DNS edit on one zone. It
-reads the WAN address locally rather than asking a third party, and writes
-the A record only when it changes. Cloudflare sees the token, the hostname and
-the address, which is what an A record is. **needed**: WireGuard peers dial
-that name.
+**DHCP on `wan`.** dhcpcd sends `hostname ""` and a bare `vendorclassid`
+(`hosts/gate/default.nix`), so a request carries neither gate's name nor
+dhcpcd's default vendor class, which names the kernel release and so dates
+each upgrade. What is left is the MAC, which every request needs, and a
+parameter request list, which fingerprints dhcpcd but not the house. No
+client ID is sent, so the lease is keyed on the MAC alone.
 
-**DHCP on `wan`.** gate takes its address from the ISP with dhcpcd. NixOS's
-generated config starts with `hostname`, which sent gate's name in each
-request until F12 added `hostname ""` for `wan` (`hosts/gate/default.nix`).
-Each request also carried dhcpcd's default vendor class,
-`dhcpcd-<version>:Linux-<kernel release>:x86_64:<CPU vendor>`, which told
-the ISP the OS and, as the kernel changed, when gate upgraded; a bare
-`vendorclassid` in the same block drops it. What a request carries now, from
-dhcpcd's source and a VM capture of a client with gate's dhcpcd settings:
-the MAC address, which every request needs; no client ID, since NixOS's
-config names neither `clientid` nor `duid`, so the server can key the lease
-only on the MAC; and a parameter request list, which fingerprints dhcpcd but
-not the house. **narrow** (F12), done.
-
-**The guest segment** gets Cloudflare and Quad9 from DHCP rather than the
-fleet's resolvers (`publicResolverSegments` in `hosts/gate/routing.nix`), so
-visitors' lookups go there, from the house's address. **needed**: that is what
-keeps guest isolated.
+**The guest segment** gets Cloudflare and Quad9 from DHCP, not the fleet's
+resolvers (`publicResolverSegments` in `hosts/gate/routing.nix`). That is
+what keeps it isolated.
 
 ## core4 and lifeline
 
 Both run AdGuard Home in front of their own Unbound
-(`hosts/common/resolver.nix`, `modules/adguardhome.nix`).
+(`hosts/common/resolver.nix`, `modules/adguardhome.nix`), which recurses as
+gate's does.
 
-**Recursive DNS.** As on gate, for every name the house looks up that neither
-AdGuard nor Unbound has cached. **needed**.
+**AdGuard's fallback.** `fallback_dns` is `net.publicResolvers`, Cloudflare
+and Quad9, asked only on a transport error from the local Unbound: a timeout
+or a refused connection. A SERVFAIL is an answer and goes back to the client,
+and private reverse zones never fall back. A fallback query goes to both
+operators at once, in plaintext, with no client subnet.
 
-**AdGuard's fallback.** `fallback_dns` is `net.publicResolvers`, Cloudflare and
-Quad9, used only when the local Unbound does not answer within
-`upstream_timeout`. dnsproxy, AdGuard's resolver library, takes the fallback
-path only on a transport error: a timeout or a refused connection. A SERVFAIL
-from Unbound is an answer and goes back to the client, and lookups for
-private reverse zones never fall back. When it does fall back it asks both
-operators at once, so each sees the query. Those queries are plaintext, carry
-the client's query name, and go from the house's address, with no client
-subnet: AdGuard adds none (`edns_client_subnet` is off in the module), and
-only a client that put one in its own query would pass one through.
-`bootstrap_dns` names the same two, but only resolves DoH or DoT upstream
-names, and there are none. **narrow** (F6): the fallback could use
-DNS-over-TLS to the same two operators, addressed by IP, which needs no
-bootstrap and hides the names from the path.
-
-**Blocklist downloads.** 24 lists, refreshed by each resolver at AdGuard's
-default interval of 24 hours, from eight operators:
-raw.githubusercontent.com, v.firebog.net, pgl.yoyo.org,
+**Blocklists.** 24 lists from eight operators, each fetched once a day by
+each resolver: raw.githubusercontent.com, v.firebog.net, pgl.yoyo.org,
 hostfiles.frogeye.fr, phishing.army, urlhaus.abuse.ch, lists.cyberhost.uk and
-gitlab.com. Each sees two fetches a day from the house's address and
-AdGuard's user agent. AdGuard's own update check is off: the NixOS module
-passes `--no-check-update`. Parental control and safe browsing, AdGuard's
-two lookup services, are both off in the module.
-**narrow** (F7): nine lists come from v.firebog.net and nine from GitHub,
-and the other six each bring an operator of their own for a single list.
-Whether those six add coverage the rest lack is the question.
+gitlab.com. AdGuard's own update check is off (`--no-check-update`).
 
 ## What the resolvers keep
 
 The resolvers hold the most detailed record in the house: every name each
-device looks up. What they keep, and what they still tell the outside, was
-reviewed in NNO-26 against AdGuard Home 0.107.79 and Unbound 1.26.0, the
-versions pinned on 2026-10-11. Each default below was read from that
-version's source, not its documentation, and each setting is now explicit in
-`modules/adguardhome.nix` or `modules/unbound.nix`, with comments, so a
-change to any of them shows up in review.
+device looks up. Each setting below is explicit in `modules/adguardhome.nix`
+or `modules/unbound.nix`, whose comments give the reasoning, so a change to
+one shows up in review.
 
-**The query log keeps between three and a half days and a week.** AdGuard's
-default is 90 days, and the module set nothing. The log is for debugging a
-device: what it asked for and what was refused when it misbehaved. That needs
-the last few days, not the last season. AdGuard's `interval` is a rotation
-period, not an age limit: once the oldest entry in the log passes it, the
-file is renamed aside and the previous one deleted, so entries live between
-one and two intervals. The default therefore kept up to 180 days. The module
-sets 84 hours: at least three and a half days, which covers a fault noticed
-after a weekend, and never more than a week. `nix run .#dns-top-domains`
-then summarises a week at most, which is still a representative sample.
-
-**Statistics keep one day**, AdGuard's default, now written down. They are
-the per-client and per-domain counts behind the dashboard, kept in hourly
-buckets and dropped at a true age limit. A day shows which device is busy;
-the log answers anything older.
-
-**Client addresses are kept, not anonymised.** AdGuard can anonymise client
-addresses (`anonymize_client_ip`), and the module keeps that off. Turned on,
-it zeroes the last two octets of each IPv4 client. The third octet is the
-segment here, so every device in the house would be logged under one
-address, and the log could no longer say which device asked, or even which
-segment. That is the whole of what per-device debugging needs, and what
-checking gate's `dns-redirect` relies on: a device with a hardcoded resolver
-is caught by seeing its own address in the log. Worse, AdGuard anonymises
-before it matches the client against its rules, so the work segment's rule,
-which matches that segment's subnet, would stop matching and work's queries
-would be logged. What anonymising would leave is the domains, which are the
-sensitive half. Short retention is the privacy control instead: it limits
-what the log can say about anyone, and keeps it useful while it does.
+| What | Kept | Why |
+|---|---|---|
+| AdGuard's query log | 84-hour rotation: 3.5 days to a week | Debugging a device needs the last few days |
+| AdGuard's statistics | One day | The dashboard's counts; the log answers anything older |
+| Client addresses | Kept, not anonymised | Anonymising zeroes the segment octet, so the log could not say which device asked, and the work rule would stop matching |
+| Unbound's query logging | Off | |
+| Unbound's cache dump | Deleted once loaded at start | It holds every name resolved, without clients |
+| Safe browsing, parental control | Off | Each sends a hash prefix of every name to AdGuard |
 
 **The work segment is recorded nowhere.** `logQueries = false` in
-`lib/net.nix` becomes a persistent AdGuard client on both resolvers that
-covers the segment's subnet with `ignore_querylog` and `ignore_statistics`.
-AdGuard matches a client address against a subnet for both checks (its client
-index, `findByIP`), so the rule covers the log and the statistics, on core4
-and lifeline alike, since both import the module. Everything else that sees
-those queries was checked too:
+`lib/net.nix` becomes a persistent AdGuard client on both resolvers, covering
+the segment's subnet, with `ignore_querylog` and `ignore_statistics`.
+Everything else that sees those queries:
 
-- AdGuard's debug logging, which writes per-query lines with client
-  addresses to the journal, is off (`log.verbose`).
-- AdGuard writes the name of a lookup to the journal when an exchange with
-  Unbound fails, at error level, whatever `log.verbose` says. The line has
-  no client address, but work's lookups fail like anyone's, and the journal
-  keeps a month. The unit drops those lines with `LogFilterPatterns=`, so
-  journald never stores them, and its other lines, real errors included,
-  still come through. The fallback's share of AdGuard's upstream answers
-  counts the same failures without the names.
-- Unbound sees work's queries, attributed to 127.0.0.1 because they come
-  from AdGuard. Its query logging is off (`log-queries`, `log-replies`,
-  `log-local-actions`), so it keeps nothing about them beyond its cache.
-- Unbound's cache is dumped to disk on stop so a restart does not start cold.
-  The dump holds names without clients or timestamps, work's among them,
-  from up to four days of cache. It used to stay on disk until the next stop,
-  which on a host that rarely restarts could be months. It is now deleted as
-  soon as it has been loaded.
-- gate's `dns-redirect` rule has a counter, which counts packets and records
-  no addresses.
-- The metrics store on core5 keeps each resolver's DNS counts for 12 months
-  ([observability.md](observability.md)). Unbound's are
-  totals with neither names nor clients, work's queries among them and not to
-  be told apart. AdGuard's come from its statistics API, which inherits the
-  rule, since excluded queries are never counted, and the collector keeps
-  only totals of what the API returns, not its busiest clients and domains.
-  core5's probe of each resolver is left out of AdGuard's log and
-  statistics by name (`ignored`), so it neither fills the log nor counts as a
-  client. `tests/dns-metrics.nix` checks all of it.
-
-**Lookup services stay off.** Safe browsing and parental control each send a
-hash prefix of every name to AdGuard's servers. Both are off by default, and
-the module now says so for safe browsing as it already did for parental
-control. WHOIS lookups of clients, on by default, apply only to public
-addresses, and every client here has a private one, so they never run.
+- AdGuard's verbose log is off. The error line it writes when an exchange with
+  Unbound fails names the lookup, so the unit drops those lines with
+  `LogFilterPatterns=`; the fallback's share of upstream answers counts the
+  same failures without names.
+- Unbound sees work's queries from 127.0.0.1, and logs nothing about them.
+- The metrics store on core5 keeps totals only: Unbound's have neither names
+  nor clients, and AdGuard's come from its statistics API, which never counts
+  excluded queries. core5's probe is in AdGuard's `ignored` list.
+  `tests/dns-metrics.nix` checks it.
 
 ### What goes upstream
 
-**No client subnet.** Unbound sends EDNS Client Subnet only with its
-subnetcache module loaded and `send-client-subnet` set, and neither is.
-AdGuard's own option is off. The fallback is above.
-
-**Names that exist only inside the house are answered locally.** Devices ask
-for names under suffixes that exist only on a home network: a few thousand
-such lookups on trusted in the run below. Unbound already answers
-`home.arpa`, `onion`, `test`, `invalid`, `localhost` and the private reverse
-zones itself, by default. It sent the rest to the root servers, which saw the
-device names in them. It now answers `lan`, `local`, `localdomain`,
-`internal`, `home` and `corp` with NXDOMAIN, on core4, lifeline and gate: the
-same list `scripts/dns-top-domains.jq` counts as local names.
-
-**So are single-label names, from a copy of the root zone.** A bare
-`printer` cannot be a local-zone: a local-zone is a suffix, and every TLD is
-a single label too. Instead each Unbound keeps a local copy of the root zone
-(RFC 8806, an `auth-zone` for `.`, F15), and a name under a TLD that does not
-exist is answered NXDOMAIN from it without asking anyone. The root servers
-see a SOA query every half hour and a zone transfer when the zone changes,
-about twice a day, and none of the house's lookups. Before, they saw such a
-name now and then: `aggressive-nsec` answered repeats from the root's signed
-NSEC records, but only once it had them.
-
-- **Sources.** The root servers that allow transfers, and ICANN's two
-  transfer hosts, as `rootZoneSources` in `lib/net.nix`: the list in the
-  example configuration of the Unbound version the flake pins, IPv4 only,
-  since Unbound recurses over IPv4 alone. Unbound tries them in turn.
-  net-assertions checks each is a public IPv4 address, since Unbound takes
-  anything that does not parse as one for a host name.
-- **Integrity.** `zonemd-check` verifies the zone's ZONEMD digest on every
-  load and transfer, and on the hosts its DNSSEC signature against the trust
-  anchor too. A zone without one is refused as well
-  (`zonemd-reject-absence`), since the root has carried one since December
-  2023. A refused transfer is not served and not written: Unbound drops its
-  copy as expired, falls back as below, and the file keeps the last good
-  zone.
-- **Fallback.** `fallback-enabled`, and `for-upstream` without
-  `for-downstream`: the copy stands in for the root servers during
-  recursion, and what comes from it is validated like their answers. With no
-  copy (a first start, until the first transfer), an expired one (every
-  source unreachable for the zone's week-long expiry, or a refused transfer),
-  or an answer from it that fails validation, Unbound asks the root servers
-  as it did before.
-- **Storage.** `/var/lib/unbound/root.zone`, about 2 MB, rewritten whole on
-  each transfer: under 2 GB a year on core4's and lifeline's SD cards, which
-  is nothing to them. It survives restarts, so a resolver starts from its
-  last copy and refreshes it from there.
-- **Network.** Transfers are TCP 53 out from each resolver and from gate, and
-  nothing needed changing for them. The Pis' firewall filters inbound only,
-  gate's `servers-egress` passes the fleet's hosts, and the DNS redirect
-  leaves the resolvers' segment and gate's own traffic alone. No
-  deploy-guard either: gate's firewall and interfaces do not change, only
-  its Unbound restarts.
-
-`tests/unbound-root-zone.nix` runs the module against a BIND standing in for
-the root, with a zone and ZONEMD of its own: with no copy the resolver asks
-the root; after the transfer, names under no TLD are answered NXDOMAIN with
-the root stopped; a transfer whose digest does not match is refused and the
-root asked instead; and a restart starts from the last good copy. The real
-zone's signatures cannot be checked in a VM, so the test checks the digest
-alone.
+- **No client subnet**, from Unbound or AdGuard.
+- **Names that exist only inside the house are answered locally.** Unbound
+  answers `lan`, `local`, `localdomain`, `internal`, `home` and `corp` with
+  NXDOMAIN, on core4, lifeline and gate, beside the suffixes it answers by
+  default. `scripts/dns-top-domains.jq` counts the same list as local.
+- **So are single-label names, from a copy of the root zone** (RFC 8806, an
+  `auth-zone` for `.`). A name under no real TLD is answered from the copy.
+  The root servers see a SOA query every half hour and a transfer when the
+  zone changes, from `rootZoneSources` in `lib/net.nix`. Each load is checked
+  against the zone's ZONEMD digest, and a missing digest is refused; with no
+  valid copy, Unbound asks the root servers as before.
+  `tests/unbound-root-zone.nix` runs it against a stand-in root.
 
 ### Telemetry coverage
 
-EasyPrivacy and Frogeye's first-party trackers are written for browsers and
-apps. What an operating system sends on its own runs on its vendor's domains,
-and two lists cover that for the devices in the house, both from HaGeZi's
-Native Tracker set and both updated in the week NNO-34 added them, in
-October 2026. Each has a comment in `modules/adguardhome.nix` saying why it
-is there.
-
-- **Windows and Office: `native.winoffice`**, for the PC WSL runs on and
-  Microsoft's apps on any machine. It replaced WindowsSpyBlocker's `spy.txt`,
-  which last changed in May 2022. The two overlap less than their
-  descriptions suggest: `spy.txt` was 347 exact hostnames, `native.winoffice`
-  is about 380 adblock rules, each of which also blocks its subdomains, and
-  only 62 of the old names fall under one. What it adds is mostly Office's
-  per-application telemetry hosts, along with Bing and MSN advertising, App
-  Center, Application Insights and Clarity. Of the 285 names it drops, 215
-  are individual servers under `wns.windows.com`, which delivers Windows'
-  push notifications, and `llnw.net`, a CDN that has carried Windows Update
-  downloads. Neither is telemetry, so dropping them takes away breakage
-  rather than coverage.
-- **Apple: `native.apple`**, for the iPhones on trusted and the work Mac.
-  Its rules are OS, app and advertising analytics.
-
-No list is added for the Android phones on trusted. HaGeZi's Android lists
-are per handset vendor, and none covers Google's own services. A vendor's
-list is a one-line addition if the phones turn out to need one.
-
-No TV is on the network: the TVs in the house are displays for other
-machines. HaGeZi's per-vendor TV lists (`native.lgwebos`, `native.roku`,
-`native.amazon` and others) are there for when one joins iot, which is where
-lib/net.nix puts TVs.
-
-HaGeZi says its standalone native lists are the thorough end of its range and
-can occasionally limit a feature. When something stops working, the query log
-names the list that blocked each name, so that is where to look first.
-
-**The work segment** is filtered, so both lists apply to the work laptop.
-The rule with the most reach there is `events.data.microsoft.com`, whose
-subdomains carry diagnostic data for Windows, Office and Teams, and which
-Microsoft's management and security agents can report through. `spy.txt`
-blocked only the crash-report hosts under it. The work laptop is a Mac and
-does not use Office, so nothing on it is expected to need those names, and
-neither list is exempted there.
-
-AdGuard Home cannot apply a list to some clients and not others: a
-persistent client uses every enabled list, or turns filtering off entirely.
-Should the work laptop need a name back, a custom rule set from the module
-(`user_rules`), such as `@@||events.data.microsoft.com^$client='work'`,
-unblocks it for that segment alone. It matches the persistent client the module names after
-the segment, so no address is written out.
-
-Both lists come from raw.githubusercontent.com, which the resolvers already
-fetch from, so neither adds an operator (F7).
-
-### Clearing the history from before the cutover
-
-lifeline's log reached back to 2026-08-29 in the run below, so it held
-lookups from before the 2026-09-05 cutover, when every client was on the
-flat network and nothing was excluded. core4's log
-rotated at 90 days and may hold up to 180, so the same is likely there. The
-new interval ages both out within a week of the upgrade, but clearing them
-once makes it immediate. Statistics need no reset: a day's worth holds
-nothing from then.
-
-Clearing needs the admin login on each resolver and no root. From forge at
-home, or through the tunnel, in the repo:
-
-```bash
-for h in lifeline core4; do
-  curl -fsS -u "$h" -X POST \
-    "http://$(nix eval --raw --file lib/net.nix hosts.$h.ip):$(nix eval --file lib/net.nix ports.adguardWeb)/control/querylog_clear" \
-    && echo "$h: query log cleared"
-done
-```
-
-curl prompts for each password without echo. The UI does the same, under
-Settings, General settings, "Clear query log". Once is enough: the
-retention above keeps the history from building up again.
+Two of HaGeZi's native tracker lists cover what operating systems send on
+their own vendors' domains: `native.winoffice`, for Windows and Microsoft's
+apps, and `native.apple`, for the iPhones and the Mac. Both apply on the work
+segment too, which reaches `events.data.microsoft.com`. AdGuard cannot apply a
+list to some clients only; a rule in `user_rules`, such as
+`@@||events.data.microsoft.com^$client='work'`, unblocks a name for one
+segment. HaGeZi's per-vendor TV and Android lists are one line each if a
+device needs one. When something breaks, the query log names the list that
+blocked it.
 
 ## The Pis
 
-**The nightly upgrade** (`hosts/common/pi.nix`, `modules/baseline.nix`) is the
-flake fetch and substitution above, at fixed times: 03:00, 04:00 and 05:00.
-Anyone watching GitHub's or the caches' logs can tell an automated fleet from
-the pattern, which says nothing they could use. **needed**.
+**The nightly upgrade** (`hosts/common/pi.nix`) is the flake fetch and
+substitution above, on a timer.
 
 **Alerts** (`modules/alerts.nix`). A failed upgrade or backup posts to an
 ntfy.sh topic, and each success pings healthchecks.io. What leaves is the
-host's name, the unit's name and the word "failed": no log lines. The ntfy
-topic is random and secret, which is ntfy.sh's only access control, and
-healthchecks.io sees each job's timing. If DNS is down, the request is retried
-over DoH to Cloudflare or Quad9 by address, which tells them the two service
-names. **needed**: both are outside the house on purpose, so they can report
-the house being down.
+host's name, the unit's name and the word "failed", never log lines. The
+topic is random and secret, which is ntfy.sh's only access control. When DNS
+is down, the request retries over DoH to Cloudflare or Quad9 by address.
 
 ## core5
 
-**All of its DNS.** `networking.nameservers = net.publicResolvers`, so every
-name core5 resolves, for Home Assistant's integrations, image pulls, upgrades
-and backups, goes in plaintext to Cloudflare or Quad9, unfiltered. The reason
-(`hosts/core5/default.nix`) is that the monitoring collector should not
-depend on the resolvers it monitors. **narrow** (F5): core5 already depends on
-gate for every packet it sends, so resolving through gate's Unbound would add
-no dependency and send nothing to a third party. That needs
-`modules/unbound.nix` to bind an address on gate, which has no `ip` in
-`lib/net.nix`.
+**All of its DNS** goes to `net.publicResolvers`, plaintext and unfiltered,
+so the monitoring collector does not depend on the resolvers it monitors
+(`hosts/core5/default.nix`).
 
-**Pings to the public resolvers** (`modules/blackbox.nix`). An ICMP echo to
-each address in `net.publicResolvers` every 30 seconds, from the WAN address,
-to see that traffic leaves the house. They carry nothing but the echo, to the
-two operators that already answer core5's DNS. core5's DNS probes of the
-resolvers stay in the house, except that while a resolver's Unbound is down,
-AdGuard asks its fallback, a public resolver, for the probe's name in `lan`,
-which says nothing about the house. **needed**: it is what `WanDown` reads.
+**Pings to the public resolvers** (`modules/blackbox.nix`), every 30 seconds,
+for `WanDown`.
 
 **Off-box backups** (`modules/offbox-push.nix`). The newest UniFi and Home
-Assistant backups, age-encrypted to a key core5 does not hold, pushed over SSH
-to a private GitHub repo. GitHub holds ciphertext, its size and a dated commit
-a day at most per job, authored as `core5`. **needed**: the point is a copy
-outside the house.
+Assistant backups, age-encrypted to a key core5 does not hold, pushed to a
+private GitHub repo, at most a commit a day per job.
 
 **Container image pulls** (`modules/unifi.nix`). `mongo` from Docker Hub and
 `unifi-network-application` from lscr.io, pinned by digest, so pulled only
-when a pin moves or the local copy is gone. **needed**. The weekly check for
-newer images (`image-updates.yml`) runs on GitHub's runners, not here.
+when a pin moves. The weekly check for newer images runs on GitHub's runners.
 
-**UniFi** (`modules/unifi.nix`, docs/unifi.md). The controller runs with a
-local admin, and docs/unifi.md has Remote Management and Analytics turned off
-in its settings, which live in its database rather than this repo. The
-controller still checks Ubiquiti for device firmware, which is core5's own
-traffic. **narrow** (F10): confirm the two settings are still off.
+**UniFi.** The controller runs with a local admin, and Remote Management and
+Analytics are off in its settings ([unifi.md](unifi.md)). It checks Ubiquiti
+for device firmware itself.
 
-The switch and the AP, on `servers`, no longer reach the internet (#174).
-gate's `servers-egress` chain, in `hosts/gate/routing.nix`, lets out only
-the hosts `lib/net.nix` gives an address on `servers`, which are the Pis,
-derived so a new Pi is covered. The controller's containers leave core5 from
-its address, behind Docker's masquerade, so they are covered too. Anything
-else there, the switch, the AP and whatever is plugged into an untagged
-switch port, is dropped out `wan` and counted in `servers-wan-dropped`,
-except NTP. Managing them is untouched: they reach the controller on
-`servers` itself, without crossing gate.
-
-What [the device side](#results) found them contacting, and what each
-loses:
-
-- **Time servers.** Still reached. UniFi devices take NTP from a public pool
-  by default (`*.ubnt.pool.ntp.org` on the firmware users have published),
-  or from the servers the controller pushes them if its NTP setting is
-  manual. They are statically addressed, so DHCP's NTP option never reaches
-  them. A device with a wrong clock logs and reports at the wrong time and
-  fails to verify certificates when it fetches firmware, so gate lets UDP
-  123 out for every host on `servers`. That holds whatever the controller
-  is set to, where gate serving time would need an NTP server on gate and a
-  controller setting this repo cannot check.
-- **Ubiquiti.** Dropped, which is the point: whatever the firmware reports
-  home stops, and nothing the controller needs depends on it. Their DNS is
-  unaffected, since they ask the Pis on `servers`.
-- **Firmware.** When the controller is told to upgrade a device, the device
-  downloads the image from Ubiquiti's CDN itself, not through the
-  controller. So an upgrade becomes a deliberate step: flush the chain,
-  upgrade from the controller, reload. docs/unifi.md, "Device firmware", has
-  the commands. Automatic upgrades were already off.
-
-The commands, on gate:
+The switch and the AP do not reach the internet. gate's `servers-egress`
+chain (`hosts/gate/routing.nix`) lets out only the hosts `lib/net.nix` gives
+an address on `servers`, which are the Pis, and the controller's containers
+behind core5's address. Anything else there is dropped out `wan` and counted
+in `servers-wan-dropped`, except NTP: the devices take time from a public
+pool and need a correct clock to verify firmware downloads. They reach the
+controller on `servers` itself, without crossing gate. A firmware upgrade
+downloads from Ubiquiti's CDN on the device, so it needs the chain flushed
+while it runs ([unifi.md](unifi.md), "Device firmware"). On gate:
 
 ```
 sudo nft list counter inet nixos-fw servers-wan-dropped   # what is being refused
@@ -474,466 +200,143 @@ sudo nft flush chain inet nixos-fw servers-egress         # everything on server
 sudo systemctl reload nftables                            # and back
 ```
 
-The counter rising slowly is the switch and the AP trying; it zeroes on
-every reload. Connections open when the chain first loads keep going until
-they close, since established traffic is accepted before `forward-allow`.
-IPv4 only, like iot's chains, but the drop fails closed: if the house gets
-IPv6, the Pis need an `ip6 saddr` return in the chain before they can use
-it. `tests/gate-servers-egress.nix` checks it in VMs.
+The counter zeroes on every reload. Connections already open when the chain
+loads last until they close. IPv4 only; the drop fails closed if the house
+gets IPv6. `tests/gate-servers-egress.nix` checks it.
 
-**Home Assistant** (`modules/home-assistant.nix`, docs/home-assistant.md).
-Onboarding was local, with analytics declined, and the Govee lights are driven
-over their LAN API with no cloud in the path. What remains:
-
-- `met`, in `extraComponents`, is the weather integration onboarding sets up
-  for the home location. Every hour it asks api.met.no for a forecast at the
-  home's coordinates, unrounded. **narrow** (F8): the integration can take a
-  location of its own instead of tracking home, and one rounded to a few
-  kilometres gives the same weather.
-- `default_config` brings in integrations that reach Home Assistant's own
-  servers: `homeassistant_alerts` fetches its alert feed, and `cloud` is
-  loaded but inert without a sign-in. The Companion app's notifications, if
-  any are sent, go through Home Assistant's push relay. **off** (F9), low
-  value: listing `default_config`'s parts explicitly would drop the first
-  two.
+**Home Assistant** (`modules/home-assistant.nix`). Onboarding was local, with
+analytics declined, and the Govee lights are driven over their LAN API. `met`
+asks api.met.no hourly for the forecast at the home location.
+`default_config` loads `homeassistant_alerts`, which fetches Home Assistant's
+alert feed, and `cloud`, inert without a sign-in. Companion app
+notifications go through Home Assistant's push relay.
 
 ## forge
 
-forge is a desktop and carries the most flows, most of them from software the
-repo installs but does not configure.
+**Firefox** (`hosts/forge/desktop.nix`). Enterprise policies set
+`DisableTelemetry`, `DisableFirefoxStudies`, and `DNSOverHTTPS` locked off.
+Firefox's automatic DoH would respect AdGuard's canary domain, but it never
+checks while any policy is set, so the choice is off or DoH everywhere. Crash
+reports have no policy; three locked prefs stop backlogged reports being
+sent or offered and untick the crashed-tab page's box
+(`browser.crashReports.unsubmittedCheck.autoSubmit2`,
+`browser.crashReports.unsubmittedCheck.enabled`,
+`browser.tabs.crashReporting.sendReport`). A whole-browser crash still opens
+Mozilla's reporter, whose send box it remembers itself.
 
-**Firefox** (`programs.firefox` in `hosts/forge/desktop.nix`). The nixpkgs
-build is an official one (`MOZILLA_OFFICIAL=1`) with the crash reporter built
-in, so telemetry and studies are on, and crash reports are offered, unless
-turned off. **off** (F1), by enterprise policy: `DisableTelemetry` and
-`DisableFirefoxStudies`, and `DNSOverHTTPS` locked off. Firefox's automatic
-DoH would respect AdGuard, which answers its canary domain,
-`use-application-dns.net`, with NXDOMAIN, but that check never runs while any
-policy is set, so the only alternative to off is DoH everywhere, home
-included. Crash reports have no policy; three prefs, locked through the
-`Preferences` policy, stop backlogged reports being sent without asking
-(`browser.crashReports.unsubmittedCheck.autoSubmit2`), stop the bar offering
-them (`browser.crashReports.unsubmittedCheck.enabled`), and untick the
-crashed-tab page's box (`browser.tabs.crashReporting.sendReport`). A crash
-still writes a report locally, listed in `about:crashes`. If the whole browser
-crashes, Mozilla's crash reporter dialog still opens, with a send checkbox it
-remembers itself, so a report goes only if that box is ticked when it closes.
+**Brave** (same file). Managed policy turns off the daily usage ping
+(`BraveStatsPingEnabled`), P3A (`BraveP3AEnabled`) and Web Discovery
+(`BraveWebDiscoveryEnabled`), and Chromium's `MetricsReportingEnabled`, which
+Brave reads as its crash-report switch. Each also locks its setting;
+`brave://policy` lists them.
 
-**Brave** (`unstable.brave`, same file). Brave's defaults send a daily usage
-ping, which counts active installs, and P3A, its product analytics, which
-Brave describes as private but which leave the house all the same. Web
-Discovery, which contributes browsing data to Brave's search index, is off by
-default, but the welcome page and settings both offer it. **off** (F2), by
-managed policy: `BraveStatsPingEnabled`, `BraveP3AEnabled` and
-`BraveWebDiscoveryEnabled`, all false, in
-`/etc/brave/policies/managed/nixos.json`, which Brave reads on Linux. Each
-also locks its setting, and `brave://policy` lists them. Crash reports, to
-`cr.brave.com`, are off by default on the stable channel, but the welcome
-page's box for them is ticked, and Brave asks again after a crash, so
-Chromium's `MetricsReportingEnabled`, which Brave reads as the crash report
-switch, is set false too.
+**VS Code** (`hosts/forge/dev.nix`). Microsoft's build, with settings and
+extensions from Settings Sync. Telemetry is off in the synced settings,
+not the repo: [laptop.md](laptop.md#vs-code-telemetry).
 
-**VS Code** (`unstable.vscode`, `hosts/forge/dev.nix`). Microsoft's build, with
-settings and extensions from Settings Sync, so nothing about telemetry is
-visible in the repo. Its default is full telemetry. Settings Sync itself sends
-the settings to the account it signs in to, and extensions come from the
-marketplace. **off** (F4) for telemetry; the rest is needed. The setting
-lives in Settings Sync rather than the repo, and
-[laptop.md](laptop.md#vs-code-telemetry) says how to set it, what it covers,
-and how Sync carries it to the other machines.
+**Claude Code** (`home/claude.nix`), on forge, WSL and the Mac. Prompts and
+the files it reads go to Anthropic, which is the tool. `DISABLE_TELEMETRY`
+and `DISABLE_ERROR_REPORTING` are set in the user settings, which the night
+shift's agents read too. The updater stays on, which is why the switch is not
+`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`. Telemetry off also stops feature
+flags, which turns off: dropping an MCP tool with an invalid schema (every
+request then fails with a 400 instead), artifact comments, skills and plugins
+synced from the claude.ai account, the advisor tool, `/skill-doctor`,
+`claude import`, and messaging sessions on other machines. Auto mode and
+Remote Control keep working; if either goes missing after an upgrade, undo
+this first. The sandbox's `allowedDomains` limits what commands reach, not
+what Claude Code itself sends.
 
-**Claude Code** (`home/claude.nix`, `hosts/forge/claude.nix`), on forge, WSL
-and the Mac. Prompts and the files it reads go to Anthropic, which is the
-tool. Beyond that it sends usage telemetry and error reports by default.
-`home/claude.nix` sets `DISABLE_TELEMETRY` and `DISABLE_ERROR_REPORTING` under
-`env` in the user settings on all three machines, which turns both off, and
-the night shift's agents read the same settings. It is installed by its own
-installer and updates itself, which stays on: that is why the switch is not
-`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, which stops the updater too.
+**The night shift** (`hosts/forge/night-shift.nix`). Linear gets issue state
+and comments; GitHub's API is asked, without a token, whether each PR has
+merged; ntfy.sh gets an issue's identifier, its Linear URL and a few words
+("NNO-12: Handoff ready"), never its title, since a title can describe the
+house.
 
-Telemetry off also stops Claude Code fetching its feature flags, and no
-setting separates the two, so the features behind a flag go with it. Chosen
-knowingly, on 2026-10-11. What is lost, per Claude Code's documentation:
+**Firmware metadata.** `services.fwupd` refreshes LVFS's metadata on a timer.
+Reports upload only when asked.
 
-- **An MCP tool with an invalid input schema is sent anyway**, and every
-  request then fails with a 400 naming the tool by position, instead of the
-  tool being left out.
-- **Artifact comments**, skills and plugins synced from the claude.ai account,
-  the advisor tool, `/skill-doctor`, `claude import`, and messaging sessions
-  on other machines. The fleet's own plugins come from nix and are unaffected.
+**Location lookups.** geoclue is off (`hosts/forge/desktop.nix`): Night
+Light is in Constant mode and nothing else on forge needs it. Firefox falls
+back to its own provider, beacondb, for a site Nick allows at its prompt.
 
-What stays: auto mode, which a session without flags asks the server for
-(the night shift passes `--permission-mode auto`), and Remote Control, from
-v2.1.283. If either goes missing after an upgrade, this is the first thing to
-undo.
-The sandbox's `allowedDomains` limits what commands reach, not what Claude
-Code itself sends. **off** (F3), for the telemetry and error reports.
+**DNS away from home** (`hosts/forge/dns.nix`). With no tunnel up and away
+from home, every lookup goes over strict DNS-over-TLS to Quad9
+(`encryptedResolvers` in `lib/net.nix`); where port 853 is refused, lookups
+fail rather than fall back. forge knows it is home when DHCP hands it exactly
+the fleet's resolvers, and then uses AdGuard. A captive portal needs
+`portal-dns` ([laptop.md](laptop.md#dns-away-from-home)). Docker containers
+use resolved's upstream list, which away from home is Quad9 on port 53.
 
-**The night shift** (`hosts/forge/night-shift.nix`, `night-shift.sh`). Linear
-receives issue state and comments, which is its job. GitHub's API is asked,
-without a token, whether each branch's PR has merged. ntfy.sh, on the fleet's
-topic, receives each issue's identifier and Linear URL when it is ready or
-needs Nick, with a few words on what happened ("NNO-12: Handoff ready"), and
-once when runs keep failing, a push that names no issue. Issue titles are not
-sent, since a title can describe the house; the identifier and URL are enough
-to find the issue (F14, `stop_issue` in `night-shift.sh`). **needed**, and
-already narrowed.
+Passed over: the split tunnel by default (NetworkManager cannot raise it only
+away from home, and at home it sends DNS into a tunnel that never comes up);
+opportunistic TLS (silently plaintext on exactly the networks that block
+853); DoH (resolved does not speak it, and it gains only those networks); and
+recursing on forge (plaintext to authoritative servers).
 
-**Firmware metadata.** `services.fwupd` is on (`hosts/forge/default.nix`), and
-NixOS enables its refresh timer, which downloads LVFS's metadata. Reports are
-uploaded only when asked. Discover is installed alongside, because fwupd is,
-and shows the same updates. **needed**.
+**Steam and Plasma.** Steam's hardware survey asks first. Plasma's user
+feedback is off by default, and DrKonqi sends crash reports only when asked.
 
-**Location lookups** (`hosts/forge/desktop.nix`). Plasma turns on geoclue,
-which NixOS points at beacondb (`api.beacondb.net`) with submission off. When
-an application asks for the location, geoclue sends the Wi-Fi networks in
-range and gets coordinates back. forge turns it off. Night Light, Plasma's one
-regular client, is in Constant mode and needs no location, and the journal,
-back to 2026-09-29, never shows geoclue starting. Its other clients on forge
-are Plasma's Night Light settings page, the desktop portal's location
-interface for sandboxed applications (forge runs none), and Firefox.
-
-Firefox does not fail without it. When geoclue cannot answer, it falls back
-to its own network provider, which nixpkgs also points at beacondb, and scans
-for Wi-Fi networks itself. A site that asks for the location, and that Nick
-allows at Firefox's prompt, still sends the networks in range to beacondb,
-now from Firefox. Brave does not use geoclue. **off** (F13), for geoclue.
-
-**DNS away from home** (`hosts/forge/dns.nix`). With neither tunnel profile
-up and forge away from home, every lookup goes over DNS-over-TLS to Quad9
-(`encryptedResolvers` in `lib/net.nix`), the tunnel endpoint's hostname
-among them. It is strict: nothing goes in plaintext, to Quad9 or to the
-network forge has joined, and where port 853 is refused lookups fail
-instead. Quad9 sees every name forge looks up away from home, from the
-address that network gives it, filtered only by its own list of malicious
-domains rather than AdGuard's. forge knows it is home when DHCP hands it
-exactly the fleet's resolvers, and there every lookup still goes to AdGuard,
-in plaintext on the LAN as before. A connection comes up asking its own
-network's resolvers over TLS, which a hotel's does not speak, so the moment
-before forge has decided leaks nothing either. A captive portal needs
-`portal-dns`, which hands that network its resolver back in plaintext until
-forge reconnects ([laptop.md](laptop.md#dns-away-from-home)). Left over:
-Docker containers resolve through resolved's upstream list, which away from
-home is Quad9 on plain port 53.
-
-Passed over: the split tunnel up by default, which NetworkManager cannot
-bring up only away from home, which at home sends DNS into a tunnel that
-never comes up, and which needs the endpoint looked up before it exists;
-opportunistic TLS, which falls back to plaintext, silently, on exactly the
-networks that block 853; DNS-over-HTTPS, which resolved does not speak, so
-it needs a proxy, and gains only networks that block 853, which strict TLS
-reports rather than hides; and recursing on forge, which asks authoritative
-servers in plaintext. Firefox's own DoH (F1) is redundant with this away
-from home and takes lookups away from AdGuard at home. **narrow** (F11),
-and narrowed.
-
-**Steam and Plasma.** Steam talks to Valve, which is what it is for; its
-hardware survey asks first. Plasma's user feedback is off unless enabled in
-System Settings, which is KDE's default, and DrKonqi sends crash reports only
-when asked to. **needed**.
-
-**Dev tools** (`home/dev-tools.nix`, `home/common-tools.nix`), on every dev
-machine: npm, pnpm and cargo reach their registries when used, npm and pnpm
-also check them for their own updates, `tldr` downloads its pages from
-GitHub, `vulnix` downloads the NVD feed, and `nix run .#cve-scan` downloads
-NVD's yearly feeds when it runs, the changed ones only. All on use, none on a
-timer.
-**needed**.
+**Dev tools** (`home/dev-tools.nix`, `home/common-tools.nix`). npm, pnpm and
+cargo reach their registries, `tldr` fetches pages from GitHub, `vulnix` and
+`nix run .#cve-scan` fetch NVD's feeds. All on use, none on a timer.
 
 ## GitHub Actions
 
-`.github/workflows/` runs on GitHub's runners, so none of it leaves the house:
-it is listed because the repo causes it. `check.yml` and `cache.yml` fetch
-inputs and substitute from the same caches as the hosts, and `cache.yml`
-pushes the Pis' closures to the public Cachix cache, built from this public
-repo with secrets kept in sops. `cache-vm-tests.yml` pushes what the VM tests
-build there too, whose secrets are test stand-ins. `update-flake.yml` opens
-lock bumps, `image-updates.yml` reads registry manifests, and Dependabot
-watches the pinned actions. The DeterminateSystems actions would export OpenTelemetry
-traces and an installer diagnostic report to their vendor by default; every
-workflow sets `OTEL_SDK_DISABLED` and `diagnostic-endpoint: ""`, with the
-reasoning at the top of `check.yml`. **needed**, and already narrowed.
+`.github/workflows/` runs on GitHub's runners, so none of it leaves the house.
+`check.yml` and `cache.yml` substitute from the hosts' caches, and `cache.yml`
+and `cache-vm-tests.yml` push to the public Cachix cache, built from this
+public repo with secrets in sops and test stand-ins. Every workflow sets
+`OTEL_SDK_DISABLED` and `diagnostic-endpoint: ""` for the DeterminateSystems
+actions (top of `check.yml`).
 
 ## The device side
 
-The repo shows what the fleet sends. What the phones, TVs, plugs and
-laptops send is in the resolvers' query logs, which no file here can show.
+What the phones, plugs and laptops send is in the resolvers' query logs.
 `nix run .#dns-top-domains` summarises them:
 
 ```bash
 nix run .#dns-top-domains -- --top 25
 ```
 
-It asks each resolver's AdGuard API for its query log, read-only, as the admin
-user named after the host, and prompts for each password without echo. It
-needs a machine that can reach the AdGuard UI: forge at home, or through the
-tunnel. The output is Markdown, one table per segment of the domains looked up
-most, with counts and how many were blocked. It never prints a client address
-or device name, reverse lookups and local names are counted under a fixed
-label, and the work segment, which `lib/net.nix` marks `logQueries = false`,
-is left out entirely, not even counted. `scripts/dns-top-domains.sh` has the
-details and the other options.
+It reads each resolver's AdGuard query log, read-only, as the admin user
+named after the host, prompting for each password. It needs to reach the
+AdGuard UI: forge at home or through the tunnel. The output is one Markdown
+table per segment. It never prints a client address or device name, counts
+reverse lookups and local names under a fixed label, and leaves out the work
+segment entirely. `scripts/dns-top-domains.sh` has the options.
 
-Run it in your own terminal rather than through an agent: the domains are a
-summary of the house's browsing. Read the output before pasting any of it
-here, and pass `--exclude <domain>` for anything that should not be named,
-the house's own domain first.
+Run it in your own terminal, not through an agent: it summarises the house's
+browsing. Read it before pasting any of it, and `--exclude` the house's own
+domain.
 
 ### Results
 
-Run on 2026-10-10 over about 200,000 queries per resolver: four days on
-core4 and six weeks on lifeline, which answers far less of the house's
-traffic.
+By segment, at the category level:
 
-- **iot.** Devices reaching their vendors' clouds, some of which need that
-  to work, and app analytics the blocklists already refuse. A personal
-  device was on this segment for a few days, and its lookups are in these
-  counts. [Internet for iot](#internet-for-iot) is the design for giving
-  the internet only to the devices that need it.
-- **servers.** The switch and AP contact their vendor. Apart from that,
-  the segment reaches only time servers. This confirms F10.
-- **vpn.** The tunnel peers, filtered as at home. Nothing new.
-- **The resolvers themselves.** Time, GitHub, the binary caches and the
-  two alert services, as the inventory above lists, plus one-off manual
-  tests.
-- **No segment.** Lookups from before the 2026-09-05 cutover, when every
-  client was on the flat network. lifeline still held them under
-  AdGuard's default retention. NNO-26 set the retention and gives the
-  command to clear that history once
-  ([above](#clearing-the-history-from-before-the-cutover)).
-- **trusted.** Not summarised here, since it is the household's own
-  browsing. Its most-blocked entries are app and OS analytics and push
-  services, which is the blocklists working. Devices also ask for a few
-  thousand names that exist only inside the house. Unbound now answers
-  those itself, under a local suffix or a single label alike
-  ([What goes upstream](#what-goes-upstream)).
-- **guest** is absent, as it should be: it resolves through public
-  resolvers.
-- **work** is absent by design.
+- **iot**: devices reaching their vendors' clouds, some of which need that
+  to work, and app analytics the blocklists refuse.
+- **servers**: the switch and AP contacting their vendor, which gate
+  drops, and time servers.
+- **vpn**: the tunnel peers, filtered as at home.
+- **The resolvers themselves**: time, GitHub, the caches and the alert
+  services, as above.
+- **trusted** is the household's own browsing and not summarised. Its most
+  blocked entries are app and OS analytics and push services.
+- **guest** is absent, since it resolves publicly, and **work** by design.
 
 ## Internet for iot
 
-A design, from NNO-27, built by the PRs [at its end](#the-prs-in-order), one
-at a time. Step 1, the counter and the trial set, is built (NNO-44); the rest
-is not.
-
-**Today every iot device reaches the whole internet.** `networking.nat`
-appends `iifname { every segment } oifname "wan" accept` to gate's
-`forward-allow` chain, and nothing on iot's side narrows it except the two
-rules in `hosts/gate/routing.nix` that run first: private space upstream is
-dropped, and port 853 is refused. Plaintext DNS is redirected to the
-resolvers, so every name an iot device looks up is in AdGuard's log, but what
-it connects to afterwards is not checked against anything. The device side
-above says some iot devices need their vendor's cloud to work and some only
-use it to report on themselves.
-
-The house has no global IPv6 ([router.md](router.md)), so this is IPv4 only.
-If IPv6 arrives, every rule below needs its `ip6` twin before iot gets an
-address.
-
-### Per device or per segment
-
-**Per class, where a class is a list of named devices.** gate can only tell
-devices apart by their source address or, since iot is one hop away, their
-MAC address. ["Naming a device" in network.md](network.md#naming-a-device) settles how a rule
-names one without this repo saying which hardware it is: a role name and a
-reserved address, public in `lib/net.nix`, and the MAC that Kea reserves the
-address for, in gate's sops file. The ways a class can be expressed:
-
-- **One policy for the whole segment.** Simple, and useless here: the
-  segment holds devices that need a cloud and devices that need nothing, so
-  one rule is either too open for the second or breaks the first.
-- **A list of devices on iot.** A class is a list of names from `devices`,
-  as `goveeLights` is, and its chain matches their reserved addresses. No new
-  segment, no device moves network, and Home Assistant's rules are
-  untouched. Two limits. An address on a shared segment is not
-  authentication: a device that takes a pool address for itself is out of
-  its class. That is enough against firmware reporting home, not against a
-  compromised device set on getting out. And every name in the list is
-  public, so this is for devices the repo already names, or whose existence
-  is harmless to say; a list that grows into an inventory is a decision of
-  its own. This is the
-  recommendation, with one class to start: local-only, for devices that need
-  no internet at all, holding the Govee lamps.
-- **One segment per policy.** A device's class is the network it joins,
-  chosen in the UniFi controller and on the device, so the repo names
-  classes, never devices, and the AP rather than an address keeps a device
-  in its class. It costs a VLAN, a gate reboot and moving each device onto
-  the new network. It is the answer for a device that should not be named in
-  public, and is [designed below](#a-local-only-segment-later) but not
-  scheduled.
-- **A runtime set, for trials.** An nftables set on gate, declared empty,
-  that Nick fills by hand with a device's current address. Nothing about the
-  device reaches the repo. It is not policy: the set empties whenever a
-  deploy reloads the ruleset, and for a device without a reservation the
-  entry goes stale if its lease moves. It is how a device is tried without
-  the internet for a week before it joins a class for good.
-  [The trial set, by hand](#the-trial-set-by-hand) has the commands.
-
-### Allowing by name
-
-A device that needs its cloud needs it by name, and the addresses behind
-those names change. Four places the name could be checked, by what each costs
-on an N100 that is the house's only router:
-
-- **The resolvers, with gate unchanged.** AdGuard can refuse every name for
-  one segment's clients and allow a few (`$client` rules, written like the
-  work segment's example above). It costs gate nothing and needs no
-  new software, and the query log names each refusal, the rule and the client.
-  It does not stop a device that connects to a hardcoded address, or that
-  resolves over DoH, which nothing on gate can see.
-- **nftables sets filled from DNS answers, on gate.** iot's DNS replies come
-  from the Pis and cross gate's forward chain, redirected ones included, so
-  gate can read them without answering them, and AdGuard keeps seeing each
-  device's own address. A small program would take each reply from an NFQUEUE,
-  add the addresses for allowed names, CNAME targets followed, to a set with
-  a timeout no shorter than an hour, and release it, so the device cannot
-  connect before its address is in the set. With the queue's `bypass` flag a
-  dead program releases replies untouched, so DNS keeps working and only new
-  destinations are refused. The CPU and memory are negligible at iot's query
-  rate. The cost is a program written or adopted for this, with no NixOS
-  module behind it, running in the DNS path of the house's only router.
-  The two cheaper ways to fill such a set are both worse: AdGuard's `ipset`
-  option fills sets in the Pis' kernels, not gate's, and pushing them into
-  gate would have a Pi reconfigure the router; and a forwarder on gate with
-  `nftset=` would make gate every iot device's resolver, so AdGuard would see
-  gate's address for all of them and the log could no longer say which device
-  was refused.
-- **A forward proxy on gate**, reading the server name from each TLS
-  handshake without decrypting it. It covers TLS over TCP only, so QUIC,
-  plaintext MQTT and every vendor protocol on its own port would need rules
-  of their own anyway, and every allowed connection would terminate in a
-  userspace process on the router, whose fault takes all of them down. The
-  most machinery for the least coverage, so not this.
-- **No names at all: allow by default for one class, deny for another.**
-  Static rules, nothing at runtime, nothing that can crash. It cannot narrow
-  a cloud device's destinations, only give it all of the internet or none.
-
-The names in any allowlist are a list of the vendors whose devices are in the
-house, which is the inventory "Naming a device" in network.md keeps out of the
-public half. Writing one down is a decision of its own, which comes first;
-they never go in this repo in the clear.
-
-**Decision.** Start with the last: a local-only class with no internet, for
-the devices that need none, which is the whole gain for them and costs gate
-nothing at runtime. Leave the cloud class open until the local class has run
-for a while. Then, if it is still wanted, allow by name at the resolvers
-first, since that changes gate not at all, and add sets filled from DNS on
-gate only if a device keeps working while the resolvers refuse its names,
-which means it reaches its cloud without asking them. The proxy is not
-pursued.
-
-### Which devices need the cloud
-
-By category; which category each device in the house is in is Nick's to
-record, from AdGuard's per-client log, and stays out of the repo.
-
-| Category | Needs the internet | Without it |
-|---|---|---|
-| Lights driven by Home Assistant over a LAN API: the Govee lamps | No | See below |
-| Plugs and switches with a local Home Assistant integration | No | The vendor's app loses remote control |
-| Plugs and switches only the vendor's app controls | Their vendor's cloud | They stop being controllable |
-| Cameras recording locally | No | Remote viewing through the vendor's app stops |
-| Cameras recording to the vendor's cloud | Their vendor's cloud | Recording stops |
-| TVs and streaming devices (none today) | Broad: every service they stream | Not a candidate; they stay open |
-
-**The Govee lamps** are controlled from Home Assistant through
-`govee_light_local` and need nothing outside the house for it
-([home-assistant.md](home-assistant.md#govee-lights)). Cut off, what changes:
-
-- **The vendor's app** can no longer reach them through its cloud, so
-  control from the app away from home, and voice assistants linked through
-  it, stop. Home Assistant's control does not.
-- **What the app does through the cloud** stops with it, some scenes and
-  effects among them. What Home Assistant does over the LAN API, which is
-  all it does with the lamps today, is unaffected.
-- **Firmware updates** stop. They are installed from the app, with the lamp
-  online, and the vendor has also pushed security fixes to some lamps
-  automatically. Cut off, a lamp keeps the firmware it has, and an update
-  becomes a deliberate act: flush the class's chain (below), or take the
-  lamp out of the trial set during the trial, update from the app, then
-  restore it. A vulnerable lamp that can reach only iot and Home
-  Assistant's three ports is the smaller exposure than one that reaches the
-  internet.
-- **Setting one up** needs the cloud: the app adds the lamp and turns on LAN
-  Control through it. A new lamp is set up as "Adding a lamp" says, on a
-  pool address with the internet, and cut off when it joins `devices` and
-  the class, which Home Assistant needs of it anyway once its rules name the
-  lamps (network.md, "Naming a device").
-
-That is acceptable, and the lamps go first, since they are the devices this
-repo already knows need nothing. What the trial has to show is that a lamp
-does not misbehave when its cloud is unreachable: some firmware reboots or
-stops answering locally when it cannot reach home. If a lamp does, it stays
-out of the class, and that finding goes here.
-
-### Failing, and noticing
-
-**How a cut-off device fails.** Its DNS keeps working: the redirect's
-`ct status dnat accept` passes port 53 ahead of every rule here, so it is
-answered as before and its lookups keep reaching the log. Its connections out
-`wan` are dropped, not refused. A refusal tells it at once, and firmware that
-retries on failure then retries at once, in a loop; a drop makes it wait out
-its own timeout between attempts. A trial can switch to `reject` if a device
-hangs waiting. Connections it already had would keep going until they
-close, since established traffic is accepted before `forward-allow` is
-consulted, so cutting a device off also ends them with `conntrack -D`, as
-[the trial set, by hand](#the-trial-set-by-hand) does. To the vendor's app the device looks offline; to Home Assistant, a local
-device looks unchanged.
-
-**How Nick notices**, in the order the pieces arrive:
-
-- **Home Assistant**, for the case that matters: a device it controls
-  locally going unavailable is the one breakage that is not expected. Its
-  history shows when.
-- **AdGuard's log.** A cut-off device keeps asking for its cloud's names,
-  usually more often than before, since it is retrying. That is expected for
-  a local-only device and is how to see what it would have contacted.
-- **A named counter per class on gate**, counting the drops:
-  `nft list counters table inet nixos-fw`. For the local class it rises all
-  the time, since that is the devices trying, so it is evidence rather than
-  an alarm. Like the redirect's, it resets whenever a deploy reloads the
-  ruleset.
-- **A metric**, once gate's metrics exist (NNO-32,
-  [observability.md](observability.md)): node_exporter's textfile collector
-  reading `nft -j list counters` every minute, so drops per class are a
-  graph. An alert on drops makes sense only for a class with an allowlist,
-  where a drop means the list is missing something, so it waits for one.
-
-### Rolling out, and rolling back
-
-Every class's policy is its own chain in `inet nixos-fw`, appended the way
-`dns-redirect` is appended to `nixos-nat`, and jumped to from a `mkBefore`
-rule in `forward-allow` after the private-space drop and the 853 refusals and
-before nat's accept. A chain drops what it refuses and returns everything
-else, rather than accepting, so nat's rule stays the one accept out `wan`.
-That gives three ways back, none of which reboots gate:
-
-- **For one device**: take its address out of the trial set, with no change
-  to gate's config. Once it is in a class, its name comes out of the class's
-  list in `lib/net.nix`, which is an ordinary gate deploy.
-- **For a class, at once**: `sudo nft flush chain inet nixos-fw <chain>`. An
-  empty chain returns everything, so the class falls through to nat's accept,
-  as today. It lasts until the ruleset is next loaded, by a deploy or by
-  `sudo systemctl reload nftables`.
-- **For good**: switch gate to the previous generation, which reloads the
-  old ruleset and is a firewall reload, not a reboot.
-
-None of the steps below reboots gate, and the lamps stay on iot, so Home
-Assistant's Govee rules on gate and core5 are untouched by this.
-The Net Security project narrows those to the lamps' addresses on its own
-schedule.
+iot's way out `wan` passes gate's `iot-egress` chain
+(`hosts/gate/routing.nix`), which counts iot's attempts in `iot-wan` and
+drops those from addresses in the `iot-trial` set, counted in
+`iot-trial-dropped`. The set is declared empty and
+filled by hand, so nothing about a device reaches the repo. Per-device
+classes are planned in Linear's Privacy project.
 
 ### The trial set, by hand
 
-What step 1 put on gate, in `hosts/gate/routing.nix`: the `iot-egress`
-chain, the `iot-trial` set, and two named counters, `iot-wan` for iot's
-attempts to open a connection out `wan` and `iot-trial-dropped` for the
-members' share of them, which are dropped. They count attempts, not
-connections: a dropped attempt that the device retries counts once per try,
-and a one-way UDP exchange once per packet, so read them as evidence of
-trying rather than as a count of flows. The set is empty in the repo and
-filled only by these commands, on gate, with a device's current iot address:
+On gate, with a device's current iot address:
 
 ```
 sudo nft add element inet nixos-fw iot-trial '{ <address> }'      # on trial
@@ -944,114 +347,18 @@ sudo nft list counters table inet nixos-fw                        # both counter
 sudo nft flush chain inet nixos-fw iot-egress                     # all of iot back out, at once
 ```
 
-The `conntrack -D` matters. The firewall accepts established connections
-before it reaches `forward-allow`, where the jump to `iot-egress` is, so the
-set only stops new ones. A device that already holds a connection to its
-cloud, as most do, would otherwise keep it, stay online in the vendor's app,
-and barely move the counter, which would make the trial read as a pass. It
-reports how many entries it deleted; 0 is fine for a device that had none
-open.
+- **`conntrack -D` matters.** Established connections are accepted before
+  the jump to `iot-egress`, so the set stops only new ones. A device that
+  keeps its open cloud connection stays online in its app and barely moves
+  the counter. It reports how many entries it deleted; 0 is fine.
+- **The counters count attempts**, not flows: each retry of a dropped
+  connection, and each packet of a one-way UDP exchange.
+- **A member keeps resolving.** Redirected DNS is accepted before the jump.
+- **Nothing survives a reload.** A deploy that changes gate's ruleset, `sudo
+  systemctl reload nftables`, or a reboot empties the set, zeroes the
+  counters and restores a flushed chain. Re-add the address after any gate
+  deploy during a trial.
 
-None of it survives a reload. A deploy that changes gate's ruleset reloads
-it, as does `sudo systemctl reload nftables`, and either recreates the table:
-the set comes back empty, the counters at zero, and a flushed chain with its
-rules. A reboot starts the same way. So after any gate deploy during a
-trial, add the address again. While the chain is flushed, neither counter
-counts.
-
-A member keeps resolving: its queries to the Pis go out the trunk, and a
-redirected one is accepted by `ct status dnat accept` before the jump to
-`iot-egress`. What it loses is every new connection out `wan`.
-`tests/gate-iot-egress.nix` checks both in VMs, with the commands above.
-
-After deploying, before anything is on trial: `sudo nft list chain inet
-nixos-fw forward-allow` shows the jump to `iot-egress` after the two
-`dport 853` rules and before nat's `oifname "wan" accept`, `iot-wan` rises
-as iot's devices go about their business, and `iot-trial-dropped` stays at
-zero.
-
-### A local-only segment, later
-
-For a device that needs no internet and should not be named in public. Not
-scheduled: it waits for such a device.
-
-- **It reboots gate.** A new VLAN interface's address unit is not started by
-  `switch`, and Kea, which requires every interface it serves, would loop
-  until it was. The reboot happens before any device depends on the segment,
-  behind `deploy-guard`, so it risks only what any gate reboot does.
-- **The pull request** adds the segment to `lib/net.nix`, with its VLAN,
-  subnet and pool; gate carries it in `hosts/gate/routing.nix`, with an
-  egress chain dropping everything out `wan`, counted; and the VLAN is
-  tagged on the AP and gate ports and its network made in the controller, by
-  hand. Every host reads `lib/net.nix`, so the PR quotes preflight's brief on
-  whether the Pis change with it.
-- **Moving a device** means giving it the new network's Wi-Fi credentials. A
-  private pre-shared key on the iot SSID, mapped to the new VLAN, would spare
-  a second SSID's beacons on 2.4 GHz, if the controller offers it there;
-  otherwise a second SSID. Either way its name stays in the controller.
-- **A device Home Assistant controls** would need its rules on the new
-  segment too, on gate and on core5, during the move and after it.
-
-### The PRs, in order
-
-Each depends on the one before. The gate PRs change its firewall, so each
-deploys behind `deploy-guard` ([recovery.md](recovery.md)).
-
-1. **`gate: count iot's traffic to the internet, and an empty trial set`.**
-   The `iot-egress` chain, which returns everything, a named counter for new
-   iot flows out `wan`, and the `iot-trial` set, empty, whose members are
-   dropped and counted. No device changes until Nick adds an address. A VM
-   test beside `tests/gate-dns.nix` checks that a member is dropped, that a
-   non-member still reaches the internet and the Pis, and that flushing the
-   chain restores both. Firewall only: `nrs` behind `deploy-guard`, no
-   reboot. Built in NNO-44; [the commands](#the-trial-set-by-hand).
-2. **Hands-on, no PR: trial one lamp.** Its address in the trial set for a
-   week, then all three. Each time: Home Assistant still controls it, the
-   app shows it offline, the counter rises, and the log shows it retrying.
-   The finding goes in this section, and if a lamp misbehaves, the plan
-   stops here.
-3. **The device identity steps 1 to 3** (Net Security): `devices` and `goveeLights` in
-   `lib/net.nix`, the MACs in gate's sops file, and Kea's reservations, so
-   each lamp holds a stable address. Its own PRs, on its own schedule; the
-   next step needs them.
-4. **`gate: keep the govee lamps off the internet`.** A `localOnly` list of
-   device names in `lib/net.nix`, holding the lamps, which net-assertions
-   checks like `goveeLights`; `iot-egress` drops their addresses out `wan`
-   into a counter named for the class, and the VM test covers it. Firewall
-   only: `nrs` behind `deploy-guard`, no reboot. `lib/net.nix` changes, so
-   the PR quotes preflight's brief on whether the Pis change with it.
-5. **`gate: egress counters as metrics`**, after NNO-32: the textfile
-   collector above, and a panel per class.
-
-Later, and only if wanted after the local class has run for a while: an
-allowlist for the cloud class, at the resolvers first, once the names in it
-have somewhere to live (above). And the local-only segment, when a device
-needs it.
-
-## Suggested follow-ups
-
-Each is one issue, titled the way a PR for it would be.
-
-| | Issue | Verdict | Status |
-|---|---|---|---|
-| F1 | `forge: firefox policies for telemetry, studies, crash reports and DoH` | off | done, #158 |
-| F2 | `forge: brave policies for its usage ping, P3A and web discovery` | off | done, #163, crash reports too |
-| F3 | `home: turn off claude code's telemetry and error reports` | off | done, #159 |
-| F4 | `docs/laptop.md: vs code telemetry off, and how settings sync carries it` | off | done, #160 |
-| F5 | `core5: resolve through gate's unbound rather than public resolvers` | narrow | not filed: to weigh against keeping monitoring off the resolvers it watches ([observability.md](observability.md)) first |
-| F6 | `adguardhome: send the fallback over DNS-over-TLS` | narrow | |
-| F7 | `adguardhome: fewer blocklist operators for the same coverage` | narrow | |
-| F8 | `docs/home-assistant.md: give met.no a coarse location` | narrow | |
-| F9 | `home-assistant: list default_config's integrations, without cloud and alerts` | off | |
-| F10 | `gate: keep the switch and AP off the internet` | narrow | done, #174, as only the fleet's hosts on servers reaching it |
-| F11 | `forge: encrypted DNS away from home` | narrow | done, #162 |
-| F12 | `gate: stop sending its hostname in DHCP requests on wan` | narrow | done, #171 |
-| F13 | `forge: turn geoclue off` | off | done, #165 |
-| F14 | `forge: night-shift pushes carry the identifier, not the title` | narrow | done, #161 |
-| F15 | `unbound: serve the root zone locally, so single-label names stay home` | narrow | done, #182 |
-| F16 | `adguardhome: maintained telemetry lists for windows and the house's tvs` | narrow | done, #152 |
-
-F10 changes gate's firewall, so it goes behind deploy-guard. F5 changes gate
-and core5 together, and F6 the resolvers, which take it that night. F15
-changes Unbound on gate and the Pis together, and F16 the resolvers. The rest
-are forge, docs, or one service on core5.
+`sudo nft list chain inet nixos-fw forward-allow` shows the jump after the
+two `dport 853` rules and before nat's `oifname "wan" accept`.
+`tests/gate-iot-egress.nix` runs these commands in VMs.

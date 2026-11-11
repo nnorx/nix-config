@@ -106,7 +106,7 @@ in
   # is why the Phase 7 sequence started there rather than with the cable.
   networking.interfaces.${host.wanIface}.useDHCP = true;
 
-  # Keep gate's name out of its requests to the ISP (F12 in docs/privacy.md).
+  # Keep gate's name out of its requests to the ISP (docs/privacy.md, "gate").
   # NixOS's dhcpcd.conf starts with a bare `hostname`, which sends the system
   # hostname, and the module has no option to drop it. A later `hostname ""`
   # clears it again (dhcpcd's if-options.c, despite what its man page says
