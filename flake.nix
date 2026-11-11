@@ -72,20 +72,14 @@
     };
   };
 
-  # Binary caches. Nix requires nixConfig to be a literal attrset, so this is
-  # the one place the list is written, and modules/baseline.nix imports this
-  # file to read it. baseline.nix is what matters on the hosts: settings from a
-  # flake are client-supplied, so Nix discards them for any user not in
-  # trusted-users, and honours them only with --accept-flake-config. This form
-  # covers evaluating the flake from a workstation, and a freshly flashed host
-  # whose nix.conf does not yet know about these.
+  # Binary caches. nixConfig must be a literal attrset, so the list is written
+  # here and modules/baseline.nix reads it into each host's nix.conf. This form
+  # covers evaluating the flake from a workstation and a freshly flashed host.
+  # nixos-raspberrypi's cache is CI's alone (cache.yml, core5's trustCaches):
+  # each push carries the closure, so no host needs upstream's key.
   nixConfig = {
-    extra-substituters = [
-      "https://nixos-raspberrypi.cachix.org"
-      "https://nnorx-nix-config.cachix.org"
-    ];
+    extra-substituters = [ "https://nnorx-nix-config.cachix.org" ];
     extra-trusted-public-keys = [
-      "nixos-raspberrypi.cachix.org-1:4iMO9LXa8BqhU+Rpg6LQKiGa2lsNh/j2oiYLNOQ5sPI="
       "nnorx-nix-config.cachix.org-1:/vn4K3PMf39c802pIvdiQ8ErecC5eTFuXxQ6/g6Sqro="
     ];
   };
@@ -226,6 +220,7 @@
           in
           nixos-raspberrypi.lib.nixosSystem {
             inherit nixpkgs;
+            trustCaches = false;
             specialArgs = fleetSpecialArgs { inherit hostname system; };
             modules = [
               (

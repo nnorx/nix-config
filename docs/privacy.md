@@ -42,8 +42,8 @@ Privacy project.
 
 gate, the three Pis and forge all import `modules/baseline.nix`.
 
-- **Binary substitution.** `nixos-raspberrypi.cachix.org`,
-  `nnorx-nix-config.cachix.org`, then cache.nixos.org. Each build asks them
+- **Binary substitution.** `nnorx-nix-config.cachix.org`, then
+  cache.nixos.org. Each build asks them
   for the store paths it needs, from the house's WAN address. A Pi that
   cannot substitute compiles its kernel for half a day.
 - **Flake fetches.** `nrs`, `nrb` and the Pis' upgrade fetch

@@ -73,6 +73,11 @@ jobs:
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # main @ 2026-09-09
         with:
           diagnostic-endpoint: ""
+          # Here rather than in flake.nix's nixConfig: what this job
+          # substitutes from it is pushed with each closure.
+          extra-conf: |
+            extra-substituters = https://nixos-raspberrypi.cachix.org
+            extra-trusted-public-keys = nixos-raspberrypi.cachix.org-1:4iMO9LXa8BqhU+Rpg6LQKiGa2lsNh/j2oiYLNOQ5sPI=
 
       - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
         with:

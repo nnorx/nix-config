@@ -11,7 +11,9 @@ with the fleet SSH key, and the host identity is applied by `nixos-rebuild`
 afterwards.
 
 core5 is the exception. The Pi 5 needs `nixos-raspberrypi`'s own installer, so
-`core5-installer` is a separate derivation.
+`core5-installer` is a separate derivation. Its kernel is in nixos-raspberrypi's
+cache, which no host lists: give a trusted build the two `extra-conf` lines
+from `cache.yml`.
 
 1. Build the image, on any machine with Nix:
 
