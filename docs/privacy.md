@@ -223,7 +223,7 @@ those queries was checked too:
 - gate's `dns-redirect` rule has a counter, which counts packets and records
   no addresses.
 - The metrics store on core5 keeps each resolver's DNS counts for 12 months
-  ([observability.md](observability.md#dns-failure-ratios)). Unbound's are
+  ([observability.md](observability.md)). Unbound's are
   totals with neither names nor clients, work's queries among them and not to
   be told apart. AdGuard's come from its statistics API, which inherits the
   rule, since excluded queries are never counted, and the collector keeps

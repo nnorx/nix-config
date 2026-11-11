@@ -1,6 +1,6 @@
 # A resolver's DNS metrics, end to end in VMs: core5 can scrape Unbound's
 # exporter and AdGuard's counts on a resolver, nothing else on servers can, the
-# counts answer the questions in docs/observability.md, and the work segment
+# counts answer the DNS dashboard's questions, and the work segment
 # and every client and name stay out of them.
 #
 # `nix build .#checks.x86_64-linux.dns-metrics`. It needs KVM, which forge's
