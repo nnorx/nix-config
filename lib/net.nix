@@ -6,8 +6,8 @@
 #
 # The file is public and stays one file. Nothing in it identifies hardware: a
 # device has a role name and an address here, and the MAC its address is
-# reserved for is in gate's sops file. docs/device-identity.md has the split,
-# what a role name may say, and why there is no private flake input.
+# reserved for is in gate's sops file. docs/network.md, "Naming a device", has
+# the split and what a role name may say.
 {
   # The live topology. Every host and every DHCP client is addressed from
   # here; the flat network the fleet grew up on is gone.
@@ -334,7 +334,7 @@
   # `mac-<name>` in secrets/gate.yaml. Addresses sit below the segment's pool,
   # in the range reserved for statics and reservations, so Kea leases them to
   # nothing else. A role name says what a rule needs and no more: no model, no
-  # room (docs/device-identity.md, "What is identifying").
+  # room.
   devices = {
     govee-1 = {
       segment = "iot";

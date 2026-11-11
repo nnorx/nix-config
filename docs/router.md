@@ -110,7 +110,7 @@ gate deploys by hand.
       address. The switch and AP have statics set in the controller instead,
       which is where the rest of their config lives anyway. Reservations are
       keyed on MAC addresses, which do not go in this repo. Designed
-      2026-10-11 in [device-identity.md](device-identity.md): addresses in
+      2026-10-11, in ["Naming a device"](network.md#naming-a-device): addresses in
       `lib/net.nix`, MACs in gate's sops file, and no private flake input.
       The Govee lights come first.
 

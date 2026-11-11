@@ -225,7 +225,7 @@ let
     }) devices
   );
 
-  # Devices a rule names (docs/device-identity.md). Each address is a Kea
+  # Devices a rule names (docs/network.md, "Naming a device"). Each address is a Kea
   # reservation on gate, so the segment needs a pool, since gate runs Kea only
   # where one exists, and the address must sit outside it, where Kea leases it
   # to nothing else. The address is the device's identity in every rule that

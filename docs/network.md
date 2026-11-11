@@ -240,15 +240,34 @@ an inventory of every device in the house paired with a vendor OUI. None of it
 is cryptographically sensitive. All of it turns "a well-built router config"
 into "Nick's house, and what is in it."
 
-RFC1918 addresses alone are fine in public. A per-device MAC table is not.
-Reservations, when they arrive, split along that line: a device's role and
-address go in `lib/net.nix`, where firewall rules can read them, and its MAC
-goes in gate's sops file, where only Kea needs it. A private flake input was the other
-option, and [device-identity.md](device-identity.md) says why it lost.
+RFC1918 addresses alone are fine in public. A per-device MAC table is not, so
+reservations split along that line ("Naming a device", below).
 
 **Anything the UniFi controller exports.** Backups carry Wi-Fi PSKs and device
 credentials. They stay off the repo entirely, encrypted or not. See
 [unifi.md](unifi.md).
+
+### Naming a device
+
+A rule that names one device needs a stable address, and on iot that is a Kea
+reservation, keyed on a MAC. So a device has two halves:
+
+| Half | What | Where |
+|---|---|---|
+| What a rule reads | A role name, a segment, an address | `devices` in `lib/net.nix` |
+| What binds the address to hardware | The MAC | `mac-<name>` in gate's sops file, read by Kea alone |
+
+A role name says what a rule needs and no more: no model, no room. `govee-1` is
+fine, since `hosts/gate/govee.nix` already says the house has Govee lights. A
+device whose existence alone should not be public gets no reservation, and the
+pool serves it.
+
+Addresses sit below the segment's pool, in the range reserved for statics and
+reservations. A rule reads a role through a named list, such as `goveeLights`.
+`modules/net-assertions.nix` checks that each device's segment has a pool, that
+its address is outside the pool and not the gateway, and that no address is
+shared. Nothing that builds from this repo needs a credential: there is no
+private flake input, and sops decrypts on gate at activation.
 
 ### Already disclosed
 
