@@ -1,8 +1,8 @@
 # The network
 
 What the house runs on, in the present tense. `gate` routes, two Pis resolve,
-and a third runs the UniFi controller and Home Assistant. For how it got here
-and what is still open, see [router.md](router.md).
+and a third runs the UniFi controller and Home Assistant. gate itself is
+[router.md](router.md).
 
 ```
                               internet
@@ -53,37 +53,27 @@ holds `.1` in each. Below `.100` is reserved for statics and reservations,
 | 50 | work | 192.168.50.0/24 | One managed laptop | Internet, plus port 53 to the Pis. Port 53 redirected, and not logged |
 | none | vpn | 192.168.60.0/24 | WireGuard peers on `wg0`, one fixed address each: forge `.10`, phone `.20` | Per peer, from `segments.vpn.grants` in [`lib/net.nix`](../lib/net.nix), which [`hosts/gate/wireguard.nix`](../hosts/gate/wireguard.nix) renders. Every peer gets port 53 to the Pis; forge adds the AdGuard UI, SSH to the fleet and internet. Port 53 redirected |
 
-"Port 53 redirected" means plaintext DNS aimed anywhere other than the fleet's
-own resolvers is rewritten to them, so the port-53 column above describes where
-those queries end up rather than merely where they are permitted. See
-[DNS](#dns).
-
-Everything not named in the policy column is refused by the default-drop
-forward chain rather than by a deny rule, so `guest` is isolated by not
+"Port 53 redirected" means plaintext DNS aimed anywhere else is rewritten to
+the fleet's resolvers ([DNS](#dns)). Everything not in the policy column is
+refused by the default-drop forward chain, so `guest` is isolated by not
 appearing in the ruleset at all.
 
 "Internet" is the nat module's accept out `wan`. iot's passes the trial set
 in [privacy.md](privacy.md#internet-for-iot) first.
 
-**192.168 rather than 10.x, for a concrete reason.** A centrally managed VPN
-client on one of the laptops here routes a wide slice of 10/8 into its tunnel.
-Numbering the house inside that range would have made every device at home
-unreachable from that machine whenever the tunnel was up, and the policy is not
-ours to change locally. Managed profiles rarely claim 192.168, because that is
-where home networks live.
+**192.168 rather than 10.x**, because a managed VPN client on one laptop
+routes a wide slice of 10/8 into its tunnel, which would make the house
+unreachable from it whenever the tunnel is up.
 
-**`servers` carries no DHCP pool, and that absence is load-bearing twice.**
-Everything on it is statically addressed, which is a better property for the
-devices the rest of the network is reached through. It also keeps Kea off the
-trunk parent: `servers` is the untagged VLAN on `lan0`, and a raw socket there
+**`servers` carries no DHCP pool**, so the devices the rest of the network is
+reached through are statically addressed, and Kea stays off the trunk parent: `servers` is the untagged VLAN on `lan0`, and a raw socket there
 also receives tagged frames, so an iot device's request would arrive on both
 `lan0.30` and `lan0` and the `lan0` copy would be answered from the wrong pool.
 Serving DHCP only where a segment declares a pool means nothing binds `lan0`.
 
 **`work` is segmented in both directions.** Its software is administered by
-someone else and cannot be audited from here, so on trusted it could enumerate
-every device in the house. Equally, the house's iot chatter has no business
-reaching a machine held to a security policy that is not ours.
+someone else, so it does not share a segment with the house, and the house's
+devices do not reach it.
 
 ## Ports on gate
 
@@ -94,19 +84,13 @@ reaching a machine held to a security policy that is not ours.
 | `lan1` | ETH2 | Untagged, bridged into `br-trusted`: a dedicated 2.5G run |
 | `lan2` | ETH3 | Spare, left down |
 
-The NICs are renamed by systemd `.link` files matched on **PCI path**, not MAC
-address. That defends against what actually reorders interfaces, which is
-systemd's predictable-naming scheme changing between releases, while keeping
-hardware identifiers out of a public repo. A rule naming `wan` stays correct
-across such a change; a rule naming `enp2s0` is correct only until it is not,
-and a silent WAN/LAN swap under a permissive ruleset is the expensive version
-of that mistake.
+Rules name `wan` and `lan0`, never `enp2s0`: the NICs are renamed by PCI path
+([router.md](router.md#hardware)), so a change in systemd's predictable naming
+cannot swap WAN and LAN under the ruleset.
 
 `lan1` is bridged with the tagged trusted VLAN into `br-trusted` rather than
-given a subnet of its own, so a machine cabled directly to gate shares a
-broadcast domain with the phones and laptops. Separate subnets would break mDNS
-between them, which surfaces later as printer and cast discovery quietly not
-working.
+given a subnet, so a machine cabled to gate shares mDNS with the phones and
+laptops, and printer and cast discovery work.
 
 ## Switch topology
 
@@ -125,13 +109,10 @@ factory-defaulted device appearing on any port is immediately addressable.
 Segments that exist for clients rather than infrastructure are tagged and reach
 gate as `lan0.10`, `lan0.30`, `lan0.40` and `lan0.50`.
 
-This asymmetry is not untidiness, it is the bootstrap path. Both attempts to
-tidy it into "every segment is tagged" produced a deadlock where a reset device
-could be neither reached nor adopted, and both needed physical intervention to
-escape. A UniFi switch's own management interface rides the untagged native
-VLAN, and a factory reset returns it there no matter what it was set to before.
-If gate carries no untagged address, a reset switch has no path to the
-controller.
+This is the bootstrap path. A UniFi switch's management rides the untagged
+native VLAN, and a factory reset returns it there, so with no untagged address
+on gate a reset switch has no path to the controller. Tagging every segment
+has stranded the switch, needing hands on it to recover.
 
 The corollary is that **port profiles must leave the native network alone.**
 Setting a port's native network to the `servers` *network object* puts its
@@ -149,37 +130,19 @@ host's Unbound on `127.0.0.1:5335`, which recurses from the root servers with
 DNSSEC validation. Neither depends on the other.
 
 Kea hands clients **both Pi addresses directly** rather than gate proxying to
-them. Proxying costs per-client attribution: every query would arrive from the
-gateway address, so per-client stats, per-client rules and per-client rate
-limits all stop working, and that is most of the reason to run AdGuard rather
-than a plain blocklist. `guest` gets public resolvers instead, which is what
-makes "internet only" true rather than aspirational.
+them, so each query reaches AdGuard from its client's own address, which
+per-client stats and rules need. `networking.nat` masquerades only outbound on
+`wan`, so the source survives the forward chain. `guest` gets public
+resolvers instead.
 
-Attribution works because `networking.nat` masquerades only outbound on `wan`.
-A query from a client segment to a Pi crosses the forward chain with its source
-address intact.
+**gate resolves through its own Unbound on loopback**, recursing, so it can
+be rebuilt with both Pis down. core5 uses public resolvers for the same shape
+of reason: it monitors the resolvers ([observability.md](observability.md)).
+Every fallback names two operators, Cloudflare and Quad9, and never Google.
 
-**gate resolves through its own Unbound on loopback, independent of the Pis.**
-If `/etc/resolv.conf` pointed at them and they were down, `nixos-rebuild` could
-not resolve `github.com`, so the router could not be fixed by rebuilding it.
-That bootstrap loop is the entire reason it is there, and why it recurses
-rather than forwarding somewhere.
-
-core5 uses public resolvers for the same shape of reason: it runs the metrics
-stack ([observability.md](observability.md)), which watches the resolvers and
-alerts when they fail, so pointing it at core4 or lifeline would make
-monitoring depend on the thing it monitors.
-
-Two operators everywhere a fallback appears, Cloudflare and Quad9, so a single
-provider outage does not take bootstrap with it. Google is deliberately absent:
-keeping them out of the DNS path is one of the reasons this fleet exists.
-
-**Clients that ignore all of that are redirected.** Handing out resolver
-addresses only works for clients that use them, and a device with DNS hardcoded
-to a public resolver is both unfiltered and absent from the query log, which is
-the worst of the two. gate's `dns-redirect` chain rewrites plaintext port 53
-from trusted, iot and work to core4 or lifeline whichever address it was aimed
-at, spreading across the two rather than pinning one.
+**Clients with hardcoded resolvers are redirected.** gate's `dns-redirect`
+chain rewrites plaintext port 53 from the segments the table marks, whatever
+address it was aimed at, to core4 or lifeline, spread across the two.
 
 This is the rule the `servers` segment exists to make possible: a DNAT to a
 resolver on a different subnet keeps the client's source address, because the
@@ -190,22 +153,13 @@ carries the Pis' own recursion, which must reach authoritative servers on port
 53 untouched. `guest` is excluded because it is not on the fleet's resolvers at
 all.
 
-The `work` segment is redirected like the others and its queries are dropped
-from the log rather than recorded, via `logQueries = false` in `lib/net.nix`,
-which `modules/adguardhome.nix` turns into a persistent client with
-`ignore_querylog` and `ignore_statistics` on every resolver. Filtering that
-machine and keeping a timestamped record of it are separate decisions, and only
-the first is wanted. What else could record it, and how long the resolvers keep
-everyone else's queries, is in
-[privacy.md](privacy.md#what-the-resolvers-keep).
+`work` is redirected and filtered, but not logged (`logQueries = false`;
+[privacy.md](privacy.md#what-the-resolvers-keep)).
 
-**Local name resolution is a gap.** Kea does not register hostnames with
-AdGuard. Static reservations in `lib/net.nix` plus AdGuard rewrites for the
-handful of names worth having is the intended answer, and it keeps the topology
-in one file. Until then, Unbound answers NXDOMAIN for the suffixes devices
-invent for local names (`lan`, `local`, `home.arpa` and a few more, listed in
-`modules/unbound.nix`), so those lookups stop at the resolver rather than
-reaching the root servers.
+**Local names.** Kea does not register hostnames with AdGuard. Unbound
+answers NXDOMAIN for the suffixes devices invent for local names (`lan`,
+`local`, `home.arpa` and others, in `modules/unbound.nix`), so those lookups
+stop at the resolver.
 
 **DoT and DoQ are refused, so devices that fall back are redirected.** From
 the same segments the redirect covers, gate rejects TCP and UDP 853 out `wan`,
@@ -217,17 +171,12 @@ in `dotExempt` in `hosts/gate/routing.nix`, which gives it 853 back and keeps
 its port 53 redirected. [router.md](router.md#checking-the-dns-rules) has the
 check.
 
-**DoH is advisory, not enforceable.** Known DoH endpoint IPs can be blocked,
-but browsers ship encrypted DNS over 443 and the endpoint lists change. Browser
-policy is more reliable than firewall rules here. So the hardcoded-`8.8.8.8`
-case and DoT are closed, and DoH is not.
+**DoH is set by browser policy**, not the firewall: it rides 443, and endpoint
+lists change ([privacy.md](privacy.md#forge)).
 
 ## What stays out of this repo
 
-This repo is public and worth keeping that way. The module logic, the firewall
-rules and the reasoning behind the topology are the useful part, and a ruleset
-that is only correct while nobody has read it was never correct. Three kinds of
-thing do not belong here.
+This repo is public. Three kinds of thing do not belong in it.
 
 **Secrets, which sops handles.** WireGuard private keys, DDNS API tokens, the
 AdGuard admin hashes, the UniFi MongoDB password, any PSK. `sops-nix` renders
@@ -235,11 +184,9 @@ these at activation, so the Nix store holds ciphertext or a sentinel rather than
 the value. See the secrets section in the [README](../README.md).
 
 **Identifying data, which is not secret but is a map to one specific house.**
-The WAN address, the DDNS hostname, SSIDs (wigle.net maps SSIDs to physical
-locations), NIC MAC addresses, and above all a Kea reservation table, which is
-an inventory of every device in the house paired with a vendor OUI. None of it
-is cryptographically sensitive. All of it turns "a well-built router config"
-into "Nick's house, and what is in it."
+The WAN address, the DDNS hostname, SSIDs (wigle.net maps SSIDs to places),
+NIC MAC addresses, and above all a reservation table, which pairs every device
+with a vendor OUI. None of it is secret; all of it maps one house.
 
 RFC1918 addresses alone are fine in public. A per-device MAC table is not, so
 reservations split along that line ("Naming a device", below).
@@ -272,33 +219,14 @@ private flake input, and sops decrypts on gate at activation.
 
 ### Already disclosed
 
-Encrypting a value later does not unpublish it. Three things have been in this
-public repo's history and should be treated as disclosed rather than fixed:
-
-- **core4's AdGuard admin hash**, `$2y$05$...`, committed 2026-02-25 and moved
-  to sops in #32. Cost 05 is 32 rounds, which is cheap enough to attack offline
-  with a wordlist. **Rotated.** The live value no longer matches the published
-  prefix.
-- **lifeline's AdGuard admin hash**, `$2b$10$...`, committed 2026-08-23, same
-  fix in #32. Cost 10 is far better, but it had been public just as long.
-  **Rotated**, on the same check.
-- **`initialPassword = "changeme"`**, in `hosts/common` until it was replaced by
-  `hashedPasswordFile` reading `user-password-hash` from sops. With
-  `wheelNeedsPassword = true` in the baseline it was the console *and* sudo
-  password on any host where it was never changed. SSH is key-only, so it was
-  never a remote entry point, but it was a free privilege escalation for anyone
-  who already had a shell or the console.
-
-Rotation is the remedy for all three, and rotating means changing the
-credential, not re-encrypting the old one. The trap specific to the last of
-these: putting the hash of `changeme` into `secrets/<host>.yaml` would leave
-every host holding the published password with an encrypted wrapper around it
-and nothing to show for the exercise. The value has to be new.
+Encrypting a value later does not unpublish it. A credential that has been in
+this repo's history (two AdGuard admin hashes, and the old `initialPassword`)
+is rotated, not re-encrypted: the value has to be new. Putting the hash of a
+published password into sops would only wrap it.
 
 ## Renumbering
 
-Still a one-file change. The schema lives in `lib/net.nix` and consumers
-reference attribute names, so moving a segment means editing that file alone.
+A one-file change: consumers reference attribute names in `lib/net.nix`.
 
 [`modules/net-assertions.nix`](../modules/net-assertions.nix) checks the file
 agrees with itself, and is imported by `hosts/common` so every host validates
