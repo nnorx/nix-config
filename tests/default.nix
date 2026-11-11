@@ -17,6 +17,7 @@ pkgs.lib.genAttrs
     "gate-iot-egress"
     "gate-servers-egress"
     "deploy-agent"
+    "deploy-guard"
     "diag-login"
     "dns-metrics"
     "forge-dns"
