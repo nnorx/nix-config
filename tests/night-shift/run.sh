@@ -14,13 +14,12 @@
 # systemctl, and for work mode osascript, gh, caffeinate and launchctl, and
 # say how they answer; everything else is real, git included. Nothing
 # reaches the network, the real claude, or Nick's own state directory. The
-# commands in TypeScript use fetch, not curl, so http.ts serves Linear and
-# ntfy on loopback, answering each request with the curl stub.
+# TypeScript, forge's runs included, uses fetch, not curl: http.ts serves
+# Linear, GitHub and ntfy on loopback, answering with the curl stub.
 #
-# A case on tidy or land_one gives its repository a literal GitHub origin, for
-# github_repo(). One that starts an agent needs a fetch to work, so its origin
-# is a local bare repository instead: `git remote get-url` expands insteadOf,
-# so an insteadOf mapping would hide the GitHub URL from github_repo().
+# A case on tidy or land gives its repository a literal GitHub origin, and one
+# that starts an agent, which must fetch, a local bare one: an insteadOf
+# mapping instead would hide the GitHub URL from `git remote get-url`.
 #
 # One line per case, then the failures. NIGHT_SHIFT_SCRIPT and NIGHT_SHIFT_TS
 # name the script and the TypeScript under test, by default this checkout's,
@@ -125,7 +124,8 @@ ns() {
     NIGHT_SHIFT_KEY_FILE="$c/key" NIGHT_SHIFT_NTFY_FILE="$c/ntfy"
     NIGHT_SHIFT_PROJECTS="$c/projects" NIGHT_SHIFT_POWER="$c/power" NIGHT_SHIFT_MAX=2
     NIGHT_SHIFT_STALL_HOURS=4 NIGHT_SHIFT_FAILED_RUNS=3 NIGHT_SHIFT_TS="$ts"
-    NIGHT_SHIFT_LINEAR_URL="http://127.0.0.1:$port/$(basename "$c")/graphql")
+    NIGHT_SHIFT_LINEAR_URL="http://127.0.0.1:$port/$(basename "$c")/graphql"
+    NIGHT_SHIFT_GITHUB_URL="http://127.0.0.1:$port/$(basename "$c")/github")
   while [[ ${1-} == *=* ]]; do
     cmd+=("$1")
     shift

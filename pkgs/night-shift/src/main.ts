@@ -1,11 +1,12 @@
 // The night shift's commands in TypeScript. night-shift.sh is the entry
-// point and execs this for them; its runs call `_backlog`.
+// point, and execs this for them and for a run in forge mode.
 // docs/night-shift.md has the rest.
 import { writeBacklog, writeProjectDocs } from "./backlog.ts";
 import { check, workCheck } from "./check.ts";
 import { fileDrafts } from "./drafts.ts";
 import { type Env, loadEnv } from "./env.ts";
 import { type Doc, EXIT, Linear, LinearError, loadKey } from "./linear.ts";
+import { one, run } from "./run.ts";
 import { status } from "./status.ts";
 import { die, Fatal, warn } from "./util.ts";
 
@@ -50,8 +51,20 @@ async function main(argv: string[]): Promise<number> {
       await snapshots(env, l, "the next run will", fresh);
       return 0;
     }
-    case "_backlog":
-      return (await snapshots(env, linear(env), "the next run tries again")) ? 0 : 1;
+    case "run": {
+      if (env.mode !== "forge") die("night-shift.sh runs work mode");
+      if (env.platform !== "linux") die("a run in forge mode needs systemd-run, as on forge");
+      const l = linear(env);
+      await run(env, l);
+      await snapshots(env, l, "the next run tries again");
+      return 0;
+    }
+    case "_finish":
+    case "_start":
+    case "_land":
+      if (argv.length !== 3) die(`usage: night-shift ${argv[0]} <viewer> <arg>`);
+      await one(env, linear(env), argv[0], argv[1]!, argv[2]!);
+      return 0;
     default:
       die(`night-shift.sh handles '${argv[0] ?? ""}', not this`);
   }

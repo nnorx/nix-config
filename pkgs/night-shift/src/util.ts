@@ -76,3 +76,11 @@ export function askTty(prompt: string): string {
   }
   return Buffer.from(bytes).toString("utf8").replace(/\r$/, "");
 }
+
+/** Strings in code point order, as jq's sort_by orders them. */
+export const cmp = (a: string | number, b: string | number) => (a < b ? -1 : a > b ? 1 : 0);
+
+/** What a child said on stderr, passed on whole. */
+export function relay(text: string): void {
+  if (text) process.stderr.write(text.endsWith("\n") ? text : `${text}\n`);
+}

@@ -1,6 +1,6 @@
 # The night shift: Nick queues issues in Linear, and background Claude Code
 # agents on forge work them into PR handoffs while he is away from the desk.
-# pkgs/night-shift/night-shift.sh is the dispatcher, shared with the Mac's
+# pkgs/night-shift/ is the dispatcher, shared with the Mac's
 # work mode (home/night-shift.nix); docs/night-shift.md is how to set it up
 # and use it.
 #
@@ -36,7 +36,7 @@
 let
   user = "nick";
   # Minutes between runs: the timer's, and the dispatcher's measure of how
-  # much work one run can count (quiet in night-shift.sh). A divisor of 60.
+  # much work one run can count (quiet in src/run.ts). A divisor of 60.
   interval = 10;
   home = config.users.users.${user}.home;
   secrets = [
@@ -118,7 +118,7 @@ in
       TimeoutStartSec = "1h";
       # KillMode stays the default, so a run ends whole, its children with it.
       # The agents outlive it because the dispatcher starts claude in a scope
-      # of its own (`cl` in night-shift.sh), outside this unit's cgroup.
+      # of its own (`cl` in src/claude.ts), outside this unit's cgroup.
       # Counts runs that failed, however they ended, and pushes when they
       # keep failing (after_run in night-shift.sh).
       ExecStopPost = "${lib.getExe night-shift} _after";

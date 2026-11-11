@@ -16,13 +16,19 @@ export interface Env {
   keyFile?: string;
   keyCmd?: string;
   ntfyFile?: string;
+  /** Seconds between runs, which caps what one run adds to an agent's working time. */
+  interval: number;
+  /** Where GitHub's API is, for a merged PR. The tests point it at their stub. */
+  githubUrl: string;
+  /** Paths hidden from preflight on an agent's branch, one per line. */
+  hide: string;
   config?: string;
   settings?: string;
 }
 
 /** Forge's team states, in the order an issue moves through them. */
 export const STATES = ["Queued", "Running", "Handoff ready", "Needs you"] as const;
-export const QUEUED = STATES[0];
+export const [QUEUED, RUNNING, READY, NEEDS] = STATES;
 
 const set = (name: string): string | undefined => process.env[name] || undefined;
 
@@ -43,6 +49,9 @@ export function loadEnv(): Env {
     max: Number(set("NIGHT_SHIFT_MAX") ?? 2),
     stallHours: Number(set("NIGHT_SHIFT_STALL_HOURS") ?? 4),
     linearUrl: set("NIGHT_SHIFT_LINEAR_URL") ?? "https://api.linear.app/graphql",
+    githubUrl: set("NIGHT_SHIFT_GITHUB_URL") ?? "https://api.github.com",
+    interval: Number(set("NIGHT_SHIFT_INTERVAL") ?? 600),
+    hide: set("NIGHT_SHIFT_HIDE") ?? "",
     keyFile: set("NIGHT_SHIFT_KEY_FILE"),
     keyCmd: set("NIGHT_SHIFT_KEY_CMD"),
     ntfyFile: set("NIGHT_SHIFT_NTFY_FILE"),

@@ -4,7 +4,7 @@ Issues queued in Linear, worked by background Claude Code agents on forge while
 you are away from the desk, each ending in a PR handoff for you to publish.
 [`hosts/forge/night-shift.nix`](../hosts/forge/night-shift.nix) runs it and
 says why it is built the way it is; [`pkgs/night-shift/`](../pkgs/night-shift/) is the dispatcher:
-`night-shift.sh`, with `check`, `status` and `file` in TypeScript under `src/`. The same dispatcher runs on the work Mac against a shared
+`night-shift.sh`, with forge's runs and commands in TypeScript under `src/`. It also runs on the work Mac against a shared
 team, in a sandbox of its own: "On a Mac (work mode)" below.
 
 Every 10 minutes while forge is awake, a user timer takes finished work back
