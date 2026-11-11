@@ -368,3 +368,32 @@ kase("run_resume_copy", "run: a resume that starts a copy: the copy stopped, Nee
   assert.ok(pushed(c).includes("TST-1: Did not resume"));
   assert.equal(JSON.parse(readFileSync(`${c.state}/TST-1.json`, "utf8")).phase, "waiting", "not counted as running");
 });
+
+// --- what a run refuses before it starts anything ------------------------------------
+
+kase("run_tie", "run: two moves into Queued at the same moment: the later in Linear's list decides, as jq's max_by did", async (c) => {
+  c.repo("demo");
+  c.issue("issue-1", (i) => {
+    const at = "2026-10-02T10:00:00.000Z";
+    i.history.nodes = [{ createdAt: at, actorId: "user-nick", toState: { name: "Queued" } }, { createdAt: at, actorId: "user-sync", toState: { name: "Queued" } }];
+  });
+  await c.ns(["run"]);
+  assert.equal(JSON.parse(readFileSync(`${c.dir}/linear/issues/issue-1.json`, "utf8")).state.name, "Needs you");
+  assert.ok(comments(c).includes("Not started: only issues you move to Queued yourself are taken."));
+});
+
+kase("run_bad_max", "run: a limit that is not a whole number: fails, saying so, and starts nothing", async (c) => {
+  c.repo("demo");
+  c.issue("issue-1");
+  const { status, out } = await c.ns(["run"], { env: { NIGHT_SHIFT_MAX: "abc" } });
+  assert.equal(status, 1);
+  assert.match(out, /NIGHT_SHIFT_MAX is a whole number, not 'abc'/);
+  assert.ok(!c.log().some((l) => l.tool === "claude" && l.args?.[0] === "--bg"), "no agent started");
+});
+
+kase("work_bootstrap_string", "work: a bootstrap that is one string, not a list: fails, saying so", async (c) => {
+  writeFileSync(`${c.dir}/config.json`, JSON.stringify({ repos: { TST: { dir: c.repo("demo"), bootstrap: "pnpm install" } } }));
+  const { status, out } = await c.nsw(["run"]);
+  assert.equal(status, 1);
+  assert.match(out, /repos\.TST\.bootstrap in .* is a list of commands/);
+});

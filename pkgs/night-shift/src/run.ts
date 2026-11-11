@@ -8,10 +8,11 @@ import { existsSync, globSync, mkdirSync, mkdtempSync, readdirSync, readFileSync
 import { tmpdir } from "node:os";
 import { basename } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { agent, atWork, cl, ENDED, roster, type Session } from "./claude.ts";
+import { agent, atWork, cl, roster, type Session } from "./claude.ts";
 import { type Env, NEEDS, QUEUED, READY, RUNNING } from "./env.ts";
 import { closed, comment, getIssue, type Issue, move, trimEnd, writeIssue } from "./issues.ts";
 import { type Linear, LinearError } from "./linear.ts";
+import { latest, running } from "./machine.ts";
 import { notify } from "./notify.ts";
 import { promptNew, promptResume, workPromptNew, workPromptResume } from "./prompts.ts";
 import {
@@ -19,7 +20,7 @@ import {
 } from "./repo.ts";
 import { cmp, commonDir, die, Fatal, git, now, relay, say, warn } from "./util.ts";
 import {
-  bootstrap, type Labelled, labelled, mergedPrGh, overrides, refusal, repoDir, type WorkConfig, writeLocalSettings,
+  bootstrap, type Labelled, labelled, mergedPrGh, overrides, refusal, type RepoConf, repoDir, type WorkConfig, writeLocalSettings,
   writeSettings,
 } from "./work.ts";
 
@@ -109,7 +110,7 @@ class Run {
   }
 
   running(): number {
-    return this.files().filter((f) => read(f).phase === "running").length;
+    return running(this.env);
   }
 
   /** Drops an issue the dispatcher is done with, with its issue text and results, read or not. */
@@ -392,7 +393,7 @@ class Run {
       return this.stop(i, NEEDS, "Not started: its history is too long to tell who queued it. Start it with `claude` instead.", "Not started");
     }
     const moves = i.history.nodes.filter((h) => h.toState?.name === QUEUED);
-    const last = moves.reduce<(typeof moves)[number] | undefined>((a, h) => (!a || h.createdAt > a.createdAt ? h : a), undefined);
+    const last = latest(moves);
     const queuer = last ? last.actorId : i.creator?.id;
     if (!queuer) {
       return this.stop(
@@ -554,19 +555,38 @@ class Run {
     if (!addWorktree(repo, branch, worktree, fb.sha)) {
       return this.refuse(i, l, `could not make the worktree \`${worktree}\` on \`${branch}\`. One may be left from an earlier run`);
     }
-    // No agent has run in the worktree yet, so on any refusal from here it
-    // goes, with its branch, and adding the label again starts afresh.
+    // No agent has run in the worktree yet, so on any refusal from here, or
+    // anything thrown, it goes, with its branch, and adding the label again
+    // starts afresh.
+    try {
+      await this.setUp(i, l, { repo, worktree, branch, base, settings, name }, conf!);
+    } catch (e) {
+      this.discard(repo, worktree, branch, ident);
+      throw e;
+    }
+  }
+
+  /** Work mode: the rest of a start, in a worktree made for it, which goes on a refusal. */
+  async setUp(
+    i: Issue,
+    l: Labelled | undefined,
+    w: { repo: string; worktree: string; branch: string; base: string; settings: string; name: string },
+    conf: RepoConf,
+  ): Promise<void> {
+    const { repo, worktree, branch, base, settings, name } = w;
+    const ident = i.identifier;
+    const f = `${this.env.stateDir}/${ident}.json`;
     const over = overrides(this.env, repo, worktree);
     if (over.length) {
       this.discard(repo, worktree, branch, ident);
       return this.refuse(i, l, `these settings would change the agent's sandbox or run a command outside it: ${over.join(" ")}`);
     }
     const log = `${this.env.stateDir}/${ident}.bootstrap.log`;
-    if (!bootstrap(conf!, worktree, log)) {
+    if (!bootstrap(this.env, conf, worktree, log)) {
       this.discard(repo, worktree, branch, ident);
       return this.refuse(i, l, `setting up the worktree failed, and it is removed. \`${log}\` says why`);
     }
-    if (!writeSettings(this.env, conf!, settings, worktree, repo) || !writeLocalSettings(settings, worktree)) {
+    if (!writeSettings(this.env, conf, settings, worktree, repo) || !writeLocalSettings(settings, worktree)) {
       this.discard(repo, worktree, branch, ident);
       return this.refuse(
         i,
@@ -582,7 +602,7 @@ class Run {
     writeIssue(i, this.viewer, result);
     // No MCP servers: the repo's own include Linear's, through which a session
     // acting as Nick could add the label to an issue and queue it.
-    const prompt = workPromptNew(i, this.viewer, { repo, worktree, branch, base, result }, conf!.checks);
+    const prompt = workPromptNew(i, this.viewer, { repo, worktree, branch, base, result }, conf.checks);
     const r = await this.cl(["--bg", "-n", name, "--settings", settings, "--strict-mcp-config", "--permission-mode", "auto", prompt], worktree);
     if (r.status !== 0) {
       this.discard(repo, worktree, branch, ident);
@@ -592,10 +612,10 @@ class Run {
     relay(r.stderr);
     const at = now();
     write(f, {
-      id, ident, repo, worktree, branch, name, session: (await this.agent(name, worktree))?.sessionId ?? "",
+      id: i.id, ident, repo, worktree, branch, name, session: (await this.agent(name, worktree))?.sessionId ?? "",
       phase: "running", started: at, since: at, labelled: l?.createdAt ?? "", setup,
     });
-    if (i.state.name !== work.startedState) await move(this.linear, i, work.startedState);
+    if (i.state.name !== this.work!.startedState) await move(this.linear, i, this.work!.startedState);
     say(`night-shift: started ${ident}`);
   }
 
@@ -630,7 +650,7 @@ class Run {
     // Every session in the worktree, by name or not: a resume that started a
     // copy leaves two.
     const sessions: Session[] | undefined = (await roster(this.env.platform))?.filter((x) => x.cwd === s.worktree);
-    const busy = sessions?.filter((x) => !ENDED.includes(x.state)) ?? [];
+    const busy = sessions?.filter((x) => atWork(x.state)) ?? [];
     const removed: string[] = [];
     let keep = "";
     if (!sessions) {
@@ -828,7 +848,7 @@ class Run {
         rmSync(`${this.env.stateDir}/${a}`, { force: true });
       }
     }
-    const known = new Map(this.files().map((f) => [read(f).id, read(f)]));
+    const known = new Map(this.files().map(read).map((s) => [s.id, s]));
     type Node = { id: string; priority: number; createdAt: string; updatedAt: string };
     const nodes = (await this.linear.gql<{ issues: { nodes: Node[] } }>(
       `query($l: String!) { issues(first: 50, filter: {assignee: {isMe: {eq: true}},

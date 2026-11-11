@@ -23,6 +23,8 @@ export interface Env {
   hide: string;
   /** Where the machine's power supplies are listed, for whether it runs on AC. */
   powerDir: string;
+  /** The dispatcher's own bash, for setup and the key command, whatever a config adds to PATH. */
+  bash: string;
   keyFile?: string;
   keyCmd?: string;
   ntfyFile?: string;
@@ -49,20 +51,26 @@ export function loadEnv(): Env {
   const interval = set("NIGHT_SHIFT_INTERVAL") ?? "600";
   if (!/^[1-9][0-9]*$/.test(interval)) die(`NIGHT_SHIFT_INTERVAL is a number of seconds, not '${interval}'`);
   const home = set("HOME") ?? die("HOME is not set");
+  const whole = (name: string, fallback: string) => {
+    const v = set(name) ?? fallback;
+    if (!/^[0-9]+$/.test(v)) die(`${name} is a whole number, not '${v}'`);
+    return Number(v);
+  };
   return {
     mode,
     platform,
     home,
     projects: set("NIGHT_SHIFT_PROJECTS") ?? `${home}/projects`,
     stateDir: `${set("XDG_STATE_HOME") ?? `${home}/.local/state`}/night-shift`,
-    max: Number(set("NIGHT_SHIFT_MAX") ?? 2),
-    stallHours: Number(set("NIGHT_SHIFT_STALL_HOURS") ?? 4),
-    failedRuns: Number(set("NIGHT_SHIFT_FAILED_RUNS") ?? 3),
+    max: whole("NIGHT_SHIFT_MAX", "2"),
+    stallHours: whole("NIGHT_SHIFT_STALL_HOURS", "4"),
+    failedRuns: whole("NIGHT_SHIFT_FAILED_RUNS", "3"),
     interval: Number(interval),
     linearUrl: set("NIGHT_SHIFT_LINEAR_URL") ?? "https://api.linear.app/graphql",
     githubUrl: set("NIGHT_SHIFT_GITHUB_URL") ?? "https://api.github.com",
     hide: set("NIGHT_SHIFT_HIDE") ?? "",
     powerDir: set("NIGHT_SHIFT_POWER") ?? "/sys/class/power_supply",
+    bash: set("NIGHT_SHIFT_BASH") ?? "bash",
     keyFile: set("NIGHT_SHIFT_KEY_FILE"),
     keyCmd: set("NIGHT_SHIFT_KEY_CMD"),
     ntfyFile: set("NIGHT_SHIFT_NTFY_FILE"),

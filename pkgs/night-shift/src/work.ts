@@ -1,8 +1,9 @@
 import { spawnSync } from "node:child_process";
-import { appendFileSync, closeSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Env } from "./env.ts";
 import type { Change, Issue } from "./issues.ts";
+import { latest } from "./machine.ts";
 import type { Merged } from "./repo.ts";
 import { die, isFile, run } from "./util.ts";
 
@@ -58,6 +59,12 @@ export function loadConfig(env: Env): WorkConfig {
   // The repos' own tools, which launchd's PATH does not carry.
   const extra = ((c.path ?? []) as string[]).map((p) => p.replace(/^~/, env.home));
   if (extra.length) process.env.PATH = [...extra, process.env.PATH].join(":");
+  for (const [team, r] of Object.entries((c.repos ?? {}) as Record<string, RepoConf>)) {
+    const list = r.bootstrap;
+    if (list !== undefined && !(Array.isArray(list) && list.every((x) => typeof x === "string"))) {
+      die(`repos.${team}.bootstrap in ${env.config} is a list of commands`);
+    }
+  }
   return {
     label: c.label ?? "agent",
     startedState: c.startedState ?? "In Progress",
@@ -169,7 +176,7 @@ export function writeLocalSettings(settings: string, worktree: string): boolean 
 }
 
 /** The repo's setup commands in the new worktree, outside the sandbox, each with half an hour to finish. */
-export function bootstrap(conf: RepoConf, worktree: string, log: string): boolean {
+export function bootstrap(env: Env, conf: RepoConf, worktree: string, log: string): boolean {
   writeFileSync(log, "");
   for (const cmd of conf.bootstrap ?? []) {
     if (!cmd) continue;
@@ -178,7 +185,7 @@ export function bootstrap(conf: RepoConf, worktree: string, log: string): boolea
     try {
       // GNU timeout ends the command's whole process group, as a run's
       // deadline does.
-      const r = spawnSync("timeout", ["1800", "bash", "-c", cmd], { cwd: worktree, stdio: ["ignore", fd, fd] });
+      const r = spawnSync("timeout", ["1800", env.bash, "-c", cmd], { cwd: worktree, stdio: ["ignore", fd, fd] });
       if (r.status !== 0) return false;
     } finally {
       closeSync(fd);
@@ -203,7 +210,7 @@ export function labelled(i: Issue, label: string): Labelled | undefined {
   const id = i.labels.nodes.find((l) => l.name === label)?.id;
   if (!id) return undefined;
   const adds = i.history.nodes.filter((h: Change) => (h.addedLabelIds ?? []).includes(id));
-  const last = adds.reduce<Change | undefined>((a, h) => (!a || h.createdAt > a.createdAt ? h : a), undefined);
+  const last = latest(adds);
   if (last) return { createdAt: last.createdAt, actorId: last.actorId, botActor: last.botActor ?? null };
   return { createdAt: i.createdAt ?? "", actorId: i.creator?.id ?? null, botActor: i.botActor ?? null };
 }
@@ -273,18 +280,20 @@ export function safe(env: Env, args: string[]): number {
   const over = overrides(env, repo, dir);
   if (over.length) die(`these settings would change the sandbox or run a command outside it: ${over.join(" ")}`);
   mkdirSync(env.stateDir, { recursive: true });
-  // Not *.json or *.settings, the state files' and kept sessions' globs.
-  const settings = `${env.stateDir}/safe.${Math.random().toString(36).slice(2, 8)}`;
+  // A directory of its own, not *.json or *.settings, the state files' and
+  // kept sessions' globs.
+  const tmp = mkdtempSync(`${env.stateDir}/safe.`);
+  const settings = `${tmp}/settings.json`;
   try {
     if (!writeSettings(env, conf, settings, dir, repo)) {
       die(`the settings could not be written: '${env.settings ?? ""}' is missing, or a Claude settings file here is not JSON`);
     }
-    // Ctrl-C is the session's: this process has to outlive it to remove the
-    // settings.
-    process.on("SIGINT", () => {});
+    // Ctrl-C, a closed terminal and a stop are the session's to answer: this
+    // process outlives it to remove the settings.
+    for (const sig of ["SIGINT", "SIGHUP", "SIGTERM"] as const) process.on(sig, () => {});
     const r = spawnSync("claude", ["--settings", settings, "--strict-mcp-config", ...args], { stdio: "inherit" });
     return r.status ?? 1;
   } finally {
-    rmSync(settings, { force: true });
+    rmSync(tmp, { recursive: true, force: true });
   }
 }

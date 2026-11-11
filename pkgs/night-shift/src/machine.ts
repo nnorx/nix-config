@@ -7,6 +7,12 @@ import { warn } from "./util.ts";
 // What a run asks of the machine it is on, as it ends: to stay awake while
 // an agent works, and to say when runs keep failing.
 
+/** The entry with the latest createdAt, the last of those tied, as jq's max_by takes it. */
+export function latest<T extends { createdAt: string }>(xs: T[]): T | undefined {
+  return xs.reduce<T | undefined>((a, x) => (!a || x.createdAt >= a.createdAt ? x : a), undefined);
+}
+
+/** State files of issues with an agent at work: the queue's limit, and what keeps the machine awake. */
 export function running(env: Env): number {
   let files: string[] = [];
   try {
@@ -57,7 +63,11 @@ function onAc(env: Env): boolean {
 export function awake(env: Env): void {
   const n = running(env);
   if (env.platform === "darwin") {
-    if (n > 0) spawn("caffeinate", ["-s", "-t", String(env.interval + 60)], { detached: true, stdio: "ignore" }).unref();
+    if (n > 0) {
+      spawn("caffeinate", ["-s", "-t", String(env.interval + 60)], { detached: true, stdio: "ignore" })
+        .on("error", () => warn("could not start caffeinate"))
+        .unref();
+    }
     return;
   }
   const verb = n > 0 && onAc(env) ? "start" : "stop";

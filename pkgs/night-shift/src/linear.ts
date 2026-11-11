@@ -24,7 +24,7 @@ export class LinearError extends Error {
  */
 export function loadKey(env: Env): string {
   if (env.keyCmd) {
-    const r = run("bash", ["-c", env.keyCmd]);
+    const r = run(env.bash, ["-c", env.keyCmd]);
     const key = r.stdout.replace(/\n+$/, "");
     if (r.status !== 0 || !key) {
       die(`no Linear key from '${env.keyCmd}'; docs/night-shift.md says how to store it`);

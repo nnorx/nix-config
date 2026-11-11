@@ -6,6 +6,9 @@
 
 ts=${NIGHT_SHIFT_TS:?}
 state_dir=${XDG_STATE_HOME:-$HOME/.local/state}/night-shift
+# For setup commands and the key command, which must not take whatever bash
+# a config's PATH puts first.
+export NIGHT_SHIFT_BASH=$BASH
 
 case ${1-} in
   run)
