@@ -12,5 +12,28 @@
       "home/agents-status.sh": 413,
       "home/pr-handoff.sh": 317
     }
+  },
+  "systemd": {
+    "gate/dhcpcd.service": 1.9,
+    "gate/kea-dhcp4-server.service": 5.9,
+    "gate/unbound.service": 1.7,
+    "gate/sshd.service": 9.4,
+    "gate/prometheus-node-exporter.service": 3.1,
+    "gate/prometheus-kea-exporter.service": 3.0,
+    "core4/adguardhome.service": 1.6,
+    "core4/unbound.service": 1.7,
+    "core4/sshd.service": 9.4,
+    "core4/prometheus-node-exporter.service": 3.1,
+    "core4/prometheus-unbound-exporter.service": 3.0,
+    "lifeline/adguardhome.service": 1.6,
+    "lifeline/unbound.service": 1.7,
+    "lifeline/sshd.service": 9.4,
+    "lifeline/prometheus-node-exporter.service": 3.1,
+    "lifeline/prometheus-unbound-exporter.service": 3.0,
+    "core5/home-assistant.service": 2.3,
+    "core5/grafana.service": 1.4,
+    "core5/victoriametrics.service": 3.0,
+    "core5/sshd.service": 9.4,
+    "core5/prometheus-node-exporter.service": 3.1
   }
 }
