@@ -164,6 +164,12 @@ delivery is broken somewhere. With core5 down this is the one signal. Start with
 its first ping with the one-day default; set its period to 15 minutes and its
 grace to 5, which a ping cannot do.
 
+## CVE scan
+
+Every Tuesday forge scans main (`hosts/forge/cve-scan.nix`), keeps the report
+in `~/.local/state/cve-scan/`, and pushes the configs whose count of visible
+findings changed, or "scan failed" after two tries.
+
 ## Secrets
 
 **Grafana's `admin` password** is in sops on core5, and evaluation fails without
