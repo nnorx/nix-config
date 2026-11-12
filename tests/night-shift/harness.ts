@@ -152,8 +152,10 @@ export class Case {
     const env = this.env(opts.env);
     const cwd = opts.cwd ?? this.dir;
     const cmd = [bash, "-euo", "pipefail", script, ...args];
+    // detached: a session of its own, so the terminal running the tests is not
+    // its /dev/tty, where a prompt would wait on whoever ran them.
     const child = opts.tty === undefined
-      ? spawn(cmd[0]!, cmd.slice(1), { cwd, env, stdio: ["ignore", "pipe", "pipe"] })
+      ? spawn(cmd[0]!, cmd.slice(1), { cwd, env, detached: true, stdio: ["ignore", "pipe", "pipe"] })
       : spawn("script", ["-qec", ["env", "-i", ...Object.entries(env).map(([k, v]) => `${k}=${v}`), ...cmd].map(quote).join(" "), "/dev/null"],
         { cwd, env: { ...process.env, SHELL: bash }, stdio: ["pipe", "pipe", "pipe"] });
     if (opts.tty !== undefined) child.stdin!.end(opts.tty);
