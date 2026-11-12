@@ -33,6 +33,7 @@ Privacy project.
 | forge | VS Code | Microsoft, the extension marketplace | Telemetry off |
 | forge, WSL, Mac | Claude Code | Anthropic | Telemetry and error reports off |
 | forge | Night shift | Linear, ntfy.sh, GitHub's API | Pushes carry the identifier, not the title |
+| forge | Weekly CVE scan | NVD, GitHub, ntfy.sh | Counts alone |
 | forge | Firmware metadata | LVFS | |
 | forge | DNS away from home | Quad9, over TLS | Never plaintext |
 | forge | Steam, Plasma | Valve, KDE | |
@@ -279,7 +280,8 @@ feedback is off by default, and DrKonqi sends crash reports only when asked.
 
 **Dev tools** (`home/dev-tools.nix`, `home/common-tools.nix`). npm, pnpm and
 cargo reach their registries, `tldr` fetches pages from GitHub, `vulnix` and
-`nix run .#cve-scan` fetch NVD's feeds. All on use, none on a timer.
+`nix run .#cve-scan` fetch NVD's feeds on use, and forge scans weekly
+([observability.md](observability.md#cve-scan)).
 
 ## GitHub Actions
 

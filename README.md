@@ -439,7 +439,7 @@ Run `direnv allow` once in a fresh clone.
 | `agents-status [--offline]` | Each agent branch's handoff, PR and checks, conflicts with main and with each other, and what to merge next |
 | `fleet-status [host...]` | Every fleet host's running revision against main, root device, last upgrade and failed units (Linux dev hosts) |
 | `vulnix-scan` / `vulnix-scan-system` | CVE scan the HM closure or the running system |
-| `nix run .#cve-scan` | CVE scan every host and home config at a commit, from their `.drv` files with nothing built, and list the whitelist rules that suppress nothing |
+| `nix run .#cve-scan` | CVE scan every host and home config at a commit, with nothing built, and list dead whitelist rules |
 | `nix run .#dns-top-domains` | Top domains per segment from the resolvers' query logs, without client addresses ([privacy.md](docs/privacy.md)) |
 | `nix build .#packages.aarch64-linux.<host>-installer` | Pi SD image |
 | `nix build .#packages.x86_64-linux.recovery-iso` | Headless x86 rescue ISO |
