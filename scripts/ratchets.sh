@@ -5,9 +5,12 @@
 #   comments  comment lines as a share of non-blank lines, per language
 #   shell     lines in any one shell script: `default`, or the script's own cap
 #             under `allow` while it is cut down or ported
+#   systemd   the exposure `systemd-analyze security` gives "<host>/<unit>",
+#             for each unit that listens (scripts/systemd-security.nix)
 #
 # --tighten lowers each cap to the tree's measure, and drops a script's own cap
 # once it fits the default. --rev <rev> measures a commit, not the working tree.
+# RATCHETS_CAPS and RATCHETS_STAND_INS are scripts/test-ratchets-systemd.sh's.
 
 usage() {
   echo "usage: ratchets.sh [--rev <rev> | --tighten]" >&2
@@ -31,7 +34,7 @@ done
 [[ -z $rev ]] || ! $tighten || usage
 
 cd "$(git rev-parse --show-toplevel)"
-caps=scripts/ratchets.json
+caps=${RATCHETS_CAPS:-scripts/ratchets.json}
 
 # Untracked files count, so a new doc is measured before it is added.
 files() {
@@ -80,12 +83,30 @@ measured=$(
      shell: [$shell | split("\n")[] | select(. != "") | split("\t") | {key: .[0], value: (.[1] | tonumber)}] | from_entries}'
 )
 
+# Scored in a build, since systemd-analyze writes to /tmp and /run, which the
+# sandbox keeps read-only. Off Linux there is no systemd to score with.
+units=$(content "$caps" | jq -c '.systemd // {} | keys')
+scores='{}'
+if [[ $units != '[]' && $(uname -s) != Linux ]]; then
+  echo "ratchets: systemd exposure needs Linux, so it is not measured here"
+elif [[ $units != '[]' ]]; then
+  ref=git+file://$PWD
+  if [[ -n $rev ]]; then ref+="?rev=$(git rev-parse --verify "$rev^{commit}")"; fi
+  stand_ins=${RATCHETS_STAND_INS:+standIns = \"$RATCHETS_STAND_INS\";}
+  out=$(nix build --impure --no-link --print-out-paths --expr \
+    "import $PWD/scripts/systemd-security.nix { ref = \"$ref\"; units = builtins.fromJSON ''$units''; $stand_ins }") ||
+    exit
+  scores=$(cat "$out")
+fi
+measured=$(jq --argjson s "$scores" '.systemd = $s' <<<"$measured")
+
 if $tighten; then
   jq --argjson m "$measured" '
     .prose = ([.prose, $m.prose] | min)
     | .comments |= with_entries(.value = ([.value, $m.comments[.key] // .value] | min))
     | .shell.default as $d
     | .shell.allow |= with_entries(($m.shell[.key] // 0) as $n | select($n > $d) | .value = ([.value, $n] | min))
+    | if .systemd then .systemd |= with_entries(.value = ([.value, $m.systemd[.key] // .value] | min)) else . end
   ' "$caps" >"$caps.next"
   mv "$caps.next" "$caps"
   echo "ratchets: caps lowered to the tree's measure, where it was below"
@@ -99,7 +120,8 @@ content "$caps" | jq -r --argjson m "$measured" '
      + [$m.shell | to_entries[] | ($c.shell.allow[.key] // $c.shell.default) as $cap
         | select(.value > $c.shell.default or $c.shell.allow[.key] != null)
         | {name: "\(.key) (lines)", now: .value, cap: $cap}]
-     + [$c.shell.allow | keys[] | select($m.shell[.] == null) | {name: "\(.) (gone)", now: 0, cap: $c.shell.allow[.]}])
+     + [$c.shell.allow | keys[] | select($m.shell[.] == null) | {name: "\(.) (gone)", now: 0, cap: $c.shell.allow[.]}]
+     + [$c.systemd // {} | to_entries[] | select($m.systemd[.key] != null) | {name: "\(.key) (exposure)", now: $m.systemd[.key], cap: .value}])
   | map("\(over)\(.name): \(.now), cap \(.cap)")[]'
 
 if content "$caps" | jq -e --argjson m "$measured" '
@@ -107,6 +129,7 @@ if content "$caps" | jq -e --argjson m "$measured" '
   | $m.prose > $c.prose
     or any($m.comments | to_entries[]; .value > ($c.comments[.key] // 0))
     or any($m.shell | to_entries[]; .value > ($c.shell.allow[.key] // $c.shell.default))
+    or any($m.systemd | to_entries[]; .value > $c.systemd[.key])
 ' >/dev/null; then
   echo "ratchets: over a cap. Cut the change back; raising a cap is Nick's call, made in the PR body." >&2
   exit 1
@@ -116,6 +139,7 @@ if ! $tighten && content "$caps" | jq -e --argjson m "$measured" '
   | $m.prose < $c.prose
     or any($m.comments | to_entries[]; .value < ($c.comments[.key] // 0))
     or any($c.shell.allow | to_entries[]; .value > ($m.shell[.key] // 0))
+    or any($m.systemd | to_entries[]; .value < $c.systemd[.key])
 ' >/dev/null; then
   echo "ratchets: below a cap. Run scripts/ratchets.sh --tighten and commit the lower caps."
 fi

@@ -206,6 +206,7 @@ Prose is cheap to write and costly to read, and Nick reads it. Keep it short.
 - A shell script stays under 300 lines. One that outgrows that, or keeps its
   state in `jq`, moves to TypeScript on Node. Shell inline in a Nix string
   counts.
-- The ratchets cap prose words, comment density and shell length. A change
-  that brings one down runs `scripts/ratchets.sh --tighten` and commits the
-  lower cap. Raising a cap is Nick's call: say so in the PR body.
+- The ratchets cap prose words, comment density, shell length and listeners'
+  systemd exposure. A change lowering one commits the lower cap from
+  `scripts/ratchets.sh --tighten`. Raising a cap is Nick's call: say so in the
+  PR body.

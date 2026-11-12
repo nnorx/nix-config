@@ -1,0 +1,7 @@
+[Unit]
+Description=Stand-in for the systemd ratchet's test
+
+[Service]
+ExecStart=/nix/store/00000000000000000000000000000000-stand-in/bin/stand-in
+DynamicUser=true
+ProtectSystem=strict
