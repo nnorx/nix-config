@@ -1,42 +1,20 @@
-# gate routes, for every segment in lib/net.nix.
+# gate routes, for every segment in lib/net.nix. `wan` faces the modem and is
+# the house's only route out, so a bad ruleset here is an outage.
 #
-# `wan` faces the modem, and this is the house's only route to the internet,
-# so a bad ruleset here is an outage rather than an inconvenience.
+# `lan0` is the tagged trunk to the Flex switch, with `servers` untagged on it:
+# the switch and the AP must reach the controller before they know any tag.
 #
-# `lan0` is the tagged trunk to the Flex switch. `servers` is the *untagged*
-# VLAN on it, deliberately: the switch and the AP have to reach the controller
-# to be managed at all, and an infrastructure device that can only be reached
-# over a tag it has not been configured with yet is a chicken-and-egg problem.
+# `lan1` is untagged trusted, bridged with the tagged trusted VLAN so a machine
+# cabled to gate shares a broadcast domain, and mDNS discovery, with Wi-Fi.
+# Bridged frames bypass the forward chain. If `br_netfilter` is ever loaded
+# (container runtimes load it), they traverse it, match nothing and are
+# dropped, which breaks discovery invisibly in `nft list ruleset`.
 #
-# That choice moved the meaning of `lan0` from trusted to servers without
-# changing its name, which silently repointed `sshInterfaces` in lib/net.nix at
-# the segment holding vendor firmware and away from the one holding laptops.
-# `br-trusted` is listed there now.
+# Kea requires carrier on every interface it serves, so a dead trunk takes
+# DHCP down loudly rather than leaving it running deaf.
 #
-# `lan1` is untagged trusted, bridged with the tagged trusted VLAN rather than
-# given a subnet of its own, so a machine cabled directly to gate shares a
-# broadcast domain with the phones and laptops on Wi-Fi. Separate subnets would
-# break mDNS between them, which surfaces later as printer and cast discovery
-# quietly not working.
-#
-# One caveat on that bridge: bridged frames bypass the forward chain, which is
-# why `filterForward` does not break it. If `br_netfilter` is ever loaded, and
-# container runtimes load it automatically, bridged frames start traversing the
-# forward chain as `iifname lan1 oifname lan0.10`, match nothing, and are
-# dropped by the default policy. The symptom is exactly the discovery failure
-# this bridge exists to prevent, and it is invisible in `nft list ruleset`.
-# gate runs no containers today; if that changes, this needs revisiting.
-#
-# **Kea requires carrier on every interface it serves.**
-# `service-sockets-require-all` spans the four interfaces that have pools, so
-# an unplugged trunk means Kea fails its retries, exits, and `Restart=on-failure`
-# loops it indefinitely. That was a deploy-ordering hazard while the uplink was
-# still on the Nest; now it is the property that makes a dead trunk take DHCP
-# down loudly rather than leaving it running deaf.
-#
-# Lists below are derived from `segmentOn` and lib/net.nix wherever they can be,
-# so a segment added to the topology cannot be half-configured here. Where one
-# is written out instead, the comment says why.
+# Lists are derived from `segmentOn` and lib/net.nix where they can be, so a
+# new segment cannot be half-configured here.
 {
   lib,
   net,
@@ -45,7 +23,6 @@
 let
   seg = net.segments;
 
-  # Interface names, bound once each and used throughout.
   trunk = net.hosts.gate.trunkIface; # tagged trunk to the Flex switch; untagged = servers
   wired = net.hosts.gate.wiredIface; # untagged trusted, a dedicated run to one machine
   trustedBr = "br-trusted"; # tagged trusted + `wired`, so they share a domain
@@ -55,11 +32,8 @@ let
   # 802.1q sub-interface for a tagged segment.
   tagged = name: "${trunk}.${toString seg.${name}.id}";
 
-  # Everything except servers, which is the untagged VLAN on the trunk and so
-  # has no sub-interface. The `vlans` block is derived from this rather than
-  # written out, so a new tagged segment cannot be added to the topology and
-  # forgotten here, which would leave it with an address, a subnet, a firewall
-  # scope and a nat entry for an interface that is never created.
+  # Everything but servers, which is untagged on the trunk. `vlans` is derived
+  # from this, so no segment is addressed on an interface never created.
   taggedSegments = [
     "trusted"
     "iot"
@@ -67,8 +41,8 @@ let
     "guest"
   ];
 
-  # Which segment each routed interface carries, by name. Addresses, Kea
-  # subnets, nat internals and firewall scopes are all generated from this.
+  # Which segment each routed interface carries. Addresses, Kea subnets, nat
+  # internals and firewall scopes are generated from this.
   segmentOn = {
     ${trustedBr} = "trusted";
     ${trunk} = "servers"; # untagged on the trunk
@@ -76,41 +50,23 @@ let
     ${tagged "work"} = "work";
     ${tagged "guest"} = "guest";
 
-    # Listed like the rest, so the tunnel inherits what is derived from this:
-    # masquerade for full-tunnel peers, the upstream-management deny and the
-    # DNS redirect. It has no pool, so no DHCP. Its address is the exception,
-    # set by ./wireguard.nix, which creates the interface; see `interfaces`.
+    # Listed so the tunnel inherits masquerade, the upstream deny and the DNS
+    # redirect. No pool, so no DHCP; ./wireguard.nix sets its address.
     ${tunnel} = "vpn";
   };
 
   segmentIfaces = builtins.attrNames segmentOn;
 
-  # DHCP is served where a segment declares a pool, and nowhere else. servers
-  # declares none: it is statically addressed, and it is the untagged VLAN on
-  # the trunk, so binding it would put Kea on the trunk parent. See the
-  # comment on `servers` in lib/net.nix.
+  # DHCP only where a segment declares a pool. servers declares none, which
+  # keeps Kea off the trunk parent `lan0`: see `servers` in lib/net.nix.
   dhcpOn = lib.filterAttrs (_: name: seg.${name} ? pool) segmentOn;
   dhcpIfaces = builtins.attrNames dhcpOn;
 
-  # Everything upstream of gate that is not the internet. The only RFC1918
-  # destination reachable out `wan` is the ISP device's own management
-  # interface, and every segment can reach it today: `networking.nat` emits a
-  # single blanket `iifname { all segments } oifname wan accept`, which does not
-  # care what the destination is.
-  #
-  # "A guest's phone can reach the box that terminates the house's internet" is
-  # not a property worth having, and less so while that box's credentials may be
-  # whatever is printed on its label. The same goes for a compromised camera on
-  # iot, or a corporate laptop on work. servers is denied too, and has the
-  # strongest case of any of them: it carries the switch and the AP, whose
-  # unaudited firmware is the same reason `sshInterfaces` had to name
-  # `br-trusted` rather than `lan0`.
-  #
-  # Derived by exclusion rather than listed, so a segment added later is denied
-  # by default instead of quietly inheriting the exception. If the ISP device is
-  # ever bridged, this keeps matching rather than going inert: private space is
-  # never a legitimate destination out `wan`, so it stays correct instead of
-  # becoming vestigial.
+  # Private space out `wan`, which is the ISP device's management interface.
+  # No segment but trusted should reach the box that terminates the house's
+  # internet. The deny is derived by exclusion, so a new segment is denied by
+  # default, and private space is never a legitimate destination out `wan`, so
+  # it stays correct if the ISP device is ever bridged.
   upstreamPrivate = [
     "10.0.0.0/8"
     "172.16.0.0/12"
@@ -124,136 +80,71 @@ let
   nftSet = xs: "{ ${lib.concatStringsSep ", " xs} }";
   quoted = map (x: "\"${x}\"");
 
-  # The fleet's own resolvers. Handing these out directly, rather than gate
-  # proxying to them, is what keeps AdGuard's per-client attribution
-  # meaningful.
-  #
-  # The addresses come from lib/net.nix, so they followed the Pis into
-  # `servers`. Attribution is real now that they are there: `networking.nat`
-  # masquerades only on the way out `wan`, so a query from a client segment to
-  # a Pi crosses the forward chain with its source address intact and AdGuard
-  # sees the client rather than the gateway.
-  #
-  # Named by host rather than by address, because the redirect below has to
-  # know which *segment* each resolver sits on to assert it is not the one it
-  # is redirecting.
+  # Handed out directly rather than proxied by gate, so AdGuard sees each
+  # client: nat masquerades only out `wan`. Named by host, so the redirect
+  # knows which segment each resolver sits on.
   fleetResolverHosts = net.resolvers;
 
-  # Filtered before dereferencing, so a bad entry is reported by the assertion
-  # below instead of throwing "attribute 'ip' missing" from inside a map. Nix
-  # orders an assertion against the code it guards not at all: whichever is
-  # forced first wins, and here the throw wins every time. Verified by putting
-  # `gate` in the list, which lib/net.nix deliberately gives neither attribute:
-  # without this filter the assertion never gets to speak.
+  # Filtered before dereferencing: Nix forces an assertion and the code it
+  # guards in no set order, and an "attribute 'ip' missing" throw would win.
   resolverIsUsable = h: net.hosts ? ${h} && net.hosts.${h} ? ip && net.hosts.${h} ? segment;
   usableResolvers = lib.filter resolverIsUsable fleetResolverHosts;
 
   fleetResolvers = map (h: net.hosts.${h}.ip) usableResolvers;
 
-  # The segments those resolvers sit on. Derived rather than named, so the
-  # redirect's exclusion follows the resolvers if one ever moves.
+  # Derived, so the redirect's exclusion follows a resolver that moves.
   resolverSegments = map (h: net.hosts.${h}.segment) usableResolvers;
 
-  # guest gets public resolvers instead. lib/net.nix calls that segment
-  # internet-only, and pointing it at the fleet's resolvers would contradict
-  # that and require a forward rule into servers to work at all.
+  # guest is internet-only, and the fleet's resolvers would need a forward rule
+  # into servers.
   publicResolverSegments = [ "guest" ];
   usesFleetResolvers = name: !(builtins.elem name publicResolverSegments);
 
   resolversFor = name: if usesFleetResolvers name then fleetResolvers else net.publicResolvers;
 
-  # Where a client is told to use the fleet's resolvers, catch it doing
-  # otherwise. A device with DNS hardcoded to 8.8.8.8 ignores everything Kea
-  # hands it, so it is both unfiltered and absent from AdGuard's query log:
-  # invisible in the one place the house would look.
+  # Catch clients with a hardcoded resolver, which would otherwise be
+  # unfiltered and absent from AdGuard's log. The redirect keeps the client's
+  # source only across subnets: see `servers` in lib/net.nix.
   #
-  # This is the rule the servers segment was created to make possible: the
-  # redirect only preserves the client's source address when the resolver is on
-  # a different subnet. See `servers` in lib/net.nix for the mechanism.
+  # guest is excluded: it is not on the fleet's resolvers and has no path into
+  # servers. servers is excluded: it is the hairpin case, and it carries the
+  # resolvers' own Unbound recursion, which a redirect would loop back onto
+  # them. gate's own Unbound is safe because its traffic hits `output`, not
+  # `prerouting`. A new segment is redirected by default.
   #
-  # Two exclusions, each for its own reason:
-  #
-  # `guest` is excluded because it is not on the fleet's resolvers at all, so
-  # there is nothing to redirect it to: the forward chain has no path from
-  # guest into servers, deliberately.
-  #
-  # `servers` is excluded twice over. It is the subnet the resolvers are on, so
-  # it is exactly the hairpin case above. It also carries core4's and
-  # lifeline's own Unbound, which recurses by talking to authoritative servers
-  # on port 53 all over the internet; redirecting that would point each
-  # resolver's recursion back at the resolvers and take DNS down completely
-  # rather than degrade it. gate's own Unbound is safe without being named,
-  # because locally generated traffic hits `output` and this chain is
-  # `prerouting`.
-  #
-  # A segment added to lib/net.nix later is redirected by default: an
-  # unfiltered segment is the condition this rule exists to remove, so a new
-  # segment is covered until whoever adds it opts out.
-  #
-  # Known gap: the Unbound reasoning above is about recursion, so it holds for
-  # any host that recurses, not just those on servers. A workstation running its
-  # own validating resolver would get SERVFAIL rather than degraded service, and
-  # only whole segments can be excluded here, so it would need its own segment
-  # or an exception by address. Nothing in the fleet does this today.
+  # Only whole segments can be excluded, so a host that recurses itself, which
+  # the redirect would leave with SERVFAIL, needs a segment of its own.
   redirectOn = lib.filterAttrs (
     _: name: usesFleetResolvers name && !(builtins.elem name resolverSegments)
   ) segmentOn;
   redirectIfaces = builtins.attrNames redirectOn;
 
-  # Encrypted DNS to an outside resolver, refused wherever port 53 is
-  # redirected. A device that tries DoT (TCP 853) or DoQ (UDP 853) first and
-  # falls back to plaintext then lands on the redirect, and ends up filtered
-  # and in the query log like everything else on the segment. Without this,
-  # such a device walks around the redirect without ever being caught by it.
-  #
-  # Derived from `redirectOn` rather than listed, so the two cannot drift: a
-  # segment that is redirected has the way around the redirect closed, and one
-  # that is not keeps 853. On servers that is the Pis' own business, and on
-  # guest it is a visitor's.
-  #
-  # The tunnel is covered with the rest, which matters only for a peer holding
-  # the `internet` grant: the others have no path out `wan` at all, per
-  # ./wireguard.nix.
-  #
-  # `dotExempt` gives a redirected segment its 853 back if refusing it breaks
-  # something there. work is the likely candidate: its laptop is centrally
-  # managed and may be set to require DoT. Port 53 stays redirected either way.
+  # DoT and DoQ (853) are refused wherever 53 is redirected, so a device that
+  # falls back to plaintext lands on the redirect. Derived from `redirectOn`
+  # so the two cannot drift. `dotExempt` gives a segment its 853 back where
+  # refusing it breaks something, such as a managed laptop on work set to
+  # require DoT; port 53 stays redirected.
   dotExempt = [ ];
   refuseDotIfaces = builtins.attrNames (
     lib.filterAttrs (_: name: !(builtins.elem name dotExempt)) redirectOn
   );
 
-  # Spread across the resolvers rather than pinning one. The fleet runs two
-  # deliberately independent resolvers, and sending every redirected client to
-  # the first would quietly make it a single point of failure for precisely the
-  # devices that cannot be repointed by DHCP. `numgen inc` is per-connection,
-  # and stub resolvers randomise their source port per query, so a retry after
-  # a timeout generally lands on the other resolver. That is the failover here;
-  # nftables cannot health-check a target, so one resolver being down degrades
-  # these clients rather than sparing them.
+  # Spread across the resolvers so neither is a single point of failure for
+  # clients DHCP cannot repoint. `numgen inc` picks per connection, so a retry
+  # usually lands on the other one. That is the only failover: nftables cannot
+  # health-check a target.
   resolverMap = lib.concatStringsSep ", " (lib.imap0 (i: ip: "${toString i} : ${ip}") fleetResolvers);
 
-  # The addresses sshd binds on the LAN, one per interface lib/net.nix names as
-  # gate's SSH surface: the gateway of the segment that interface carries.
-  # Derived rather than listed for the reason that file gives: when `lan0`
-  # stopped meaning trusted and started meaning servers, the value of
-  # `sshInterfaces` did not change but its meaning did. Deriving the address
-  # from `segmentOn` keeps the bind following the interface's meaning, rather
-  # than being a second list to remember.
-  #
-  # Filtered before dereferencing, so an interface that carries no segment is
-  # reported by the assertion below rather than thrown as an "attribute
-  # missing" from inside a map.
+  # sshd's LAN addresses: the gateway of the segment each of gate's
+  # `sshInterfaces` carries, so the bind follows what the interface carries
+  # (see `sshInterfaces` in lib/net.nix). Filtered so an interface with no
+  # segment is reported by the assertion below.
   sshIfaces = net.hosts.gate.sshInterfaces;
   sshAddresses = map (i: seg.${segmentOn.${i}}.gateway) (lib.filter (i: segmentOn ? ${i}) sshIfaces);
 
-  # The fleet's own hosts on servers: every host lib/net.nix gives an `ip` on
-  # the segment the trunk carries untagged. These are the Pis, derived rather
-  # than listed, so a new Pi reaches the internet the day it is added there.
-  # UniFi's containers on core5 sit behind Docker's masquerade, so they leave
-  # core5 from its address and are covered by it.
-  #
-  # `segment` is read with a default because gate has neither attribute.
+  # The fleet's hosts on servers, derived so a new Pi reaches the internet the
+  # day it is added. UniFi's containers leave core5 from its address, behind
+  # Docker's masquerade. `segment` has a default because gate has none.
   serversFleet = map (h: h.ip) (
     builtins.attrValues (
       lib.filterAttrs (_: h: h ? ip && (h.segment or null) == segmentOn.${trunk}) net.hosts
@@ -261,11 +152,9 @@ let
   );
 in
 {
-  # A segment declared in lib/net.nix but not carried by an interface here
-  # would have a subnet, a gateway and a pool and yet never be addressed,
-  # routed, firewalled or served, and nothing would fail at evaluation. It
-  # would surface as devices on that VLAN silently getting no lease.
-  # modules/firewall.nix guards its own list the same way.
+  # A segment with no interface here would be declared but never addressed or
+  # served, and nothing else fails at evaluation. modules/firewall.nix guards
+  # its own list the same way.
   assertions = [
     {
       assertion =
@@ -346,48 +235,30 @@ in
     }
   ];
 
-  # nftables backend rather than iptables. The reason is filterForward below:
-  # NixOS only offers a filtered forward chain on this backend, and a router
-  # whose forward chain defaults to accept is not a firewall.
+  # NixOS offers a filtered forward chain (`filterForward`) only on nftables.
   networking.nftables.enable = true;
 
-  # sshd on the gateway address of each SSH interface, rather than on every
-  # address gate holds, the WAN one above all. By address, not by interface:
-  # the firewall still does the per-interface scoping. modules/ssh.nix has the
-  # reasoning and the sysctl that makes binding these safe at boot;
-  # ./wireguard.nix adds the tunnel's address.
+  # sshd on the gateway address of each SSH interface, never the WAN one. The
+  # firewall still scopes by interface; modules/ssh.nix has the sysctl that
+  # makes binding these safe at boot, and ./wireguard.nix adds the tunnel's.
   services.openssh.listenAddresses = map (addr: { inherit addr; }) sshAddresses;
 
-  # Masquerade every segment out of wan, and enable IPv4 forwarding. Using the
-  # nat module rather than a hand-written ruleset on purpose: it is the
-  # well-trodden path, and hand-rolled NAT on a box that is becoming the house
-  # router is a poor place to be original.
+  # Masquerade and IPv4 forwarding through the nat module, the well-trodden
+  # path, rather than hand-rolled NAT on the house router.
   networking.nat = {
     enable = true;
     externalInterface = net.hosts.gate.wanIface;
     internalInterfaces = segmentIfaces;
   };
 
-  # Catch clients that ignore the resolvers Kea hands them.
+  # The DNS redirect, appended to the nat module's table as its own base chain,
+  # since `pre` is generated as one string. `dstnat + 10` lets an explicit port
+  # forward win over it. The counter, in `nft list chain ip nixos-nat
+  # dns-redirect`, says whether it has ever matched.
   #
-  # Merged into the nat module's own table rather than a private one: `content`
-  # is `types.lines`, so this appends a chain beside the module's `pre`, `post`
-  # and `out` instead of standing up a second table competing for the same
-  # hook. It is a separate base chain because `pre` is generated as one string
-  # and cannot be appended to.
-  #
-  # `dstnat + 10` puts it after `pre`, so an explicit port forward added later
-  # wins over this blanket rule rather than racing it at equal priority.
-  #
-  # The counter is deliberate: `nft list chain ip nixos-nat dns-redirect` says
-  # whether this has ever matched, and a counter that stays at zero is itself
-  # the finding.
-  #
-  # `family` is declared here rather than left to the nat module. That module
-  # supplies it only under `mkIf networking.nat.enable`, so without this the
-  # option is defined by nothing the moment nat is turned off, and evaluation
-  # fails with "the option `networking.nftables.tables.nixos-nat.family' is used
-  # but not defined" — a message naming neither this file nor the cause.
+  # `family` is declared because the nat module sets it only under
+  # `mkIf networking.nat.enable`; without it, disabling nat fails evaluation
+  # with an error naming neither this file nor the cause.
   networking.nftables.tables."nixos-nat" = {
     family = "ip";
     content = ''
@@ -399,59 +270,27 @@ in
     '';
   };
 
-  # iot's way out to the internet: docs/privacy.md, "Internet for iot".
+  # iot's way out: docs/privacy.md, "Internet for iot", has the commands.
+  # `iot-wan` counts every iot attempt to open a connection out `wan`, and one
+  # from `iot-trial` is dropped and counted. The set is filled by hand, so no
+  # device reaches this repo, and is runtime state: any reload of the ruleset
+  # empties it and zeroes the counters.
   #
-  # Every iot attempt to open a connection out `wan` is counted in `iot-wan`,
-  # and one from an address in `iot-trial` is dropped and counted in
-  # `iot-trial-dropped`. Attempts, not flows: a dropped SYN is never
-  # confirmed, so each retry arrives here as new again, as does every packet
-  # of a UDP exchange with no reply yet. Only new connections reach this
-  # chain (the forward chain accepts established ones first), so putting a
-  # device on trial also needs its open ones ended with `conntrack -D`.
-  # The set is declared empty and Nick fills it by hand, so nothing about a
-  # device reaches this repo; privacy.md has the commands. It is runtime state, not
-  # policy: reloading the ruleset recreates this table, which empties the set
-  # and zeroes the counters, and nftables.service reloads on any deploy that
-  # changes the ruleset.
+  # The chain returns rather than accepts, so nat's accept stays the one way
+  # out `wan` and flushing the chain undoes it without a deploy. It drops
+  # rather than rejects, so firmware that retries on failure waits out its own
+  # timeout. DNS is unaffected: redirected queries are accepted before the
+  # jump, and queries to the Pis do not leave by `wan`.
   #
-  # The chain returns what it does not drop rather than accepting it, so nat's
-  # `iifname { segments } oifname wan accept` stays the one accept out `wan`,
-  # and `sudo nft flush chain inet nixos-fw iot-egress` puts iot back as it
-  # was before this chain, without a deploy. A drop rather than a reject, so a
-  # device whose firmware retries on failure waits out its own timeout between
-  # attempts instead of retrying in a loop.
+  # servers-egress lets only the fleet's hosts out `wan`. The switch, the AP
+  # and the rest are dropped and counted, which does not touch managing them,
+  # since the controller is on servers too. NTP is the exception, so their
+  # clocks keep whatever time source the controller gives them. Firmware
+  # upgrades become a deliberate step: docs/unifi.md. IPv4 only, as the house
+  # has no global IPv6; the drop fails closed, so IPv6 for the Pis would need
+  # an `ip6 saddr` return here.
   #
-  # DNS is not affected: a redirected query is accepted by the firewall
-  # module's `ct status dnat accept` ahead of the jump, and one sent straight
-  # to the Pis goes out the trunk, not `wan`.
-  #
-  # servers' way out, by the same pattern: docs/privacy.md, "UniFi" under
-  # core5. Only `serversFleet` reaches the internet. Everything else there,
-  # which is the switch, the AP and anything on an untagged switch port, is
-  # dropped out `wan` and counted in `servers-wan-dropped`, except NTP. None of
-  # it touches managing them: the switch and the AP reach the controller on
-  # core5 within servers, without crossing gate.
-  #
-  # NTP is let out because the switch and the AP keep time from a public pool,
-  # or from whatever server the controller pushes them, and refusing it would
-  # leave their clocks to drift. An exception rather than gate serving time:
-  # it holds whatever the controller is set to, and needs no NTP server on
-  # gate and no controller setting this repo cannot see.
-  #
-  # Their DNS is unaffected: they ask the Pis, on servers itself. A public
-  # resolver set on one in the controller would be dropped, which the counter
-  # shows.
-  #
-  # Firmware is the cost. They download it from Ubiquiti themselves when told
-  # to upgrade, so an upgrade is now a deliberate step: flush this chain,
-  # upgrade from the controller, reload nftables. docs/unifi.md has it.
-  #
-  # IPv4 only, like iot's, since the house has no global IPv6. The drop is not:
-  # it fails closed, so if IPv6 ever arrives the Pis need an `ip6 saddr` return
-  # here before they can use it.
-  #
-  # Appended to the firewall module's table as dns-redirect is to nat's, and
-  # `family` declared here for the same reason given there.
+  # `family` is declared for the reason given at nixos-nat.
   networking.nftables.tables."nixos-fw" = {
     family = "inet";
     content = ''
@@ -486,7 +325,6 @@ in
   };
 
   networking = {
-    # Tagged sub-interfaces on the trunk, derived from taggedSegments above.
     vlans = builtins.listToAttrs (
       map (name: {
         name = tagged name;
@@ -497,17 +335,13 @@ in
       }) taggedSegments
     );
 
-    # Wi-Fi clients arrive tagged from the AP, the wired machine arrives
-    # untagged on its own port, and both need to be on one segment for
-    # discovery to work between them.
     bridges.${trustedBr}.interfaces = [
       (tagged "trusted")
       wired
     ];
 
-    # Not the tunnel. The WireGuard module creates that interface and assigns
-    # its address in one unit; a second address unit here would race it for a
-    # device that does not exist yet.
+    # Not the tunnel: the WireGuard module creates it and its address in one
+    # unit, and a second address unit would race it.
     interfaces = lib.mapAttrs (_: name: {
       ipv4.addresses = [
         {
@@ -518,43 +352,23 @@ in
     }) (builtins.removeAttrs segmentOn [ tunnel ]);
 
     firewall = {
-      # Default-drop forwarding. Without this the forward chain accepts
-      # everything.
+      # Otherwise the forward chain accepts everything.
       filterForward = true;
 
-      # Inter-segment policy, plus one deny. The accepts below are
-      # segment-to-segment, which the nat module says nothing about, and
-      # everything not named is refused by the default-drop chain rather than
-      # by a rule.
+      # Segment-to-segment accepts, with everything unnamed refused by the
+      # default-drop chain, and segment-to-wan denies, which must come ahead of
+      # nat's blanket `oifname wan accept`. `mkBefore` pins that order: nixpkgs
+      # declares no priority between the two definitions.
       #
-      # The deny is the exception to all of that, and deliberately so. It is
-      # segment-to-wan, the same direction nat covers, and it exists precisely
-      # to take precedence over nat's blanket
-      # `iifname { internalInterfaces } oifname wan accept`. `mkBefore` pins
-      # that ordering: nixpkgs documents both definitions as appended to
-      # `forward-allow` and declares no priority between them, so relying on
-      # the observed merge order would make this silently dead code the day it
-      # changed.
+      # iot reaches servers for DNS alone, so its lookups are filtered and
+      # logged; Govee's LAN API with core5 is in ./govee.nix.
       #
-      # iot gets DNS to the Pis and nothing else. It is on the fleet resolvers
-      # so its lookups are filtered and visible in AdGuard, which is most of
-      # the point of having an iot segment, but it has no business reaching
-      # anything else in servers. The one exception is Govee's LAN API with
-      # Home Assistant on core5, in ./govee.nix.
+      # 853 is refused with `reject`, so a client falls back to 53 at once
+      # rather than after a timeout. TCP gets a reset, since a bare `reject`
+      # sends ICMP, which some stacks retry through.
       #
-      # Port 853 is refused with `reject` rather than dropped, so a client
-      # falls back to port 53 at once instead of after its own timeout. Each
-      # protocol gets what a closed port would send it. For TCP that is a
-      # reset: bare `reject` in this inet table sends ICMP port-unreachable
-      # even for TCP, which some stacks treat as a soft error and retry
-      # through. For UDP it is ICMP port-unreachable, which a connected socket
-      # reports as ECONNREFUSED on its next call. A QUIC client on an
-      # unconnected socket may not notice it, and waits out its handshake as
-      # it would under a drop, which is no worse.
-      #
-      # iot's jump to `iot-egress`, above, comes after both, so what it counts
-      # is what would otherwise reach nat's accept. servers' jump to
-      # `servers-egress` follows it for the same reason.
+      # The egress jumps come after both, so they count only what would
+      # otherwise reach nat's accept.
       extraForwardRules = lib.mkBefore ''
         iifname ${nftSet (quoted deniedUpstream)} oifname "${wan}" ip daddr ${nftSet upstreamPrivate} drop comment "only trusted reaches upstream management"
         ${lib.optionalString (refuseDotIfaces != [ ]) ''
@@ -568,50 +382,32 @@ in
         iifname "${tagged "work"}" oifname "${trunk}" meta l4proto { tcp, udp } th dport 53 accept comment "work resolves via the Pis, nothing else"
       '';
 
-      # DHCP requests arrive before the client has an address, so nothing
-      # address-based can cover them. Scoped per segment interface, so no DHCP
-      # server is exposed on the WAN side.
+      # DHCP requests arrive before the client has an address, so the port is
+      # opened per segment interface, never on the WAN side.
       interfaces = lib.genAttrs dhcpIfaces (_: {
         allowedUDPPorts = [ 67 ];
       });
     };
   };
 
-  # The default is sized for a desktop making a few hundred connections. A
-  # router holds the state for every device in the house at once, and the
-  # failure mode when the table fills is dropped connections with
-  # "nf_conntrack: table full" in dmesg, which reads like a network fault
-  # rather than a tuning problem.
+  # A router holds state for every device in the house, and a full table drops
+  # connections with "nf_conntrack: table full", which reads as a network fault.
   boot.kernel.sysctl = {
     "net.netfilter.nf_conntrack_max" = 262144;
 
-    # Answer ARP only for addresses configured on the interface the request
-    # arrived on, and source ARP requests from an address in the target's
-    # subnet.
-    #
-    # Linux defaults to answering for *any* local address on *any* interface,
-    # which is reasonable on a host and wrong on a router holding a different
-    # subnet on each of five segments. It caused a real failure during the
-    # cutover: the AP, sitting on servers, ARPed for 192.168.10.1, which lives
-    # on br-trusted. gate answered on lan0 anyway, so the AP unicast a DHCP
-    # renewal for its old address to a gateway that was not on its segment,
-    # Kea matched the subnet from the client address rather than the interface,
-    # and renewed a lease from the wrong segment. It then repeated that
-    # indefinitely, because a successful renewal never triggers a rebind. Only
-    # a power cycle broke the loop.
-    #
-    # arp_ignore=1 makes gate stop volunteering addresses that belong to other
-    # segments. arp_announce=2 keeps its own requests from advertising one.
+    # Answer ARP only for addresses on the interface asked, and source requests
+    # from the target's subnet. Linux's default answers for any local address
+    # on any port, which on a router lets a client renew a lease from the
+    # wrong segment.
     "net.ipv4.conf.all.arp_ignore" = 1;
     "net.ipv4.conf.default.arp_ignore" = 1;
     "net.ipv4.conf.all.arp_announce" = 2;
     "net.ipv4.conf.default.arp_announce" = 2;
   };
 
-  # Ordering, so the retries below are a safety net rather than the mechanism.
-  # The address units are what make each interface bindable, and Kea's stock
-  # ordering only reaches network-online.target, which implies nothing about
-  # any particular interface being configured.
+  # After each interface's address unit, which is what makes it bindable:
+  # Kea's stock ordering reaches only network-online.target, which implies no
+  # particular interface is configured. The retries below are the safety net.
   systemd.services.kea-dhcp4-server.after = map (i: "network-addresses-${i}.service") dhcpIfaces;
 
   services.kea.dhcp4 = {
@@ -620,33 +416,17 @@ in
       interfaces-config = {
         interfaces = dhcpIfaces;
 
-        # Kea tries once by default and, on failure, runs with no listening
-        # socket rather than exiting. Observed on the first deploy: it started
-        # while lan0 was still down, logged "no interface configured to listen
-        # to DHCP traffic", and stayed up and deaf.
-        #
-        # That is the worst shape a DHCP failure can take on a router. Nothing
-        # breaks immediately, because existing leases keep working; the house
-        # falls over an hour later when clients try to renew, with no event
-        # anywhere near the cause.
-        #
-        # Retry instead, and require every configured interface, so a
-        # persistent failure exits non-zero and the unit's Restart=on-failure
-        # keeps trying. The cost is that an interface with no carrier loops the
-        # unit rather than being skipped, which is the trade the header
-        # describes.
+        # Kea otherwise starts with no socket while an interface is still down,
+        # stays up deaf, and the house loses DHCP an hour later at renewal.
+        # Retrying and requiring every interface turns that into a failing
+        # unit; the cost is a restart loop while a port has no carrier.
         service-sockets-max-retries = 5;
         service-sockets-retry-wait-time = 5000;
         service-sockets-require-all = true;
-
-        # Kea is deliberately not bound to the trunk parent, where its raw
-        # sockets would see tagged frames as well as untagged ones. Serving
-        # DHCP only where a segment declares a pool, and giving servers none,
-        # means nothing binds `lan0`. See `servers` in lib/net.nix.
       };
 
-      # Without persistence every reboot is a fresh pool and clients renumber,
-      # which on a router is indistinguishable from a fault.
+      # Persisted, so a reboot does not renumber every client, which on a
+      # router looks like a fault.
       lease-database = {
         type = "memfile";
         persist = true;
@@ -657,9 +437,8 @@ in
       renew-timer = 900;
       rebind-timer = 1800;
 
-      # One subnet per segment, each pinned to the interface that carries it,
-      # so a request arriving on the iot VLAN cannot be answered from the
-      # trusted pool.
+      # Each subnet pinned to its interface, so a request on the iot VLAN
+      # cannot be answered from the trusted pool.
       subnet4 = lib.mapAttrsToList (
         iface: name:
         let
