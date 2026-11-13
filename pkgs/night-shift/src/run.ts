@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { basename } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { agent, atWork, cl, roster, type Session } from "./claude.ts";
-import { type Env, NEEDS, QUEUED, READY, RUNNING } from "./env.ts";
+import { type Env, HANDS_ON, NEEDS, QUEUED, READY, RUNNING } from "./env.ts";
 import { closed, comment, getIssue, type Issue, move, trimEnd, writeIssue } from "./issues.ts";
 import { type Linear, LinearError } from "./linear.ts";
 import { latest, running } from "./machine.ts";
@@ -430,6 +430,10 @@ class Run {
 
   /** A new worktree and agent for a forge issue, and its state file. False, with the issue stopped, when not. */
   async fresh(i: Issue, f: string): Promise<boolean> {
+    if (i.labels.nodes.some((l) => l.name === HANDS_ON)) {
+      await this.stop(i, NEEDS, `Not started: labelled ${HANDS_ON}, which Nick does himself.`, HANDS_ON);
+      return false;
+    }
     const projects = this.env.projects;
     const label = i.labels.nodes.find((l) => l.parent?.name === "repo")?.name ?? "";
     const repo = `${projects}/${label}`;

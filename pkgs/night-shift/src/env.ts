@@ -38,6 +38,8 @@ export interface Env {
 /** Forge's team states, in the order an issue moves through them. */
 export const STATES = ["Queued", "Running", "Handoff ready", "Needs you"] as const;
 export const [QUEUED, RUNNING, READY, NEEDS] = STATES;
+/** The label on an issue Nick does himself, which forge never starts. */
+export const HANDS_ON = "Hands on";
 
 const set = (name: string): string | undefined => process.env[name] || undefined;
 

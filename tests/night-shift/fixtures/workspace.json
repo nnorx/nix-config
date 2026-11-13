@@ -22,6 +22,16 @@
         { "id": "label-demo", "name": "demo", "team": null },
         { "id": "label-other", "name": "other", "team": { "id": "team-2" } }
       ]
+    },
+    "labels": {
+      "nodes": [
+        { "id": "label-demo", "name": "demo", "team": null, "parent": { "name": "repo" } },
+        { "id": "label-other", "name": "other", "team": { "id": "team-2" }, "parent": { "name": "repo" } },
+        { "id": "label-hands-on", "name": "Hands on", "team": null, "parent": null },
+        { "id": "label-bug", "name": "Bug", "team": null, "parent": null },
+        { "id": "label-bug-tst", "name": "Bug", "team": { "id": "team-1" }, "parent": { "name": "Type" } },
+        { "id": "label-elsewhere", "name": "Elsewhere", "team": { "id": "team-2" }, "parent": null }
+      ]
     }
   }
 }

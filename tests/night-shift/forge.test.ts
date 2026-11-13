@@ -126,6 +126,14 @@ kase("start_no_repo_label", "start: no repo label: Needs you", async (c) => {
   await refused(c, `Not started: give it a \`repo\` label naming a repository in ${c.dir}/projects with an \`origin\`.`, "No repo");
 });
 
+// Another label, as the fixture's Bug, still starts: see start below.
+kase("start_hands_on", "start: labelled Hands on: Needs you", async (c) => {
+  c.repo("demo");
+  c.issue("issue-1", (i) => i.labels.nodes.push({ name: "Hands on", parent: null }));
+  await refused(c, "Not started: labelled Hands on, which Nick does himself.", "Hands on");
+  assert.equal(c.count((l) => l.tool === "claude"), 0, "no claude call");
+});
+
 // --- 3. start's happy path, through run ------------------------------------------
 
 kase("start", "start: worktree with no upstream, issue text, claude --bg, Running, kept awake", async (c) => {
