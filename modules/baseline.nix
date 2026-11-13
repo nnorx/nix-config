@@ -1,96 +1,60 @@
 # System hardening and maintenance baseline for every host
 { config, ... }:
 let
-  # flake.nix's nixConfig has to be a literal attrset there, but nothing stops
-  # another file importing the flake and reading it, so the cache list is
-  # written once. Importing flake.nix only reads its top-level attrset; its
-  # inputs are not fetched and its outputs are not evaluated.
+  # flake.nix's nixConfig must be a literal attrset, so the cache list is
+  # written there and read here. Importing flake.nix reads only that attrset:
+  # its inputs are not fetched and its outputs are not evaluated.
   flakeCaches = (import ../flake.nix).nixConfig;
 in
 {
   imports = [ ./sops-assertions.nix ];
 
-  # Automatic NixOS upgrades from the flake. Shared settings only: nothing here
-  # turns them on. hosts/common/pi.nix does, for the Pis and nothing else.
-  #
-  # gate stays manual. With allowReboot the nixpkgs unit reboots only when the
-  # kernel, its modules or the initrd changed, and otherwise runs `switch`. On
-  # gate that is an unattended switch of the routing it is serving, with no
-  # deploy-guard in front of it and no second router behind it. A Pi that goes
-  # wrong is a card pull.
+  # Shared settings only: nothing here turns upgrades on; hosts/common/pi.nix
+  # does, for the Pis. gate stays manual: an unattended switch of the routing
+  # it serves would have no deploy-guard in front and no second router behind.
   system.autoUpgrade = {
     flake = "github:nnorx/nix-config";
 
-    # A flake, not a channel, so `--upgrade` would do nothing but update the
-    # root `nixos` channel the Pi images still carry, and warn about it.
+    # A flake, not a channel.
     upgrade = false;
 
     flags = [
-      # Redundant with nix.settings below, which already puts the caches in
-      # nix.conf. Kept so an upgrade resolves exactly as `nrs` does.
+      # So an upgrade resolves exactly as `nrs` does.
       "--accept-flake-config"
 
-      # Substitute or fail; never build on the host. A Pi 4 kernel is in no
-      # public cache and takes 9-15 hours to compile there, and cache.yml,
-      # which fills our own cache, runs off the same push to main that an
-      # upgrade picks up. A run that outruns it fails and the next night
-      # retries. The cost: a host that has quietly stopped upgrading looks like
-      # one with nothing to do, until a wrong-boot check exists.
+      # Substitute or fail; never build on a Pi. A run that outruns cache.yml,
+      # which runs off the same push to main, fails and the next night retries.
       "--max-jobs"
       "0"
 
-      # Without this, the flag above fails every upgrade. NixOS marks the system
-      # toplevel, etc and hundreds of small generated files such as unit
-      # definitions `allowSubstitutes = false`, and stock Nix honours that, so
-      # they can only be built locally, which `--max-jobs 0` forbids. Every
-      # commit changes the toplevel. A dry run of lifeline's system for 163bb57
-      # lists 255 derivations to build without this and none with it: cache.yml
-      # builds and pushes exactly those paths, so they are there to fetch.
+      # NixOS marks the toplevel and many generated files
+      # `allowSubstitutes = false`, so without this `--max-jobs 0` fails every
+      # upgrade.
       "--option"
       "always-allow-substitutes"
       "true"
     ];
     allowReboot = true;
 
-    # A run that misses its slot, typically because the rack lost power, waits
-    # for the next night instead of firing at boot. Catching up at boot would
-    # start every Pi's upgrade at once, undoing the stagger in pi.nix, and
-    # possibly before a resolver's own AdGuard is serving.
+    # Catching up at boot, after a power cut, would start every Pi at once.
     persistent = false;
 
-    # Contains the start times in pi.nix plus the time a run takes.
-    #
-    # A run that finishes outside it does nothing further. The new generation
-    # is already the boot default, but the host neither reboots nor switches,
-    # and runs the old generation until a later run lands inside the window or
-    # something else reboots it.
-    #
-    # The lower bound sits before the first start rather than on it. The unit
-    # compares HH:MM strings strictly, so a run finishing inside its own start
-    # minute would otherwise count as outside.
-    #
-    # Anything that must not be interrupted by a reboot runs after `upper`.
-    # modules/offbox-push.nix asserts that it does.
+    # A run that finishes outside the window leaves the new generation as the
+    # boot default without rebooting or switching. `lower` sits before the
+    # first start in pi.nix because the unit compares HH:MM strictly.
+    # Anything that must not be interrupted runs after `upper`, as
+    # modules/offbox-push.nix asserts.
     rebootWindow = {
       lower = "02:30";
       upper = "06:00";
     };
   };
 
-  # Deploy shortcuts, on every host built from this flake, forge included.
-  # They deploy what the automatic upgrade does, from the same flake, so the two
-  # cannot disagree about where main lives. nixos-rebuild resolves the flake
-  # attribute from the hostname when #name is omitted, so one string is correct
-  # on every host.
-  #
-  # --refresh matters: `github:` refs are cached for an hour by default, so
-  # without it you can silently deploy a stale main. --accept-flake-config is
-  # redundant once nix.settings below has put the caches in nix.conf, but is
-  # still needed on a freshly flashed host, and costs nothing here.
-  #
-  # nrb (boot) is for changes that reconfigure the interface you are connected
-  # over, such as a static IP moving or gate's routing, where switch would pull
-  # the network out from under the session mid-activation.
+  # The same flake as the automatic upgrade, so the two cannot disagree about
+  # where main lives. --refresh because `github:` refs are cached for an hour,
+  # which would deploy a stale main. --accept-flake-config for a freshly
+  # flashed host, whose nix.conf lacks the caches. nrb is for changes to the
+  # interface the session runs over, which switch would pull out from under it.
   environment.shellAliases =
     let
       rebuild =
@@ -102,32 +66,26 @@ in
       nrb = rebuild "boot";
     };
 
-  # Nix garbage collection — keeps SD cards from filling up, and bounds how
-  # many generations gate's ESP has to hold
+  # Keeps SD cards from filling, and bounds the generations gate's ESP holds.
   nix.gc = {
     automatic = true;
     dates = "weekly";
     options = "--delete-older-than 14d";
   };
 
-  # Binary caches, baked into each host's nix.conf so they apply to every user
-  # and every nix invocation. flake.nix's nixConfig declares them too, but that
-  # form is client-supplied: Nix ignores it for anyone outside trusted-users,
-  # and only honours it with --accept-flake-config. Relying on it alone means a
-  # host silently compiles instead of substituting, which for linux_rpi4 is
-  # 9-15 hours on a Pi 4. So the list is read from there and written here.
+  # In nix.conf as well as flake.nix, since Nix ignores client-supplied
+  # settings from untrusted users, and a host that misses the cache compiles
+  # the Pi 4 kernel for 9-15 hours.
   nix.settings = {
     substituters = flakeCaches.extra-substituters;
     trusted-public-keys = flakeCaches.extra-trusted-public-keys;
   };
 
-  # Enable flakes and the nix command
   nix.settings.experimental-features = [
     "nix-command"
     "flakes"
   ];
 
-  # Kernel / sysctl hardening
   boot.kernel.sysctl = {
     "net.ipv4.conf.all.rp_filter" = 1;
     "net.ipv4.conf.default.rp_filter" = 1;
@@ -140,20 +98,16 @@ in
     "kernel.sysrq" = 0;
   };
 
-  # Sudo — only wheel group, require password
   security.sudo = {
     execWheelOnly = true;
     wheelNeedsPassword = true;
   };
 
-  # Lightweight NTP for accurate time
   services.timesyncd.enable = true;
 
-  # Disable services not needed on a headless box
   services.avahi.enable = false;
 
-  # Journald — cap disk usage on SD cards. gate raises this in its own host
-  # config: it has NVMe, and it is the host whose logs are worth keeping
+  # Capped for SD cards; gate, on NVMe, raises it.
   services.journald.extraConfig = ''
     SystemMaxUse=200M
     MaxRetentionSec=1month

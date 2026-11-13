@@ -1,18 +1,12 @@
-# Unbound — recursive DNS resolver with DNSSEC.
-#
-# Binds loopback only, on core4, lifeline and gate alike, so the resolver is
-# absent from the network rather than merely refusing it. Nothing queries it
-# from another host: core3, which forwarded to core4's, was the last.
+# Unbound, the recursive resolver with DNSSEC. It and its control socket are
+# on loopback only, on every host that runs it, so the resolver is absent from
+# the network rather than merely refusing it.
 {
-  # Listening port. Defaults to net.ports.unbound (5335), which is where the
-  # AdGuard hosts forward and deliberately not 53, since AdGuard owns that.
-  # gate has no AdGuard and has to be its own resolver, and resolv.conf cannot
-  # express a port, so it listens on 53.
+  # net.ports.unbound (5335) by default, where AdGuard forwards. gate runs no
+  # AdGuard and resolv.conf cannot name a port, so it listens on 53.
   port ? null,
 
-  # Whether this host's own resolv.conf points at unbound. False on the Pis,
-  # which resolve through their AdGuard on 53. True on gate, which is the
-  # point of running it there.
+  # False on the Pis, which resolve through their AdGuard; true on gate.
   resolveLocalQueries ? false,
 }:
 {
@@ -29,7 +23,6 @@ let
   ctl = "${config.services.unbound.package}/bin/unbound-control";
   cacheFile = "/var/lib/unbound/cache.dump"; # inside unbound's StateDirectory (sandbox-writable)
 
-  # Dump on stop — runs while the daemon is still alive; atomic via tmp + mv.
   dumpCache = pkgs.writeShellScript "unbound-dump-cache" ''
     export PATH="${pkgs.coreutils}/bin:$PATH"
     tmp=${cacheFile}.tmp
@@ -40,14 +33,9 @@ let
     fi
   '';
 
-  # Load on start — wait for the control socket, then restore. Never fails the unit.
-  #
-  # The dump is removed once loaded. It holds every name the house resolved in
-  # the cache's lifetime, up to four days (cache-max-ttl plus serve-expired-ttl),
-  # the work segment's included, and it exists only to bridge a restart. Left
-  # in place it would sit on disk until the next stop, which on a host that
-  # rarely restarts is a record older than anything AdGuard's retention allows.
-  # The cost is a cold cache after a crash, when no fresh dump was written.
+  # The dump is deleted once loaded: it records every name the house resolved
+  # over up to four days, the work segment's included, and exists only to
+  # bridge a restart. The cost is a cold cache after a crash.
   loadCache = pkgs.writeShellScript "unbound-load-cache" ''
     export PATH="${pkgs.coreutils}/bin:$PATH"
     [ -s ${cacheFile} ] || exit 0
@@ -64,8 +52,7 @@ let
     exit 0
   '';
 
-  # Statistics for the metrics store, on the fleet's resolvers alone. gate runs
-  # this module too, and an exporter there is a change to gate of its own.
+  # The exporter runs on the fleet's resolvers alone, not on gate.
   metrics = lib.elem hostname net.resolvers;
   host = net.hosts.${hostname};
   collector = net.hosts.${net.metricsCollector};
@@ -76,29 +63,21 @@ in
     enable = true;
     inherit resolveLocalQueries;
 
-    # Local control socket for cache dump/load across reboots (see systemd units below)
     localControlSocketPath = "/run/unbound/unbound.ctl";
 
     settings = {
       server = {
-        # Loopback alone, so no other host can reach it whatever the firewall
-        # or access-control say.
         interface = [ "127.0.0.1" ];
         port = listenPort;
 
-        # Recurse over IPv4 only. The LAN has no global IPv6: gate asks for no
-        # DHCPv6-PD delegation and sends no router advertisements, so there is
-        # no v6 prefix and no v6 default route. AAAA-glue upstreams would be
-        # unreachable and any query reaching one would dead-end in SERVFAIL.
-        # Revisit with the IPv6 project, which would give this network a prefix.
+        # The network has no global IPv6 route, so recursion is IPv4 only.
         do-ip6 = false;
 
         access-control = [ "127.0.0.1/32 allow" ];
 
-        # Use current root server addresses
         root-hints = "${pkgs.dns-root-data}/root.hints";
 
-        # DNSSEC hardening (trust anchor managed automatically by NixOS)
+        # NixOS manages the trust anchor.
         harden-glue = true;
         harden-dnssec-stripped = true;
         harden-below-nxdomain = true;
@@ -108,7 +87,7 @@ in
         aggressive-nsec = true; # Synthesize NXDOMAIN from cached NSEC (RFC 8198)
         unwanted-reply-threshold = 10000000; # Detect cache poisoning floods
 
-        # DNS rebinding protection — refuse private IPs from upstream authoritative servers
+        # DNS rebinding protection: refuse private addresses from upstream.
         private-address = [
           "10.0.0.0/8"
           "172.16.0.0/12"
@@ -120,32 +99,20 @@ in
           "fe80::/10"
         ];
 
-        # Privacy
         qname-minimisation = true;
         hide-identity = true;
         hide-version = true;
 
-        # No EDNS Client Subnet goes upstream, and nothing here needs a setting
-        # to keep it that way: Unbound sends ECS only with the subnetcache
-        # module in module-config and send-client-subnet naming a server, and
-        # neither is set. Queries come from AdGuard on loopback in any case, so
-        # the only subnet it could send is 127.0.0.0/8.
+        # No EDNS Client Subnet goes upstream: that needs the subnetcache
+        # module, and nothing sets it.
 
-        # Names that exist only inside the house, answered NXDOMAIN here rather
-        # than asked of the root servers, which would otherwise see a device's
-        # hostname whenever something looks one up under these suffixes.
-        # Unbound already does this by default for home.arpa, onion, test,
-        # invalid, localhost and the private reverse zones (unblock-lan-zones
-        # is off), so only what it leaves to the root is listed. `local` is
-        # mDNS's, and a device asking unicast DNS for it has given up on
-        # multicast; `internal` is ICANN's reserved private TLD; `home` and
-        # `corp` are names ICANN will not delegate because so many networks
-        # leak them. The list matches what scripts/dns-top-domains.jq counts as
-        # a local name.
-        #
-        # Single-label names (`printer.`) cannot be listed this way, since a
-        # local-zone is a suffix and every TLD is one label too. The local
-        # copy of the root zone below answers those.
+        # Suffixes that exist only inside the house, answered NXDOMAIN here so
+        # the root servers never see a device's hostname. `local` is mDNS's,
+        # `internal` is reserved, and ICANN will not delegate `home` or `corp`.
+        # Unbound's defaults cover home.arpa, test, invalid, localhost and the
+        # private reverse zones. The list matches the local names in
+        # scripts/dns-top-domains.jq. Single-label names cannot be a suffix,
+        # so the root-zone copy below answers those.
         local-zone = map (zone: ''"${zone}." static'') [
           "lan"
           "local"
@@ -155,27 +122,22 @@ in
           "corp"
         ];
 
-        # Query logging stays off, as it is by default, and is written down
-        # because it is what keeps the work segment unrecorded here too. Unbound
-        # sees every query AdGuard forwards, work's included, and attributes them
-        # all to 127.0.0.1, so a log here would hold names without devices: still
-        # a record AdGuard's per-client rule cannot reach.
+        # Off, as by default, and written down because it keeps the work
+        # segment unrecorded here too, where AdGuard's per-client rule cannot
+        # reach.
         log-queries = false;
         log-replies = false;
         log-local-actions = false;
 
-        # For the exporter below: response codes, query types and the
-        # recursion-time histogram, on top of the plain totals. Counters in
-        # memory, like those, with no client and no name in any of them.
+        # For the exporter: counters, with no client and no name in them.
         extended-statistics = lib.mkIf metrics true;
 
-        # Sized for a Pi 4. gate is a 4-core N100 and takes the same values.
+        # Sized for a Pi 4; gate takes the same values.
         num-threads = 4;
         msg-cache-size = "64m";
         rrset-cache-size = "128m";
         key-cache-size = "32m";
 
-        # Cache retention — keep entries useful longer than their raw TTLs
         cache-min-ttl = 300; # Floor short-TTL (CDN/ad/tracking) records at 5 min to cut churn
         cache-max-ttl = 259200; # Let long-TTL records survive up to 3 days, not just 1
 
@@ -186,44 +148,22 @@ in
         serve-expired-client-timeout = 0; # Return stale immediately, refresh in background (no stall)
         edns-buffer-size = 1232;
       };
-      # No forward-zone = true recursive resolution from root servers
 
       # A local copy of the root zone (RFC 8806), so a name under a TLD that
-      # does not exist, a single-label one like a bare `printer` above all, is
-      # answered NXDOMAIN from here rather than asked of the root. The root
-      # servers see a SOA query every half hour, the zone's refresh time, and
-      # a transfer when its serial moves, rather than the house's lookups.
+      # does not exist, a single-label one above all, is answered here rather
+      # than asked of the root servers.
       #
       # for-upstream without for-downstream: the copy stands in for the root
-      # servers during recursion, and what it answers goes through the
-      # validator as theirs would. fallback-enabled covers every way the copy
-      # can be missing or wrong: no file yet on a first start, every source
-      # unreachable until the zone's week-long expiry runs out, a transfer
-      # refused by the check below, or an answer that fails validation. Each
-      # falls back to asking the root servers, which is how this resolved
-      # before.
+      # servers during recursion, and its answers go through the validator.
+      # fallback-enabled asks the root servers whenever the copy is missing,
+      # expired or bad. zonemd-check refuses a truncated, altered or
+      # ZONEMD-stripped zone, and the file keeps the last good one.
       #
-      # zonemd-check verifies the zone's ZONEMD digest after every load and
-      # transfer, and its signature against the trust anchor, so a truncated
-      # or altered zone is refused rather than served or written: Unbound
-      # drops its copy as expired and falls back, and the file keeps the last
-      # good zone. The root zone has carried a ZONEMD since December 2023, so
-      # one without is refused too: it would be a zone with the record
-      # stripped.
-      #
-      # The file is in Unbound's StateDirectory, so a restart or a reboot
-      # starts from the last copy rather than without one. It is about 2 MB,
-      # rewritten whole on each transfer, and the root's serial moves about
-      # twice a day: under 2 GB a year on core4's and lifeline's SD cards.
-      #
-      # Transfers are TCP 53 out, to the addresses in net.rootZoneSources.
-      # Nothing filters a resolver's own outbound DNS: the Pis' firewall is
-      # inbound only, gate's servers-egress passes the fleet's hosts, and its
-      # DNS redirect leaves the resolvers' segment and gate's own traffic
-      # alone.
-      #
-      # tests/unbound-root-zone.nix has the start without a file, the
-      # transfer, a tampered zone refused, and a restart from the file.
+      # The file is in the StateDirectory, so a restart starts from the last
+      # copy. It is about 2 MB, rewritten about twice a day: under 2 GB a year
+      # on an SD card. Transfers go out TCP 53 to net.rootZoneSources, which
+      # gate's servers-egress passes and its DNS redirect leaves alone.
+      # tests/unbound-root-zone.nix covers it.
       auth-zone = [
         {
           name = ''"."'';
@@ -239,58 +179,37 @@ in
     };
   };
 
-  # AdGuard Home fetches its blocklists at startup and resolves those URLs
-  # through this Unbound. Both units are wanted by multi-user.target, so on a
-  # cold boot they start in parallel and AdGuard usually wins: every list fails
-  # with "connection refused" on 127.0.0.1:5335, and it does not retry until the
-  # next scheduled update, 24h later. The filter-fetch path does not fall back
-  # to bootstrap_dns, so the host serves unfiltered DNS in the meantime.
-  #
-  # Ordering is enough because unbound is Type=notify and its ExecStartPost
-  # polls unbound-control until the daemon answers, so "started" really does
-  # mean "listening". `wants` is deliberately weak: if unbound fails outright,
-  # AdGuard still starts and falls back to fallback_dns rather than being held
-  # down with it.
+  # On a cold boot AdGuard's blocklist fetch, which resolves through this
+  # Unbound, would fail and not retry for 24 hours, serving unfiltered DNS
+  # meanwhile. Ordering suffices because Unbound is Type=notify and
+  # ExecStartPost polls until it answers. `wants` is weak on purpose: if
+  # Unbound fails, AdGuard still starts on its fallback_dns.
   systemd.services.adguardhome = lib.mkIf config.services.adguardhome.enable {
     after = [ "unbound.service" ];
     wants = [ "unbound.service" ];
   };
 
   systemd.services.unbound = {
-    # Not load-bearing: loopback is up before any of this, and the root zone's
-    # first transfer and the first recursions retry or fall back when the
-    # network is not there yet. It once kept Unbound from binding a LAN
-    # address before the interface had it. Kept: dropping it would change the
-    # unit, and so restart Unbound on gate and both resolvers, to gain nothing.
+    # Not load-bearing, but dropping it would restart Unbound on three hosts
+    # for nothing.
     after = [ "network-online.target" ];
     wants = [ "network-online.target" ];
 
-    # Persist the resolver cache across restarts/reboots. Unbound's cache is
-    # in-memory, so every deploy that reboots a host would otherwise start it
-    # cold, and a cold recursive resolver is slow in a way people notice.
-    # Dump on stop (daemon still alive), restore on start.
+    # The cache persists across restarts, since a cold recursive resolver is
+    # slow in a way people notice after every reboot.
     serviceConfig = {
       ExecStop = dumpCache;
       ExecStartPost = loadCache;
     };
   };
 
-  # Unbound's own counters, for core5 to scrape (modules/metrics.nix): answers
-  # by response code, cache hits, recursion times, DNSSEC failures and the
-  # queries it dropped. They are totals over every query AdGuard forwards,
-  # work's among them, and none of them names a client or a domain: AdGuard on
-  # loopback is the only client Unbound has.
-  #
-  # Over the control socket the cache dump already uses, which needs no
-  # certificates. The exporter runs as Unbound's user to reach it, as nixpkgs
-  # sets it up, so it holds nothing Unbound's own process does not: the
-  # socket answers every unbound-control command, not only statistics. It asks
-  # with stats_noreset, so the counters run from Unbound's start and a scrape
-  # never resets them.
+  # Totals for core5 to scrape, none naming a client or a domain. The exporter
+  # reads the control socket as Unbound's user, as nixpkgs sets it up, and
+  # that socket answers every unbound-control command. It asks with
+  # stats_noreset, so a scrape never resets the counters.
   services.prometheus.exporters.unbound = lib.mkIf metrics {
     enable = true;
-    # The host's address alone, as node_exporter binds it
-    # (modules/node-exporter.nix), and for the same reasons.
+    # The host's address alone, as for node_exporter.
     listenAddress = host.ip;
     port = net.ports.unboundExporter;
     unbound = {
@@ -301,9 +220,8 @@ in
     };
   };
 
-  # core5's probe asks for a name this Unbound must answer itself, from one of
-  # the static local zones above, so that it needs neither the WAN nor the
-  # cache and never reaches the root servers (modules/blackbox.nix).
+  # core5's probe must be answered from a static local zone, needing neither
+  # the WAN nor the root servers (modules/blackbox.nix).
   assertions = lib.mkIf metrics [
     {
       assertion = lib.elem ''"${probeZone}." static'' config.services.unbound.settings.server.local-zone;
@@ -315,8 +233,7 @@ in
     }
   ];
 
-  # From the collector's address alone, on the LAN interface, as for
-  # node_exporter.
+  # From the collector alone, on the LAN interface.
   networking.firewall.extraCommands = lib.mkIf metrics ''
     iptables -A nixos-fw -i ${host.iface} -p tcp --dport ${toString net.ports.unboundExporter} -s ${collector.ip} -j nixos-fw-accept
   '';
