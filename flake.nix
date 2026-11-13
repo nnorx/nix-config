@@ -192,7 +192,15 @@
           }
       );
 
-      packages = import ./lib/images.nix { inherit nixpkgs nixos-raspberrypi sshPubKeys; };
+      packages =
+        nixpkgs.lib.recursiveUpdate
+          (import ./lib/images.nix { inherit nixpkgs nixos-raspberrypi sshPubKeys; })
+          {
+            x86_64-linux.unifi-drill = import ./lib/unifi-drill.nix {
+              inherit nixpkgs net;
+              core5 = self.nixosConfigurations.core5.config;
+            };
+          };
 
       nixosConfigurations = {
         # Not mkPi: core5's nixosSystem comes from nixos-raspberrypi (see

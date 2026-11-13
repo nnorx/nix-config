@@ -141,6 +141,11 @@ hashes and no config change between them settles it.
 
 ### Restoring
 
+`nix run .#unifi-drill` on forge rehearses this in a VM: core5's controller,
+from `modules/unifi.nix` on its pinned images, with a fresh database. Its only
+network is the UI, on forge's loopback, since a restored controller knows the
+real devices.
+
 **`latest` is not always the one you want.** After a rebuild or a controller
 reset, the new controller's first scheduled backup is of an empty config, and
 the timer pushes it over the good one. Every earlier version is still in the
@@ -157,13 +162,21 @@ Pick the last commit from before the loss, not the newest. On a rebuilt core5,
 `systemctl stop unifi-backup.timer` until the restore is done keeps an empty
 controller's backup from landing on top in the meantime.
 
-Then a fresh controller, and Settings > System > Backups > Restore. Expect to
-re-adopt: a restore brings back the saved device config, which is the thing
+Restore `restore.unf` in the drill's setup wizard, or on a fresh core5 in
+Settings > System > Backups > Restore, then log in as the backup's admin:
+
+| Check | Expected |
+| --- | --- |
+| The site | there |
+| Devices | the switch and the AP, offline in the drill |
+| Settings > Networks | each network, with its VLAN |
+| Settings > WiFi | each SSID, on its network |
+| `curl -m 5 http://1.1.1.1` on the drill's console | fails |
+
+Then delete `restore.unf`, which holds the PSKs in the clear. On core5, expect
+to re-adopt: a restore brings back the saved device config, which is the thing
 that stranded the switch on 2026-09-04, so read the re-adoption section below
 before assuming it will come back clean.
-
-**A backup nobody has restored is not a backup.** This path has not been
-drilled yet.
 
 ## Upgrading
 
