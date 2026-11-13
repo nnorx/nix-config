@@ -199,6 +199,7 @@ kase("file_interactive", "file: a terminal answers y, then n: one filed, one kep
   assert.ok(existsSync(`${c.handoff}/later.md`), "the declined draft kept");
   assert.match(out, /filed TST-99/);
   assert.match(out, /filed 1 of 2/);
+  assert.equal(c.ops("labels").length, 0, "no labels query without a labels: line");
   assert.ok(existsSync(`${c.state}/backlog.md`), "then writes the backlog");
 }, true);
 
@@ -210,6 +211,7 @@ kase("file_labels", "file: labels: shown, and sent after the repo label", async 
   assert.equal(status, 0);
   assert.ok(out.includes("TST · demo · high · Night shift · labels Hands on · into Backlog"), out);
   assert.deepEqual(c.ops("issueCreate").map((l) => l.variables.i.labelIds), [["label-demo", "label-hands-on"]]);
+  assert.equal(c.ops("labels").length, 1, "the labels in a query of their own");
 }, true);
 
 for (const [name, label, why] of [

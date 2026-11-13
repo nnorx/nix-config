@@ -109,6 +109,7 @@ if [[ $url == https://api.linear.app/graphql ]]; then
     *'after: $after'*) op=backlog ;;
     *'state: {name: {eq: $s}}'*) op=queued ;;
     *'isMe: {eq: true}'*'labels: {some'*) op=labelled ;;
+    *'isGroup: {eq: false}'*) op=labels ;;
     *'teams {'*) op=workspace ;;
     *'viewer { id }'*) op=viewer ;;
     *) op=unknown ;;
@@ -183,7 +184,8 @@ if [[ $url == https://api.linear.app/graphql ]]; then
           and (.state.type | IN("completed", "canceled") | not))
         | {id, priority, createdAt, updatedAt}]}}}' <<<"$all"
       ;;
-    workspace) cat "$dir/linear/workspace.json" ;;
+    workspace) jq -c "del(.data.labels)" "$dir/linear/workspace.json" ;;
+    labels) jq -c "{data: {labels: .data.labels}}" "$dir/linear/workspace.json" ;;
     issueCreate) echo '{"data": {"issueCreate": {"success": true, "issue": {"identifier": "TST-99", "url": "https://linear.app/test/issue/TST-99"}}}}' ;;
     *) echo '{"errors": [{"message": "the curl stub does not know this query"}]}' ;;
   esac
