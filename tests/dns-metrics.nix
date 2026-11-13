@@ -10,8 +10,8 @@
 # modules/unbound.nix, with modules/node-exporter.nix. sops-nix is a stand-in
 # that renders templates from test values, since the real secrets decrypt only
 # on the hosts. The VMs have no internet, so every recursion fails, which is
-# what makes SERVFAIL countable here; a name blocked by a user rule stands in
-# for the blocklists, which cannot be fetched. Another host on servers answers
+# what makes SERVFAIL countable here. The blocklists cannot be fetched, so a
+# user rule and two local lists stand in for them. Another host on servers answers
 # as the fallback, so AdGuard has one to turn to when Unbound is stopped.
 { net }:
 let
@@ -109,7 +109,10 @@ in
         ];
 
         virtualisation.interfaces.end0.vlan = wire;
-        environment.systemPackages = [ pkgs.dnsutils ];
+        environment.systemPackages = [
+          pkgs.dnsutils
+          pkgs.jq
+        ];
         networking = {
           useDHCP = false;
           interfaces.end0 = {
@@ -134,6 +137,29 @@ in
         };
 
         services.adguardhome.settings.user_rules = [ "||blocked.test^" ];
+        # One of the security lists and an ad list, under their own names,
+        # which is how the module tells them apart. AdGuard reads a list from
+        # a file only where its patterns allow.
+        services.adguardhome.settings.filters = lib.mkForce (
+          lib.imap1
+            (id: l: {
+              enabled = true;
+              inherit id;
+              inherit (l) name;
+              url = toString (pkgs.writeText "list-${toString id}.txt" "0.0.0.0 ${l.domain}\n");
+            })
+            [
+              {
+                name = "Phishing Army";
+                domain = "phish.list.test";
+              }
+              {
+                name = "StevenBlack Unified";
+                domain = "ads.list.test";
+              }
+            ]
+        );
+        services.adguardhome.settings.filtering.safe_fs_patterns = [ "/nix/store/*" ];
         # The public resolvers are out of reach here. Forced, since AdGuard's
         # settings would otherwise join the two lists.
         services.adguardhome.settings.dns.fallback_dns = lib.mkForce [ fallback.ip ];
@@ -294,17 +320,32 @@ in
         roles = {l["upstream"] for l, _ in series(stats, "fleet_adguard_upstream_responses_total")}
         assert roles == {"primary", "fallback"}, roles
 
+    with subtest("AdGuard: a security list's blocks, by list, and no ad list's"):
+        resolver.wait_until_succeeds("curl -sf -u metrics:${password} http://127.0.0.1:${toString net.ports.adguardWeb}/control/filtering/status | jq -e '[.filters[] | select(.rules_count > 0)] | length == 2'", timeout=60)
+        before = one(adguard(), "fleet_adguard_security_blocked", list="Phishing Army")
+        for name in ("phish.list.test", "ads.list.test"):
+            core5.succeed(f"dig +short +time=5 +tries=1 @${resolver.ip} {name} | grep -qx 0.0.0.0")
+        dig(core5, "phish.list.test")
+        dig(core5, "ads.list.test", 3)
+        after = adguard()
+        print("\n".join(l for l in after.splitlines() if "security" in l))
+        assert one(after, "fleet_adguard_security_blocked", list="Phishing Army") == before + 2
+        lists = {l["list"] for l, _ in series(after, "fleet_adguard_security_blocked")}
+        assert lists == {"Phishing Army"}, lists
+
     with subtest("the work segment is counted by Unbound alone, and by no client"):
         before = adguard()
         beforeUnbound = total(scrape("${unbound}"), "unbound_queries_total")
         # Names that reach Unbound, and one that AdGuard blocks.
         dig(work, "work-a.example.net", 5)
         dig(work, "ads.blocked.test", 5)
+        dig(work, "phish.list.test", 5)
         after = adguard()
         afterUnbound = total(scrape("${unbound}"), "unbound_queries_total")
         # Not higher: AdGuard's count can only fall, at the top of an hour.
         assert one(after, "fleet_adguard_queries_total") <= one(before, "fleet_adguard_queries_total")
         assert one(after, "fleet_adguard_blocked_total") <= one(before, "fleet_adguard_blocked_total")
+        assert one(after, "fleet_adguard_security_blocked", list="Phishing Army") <= one(before, "fleet_adguard_security_blocked", list="Phishing Army")
         assert afterUnbound >= beforeUnbound + 5, (beforeUnbound, afterUnbound)
 
     with subtest("no client address and no name in either source"):
@@ -313,7 +354,7 @@ in
             for line in t:
                 if line.startswith("#"):
                     continue
-                for needle in ("${collector.ip}", "${workIp}", "example", "blocked.test", ".lan"):
+                for needle in ("${collector.ip}", "${workIp}", "example", "blocked.test", "list.test", ".lan"):
                     assert needle not in line, line
 
     with subtest("core5's probes: each resolver answers, and pings leave"):

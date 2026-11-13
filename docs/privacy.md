@@ -122,8 +122,9 @@ Everything else that sees those queries:
   same failures without names.
 - Unbound sees work's queries from 127.0.0.1, and logs nothing about them.
 - The metrics store on core5 keeps totals only: Unbound's have neither names
-  nor clients, and AdGuard's come from its statistics API, which never counts
-  excluded queries. core5's probe is in AdGuard's `ignored` list.
+  nor clients, and AdGuard's come from its statistics API and query log,
+  neither of which holds excluded queries. From the log, only each security
+  list's count is kept. core5's probe is in AdGuard's `ignored` list.
   `tests/dns-metrics.nix` checks it.
 
 ### What goes upstream

@@ -74,6 +74,133 @@ let
     fallback = map withPort cfg.settings.dns.fallback_dns;
   };
 
+  # Blocklists migrated from pihole gravity.db. `security` marks the malware
+  # and phishing lists, whose blocks are counted by list (below).
+  blocklists = [
+    # Ad blocking
+    {
+      url = "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts";
+      name = "StevenBlack Unified";
+    }
+    {
+      url = "https://raw.githubusercontent.com/PolishFiltersTeam/KADhosts/master/KADhosts.txt";
+      name = "KADhosts";
+    }
+    {
+      url = "https://v.firebog.net/hosts/static/w3kbl.txt";
+      name = "Firebog w3kbl";
+    }
+    {
+      url = "https://v.firebog.net/hosts/AdguardDNS.txt";
+      name = "Firebog AdGuard DNS";
+    }
+    {
+      url = "https://v.firebog.net/hosts/Admiral.txt";
+      name = "Firebog Admiral";
+    }
+    {
+      url = "https://raw.githubusercontent.com/anudeepND/blacklist/master/adservers.txt";
+      name = "anudeepND adservers";
+    }
+    {
+      url = "https://v.firebog.net/hosts/Easylist.txt";
+      name = "Firebog Easylist";
+    }
+    {
+      url = "https://pgl.yoyo.org/adservers/serverlist.php?hostformat=hosts&showintro=0&mimetype=plaintext";
+      name = "Peter Lowe adservers";
+    }
+    {
+      url = "https://raw.githubusercontent.com/bigdargon/hostsVN/master/hosts";
+      name = "hostsVN";
+    }
+    # Privacy / tracking
+    {
+      url = "https://v.firebog.net/hosts/Easyprivacy.txt";
+      name = "Firebog Easyprivacy";
+    }
+    {
+      url = "https://v.firebog.net/hosts/Prigent-Ads.txt";
+      name = "Firebog Prigent Ads";
+    }
+    # Windows and Office telemetry, for the PC WSL runs on, and
+    # Microsoft's apps on any machine. It replaces WindowsSpyBlocker's
+    # spy.txt, unchanged since 2022, in the same slot, so until the
+    # first refresh this id serves the old list's cached file rather
+    # than another list's (see the note on ids below). Adblock syntax:
+    # each rule also blocks its subdomains, the whole of
+    # events.data.microsoft.com among them. Applies to work as well.
+    # docs/privacy.md, "Telemetry coverage".
+    {
+      url = "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/adblock/native.winoffice.txt";
+      name = "HaGeZi Native Tracker: Microsoft";
+    }
+    {
+      url = "https://hostfiles.frogeye.fr/firstparty-trackers-hosts.txt";
+      name = "Frogeye first-party trackers";
+    }
+    # Malware / phishing
+    {
+      url = "https://raw.githubusercontent.com/DandelionSprout/adfilt/master/Alternate%20versions%20Anti-Malware%20List/AntiMalwareHosts.txt";
+      name = "DandelionSprout Anti-Malware";
+      security = true;
+    }
+    {
+      url = "https://v.firebog.net/hosts/Prigent-Crypto.txt";
+      name = "Firebog Prigent Crypto";
+      security = true;
+    }
+    {
+      url = "https://phishing.army/download/phishing_army_blocklist_extended.txt";
+      name = "Phishing Army";
+      security = true;
+    }
+    {
+      url = "https://v.firebog.net/hosts/RPiList-Malware.txt";
+      name = "Firebog RPiList Malware";
+      security = true;
+    }
+    {
+      url = "https://v.firebog.net/hosts/RPiList-Phishing.txt";
+      name = "Firebog RPiList Phishing";
+      security = true;
+    }
+    {
+      url = "https://raw.githubusercontent.com/Spam404/lists/master/main-blacklist.txt";
+      name = "Spam404";
+      security = true;
+    }
+    {
+      url = "https://raw.githubusercontent.com/AssoEchap/stalkerware-indicators/master/generated/hosts";
+      name = "Stalkerware Indicators";
+      security = true;
+    }
+    {
+      url = "https://urlhaus.abuse.ch/downloads/hostfile/";
+      name = "URLhaus";
+      security = true;
+    }
+    {
+      url = "https://lists.cyberhost.uk/malware.txt";
+      name = "CyberHost Malware";
+      security = true;
+    }
+    {
+      url = "https://gitlab.com/quidsup/notrack-blocklists/-/raw/master/notrack-malware.txt";
+      name = "NoTrack Malware";
+      security = true;
+    }
+    # Device telemetry, listed last for the reason below.
+    #
+    # Apple's OS and app analytics, for the iPhones on trusted and the
+    # work Mac. The Android phones there have no counterpart: HaGeZi's
+    # lists are per handset vendor, and none covers Google's own.
+    {
+      url = "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/adblock/native.apple.txt";
+      name = "HaGeZi Native Tracker: Apple";
+    }
+  ];
+
   # The current hour's statistics, which AdGuard keeps as running totals that
   # start again from zero on the hour. Read as counters, rate() takes each of
   # those starts as a counter reset, so a rate over any window is right but
@@ -113,6 +240,49 @@ let
       ($seen[] | "fleet_adguard_upstream_seconds_total{upstream=\"\(.)\"} \($up[.].s // 0)")
   '';
 
+  # The security lists by id, which is how the query log names a rule's list.
+  # Read from the settings, so tests/dns-metrics.nix's stand-ins count.
+  securityNames = map (l: l.name) (lib.filter (l: l.security or false) blocklists);
+  securityLists = builtins.toJSON (
+    lib.listToAttrs (
+      map (f: lib.nameValuePair (toString f.id) f.name) (
+        lib.filter (f: lib.elem f.name securityNames) cfg.settings.filters
+      )
+    )
+  );
+
+  # Blocks by each security list in the last 15 minutes, from the query log,
+  # for modules/alert-rules.nix. A gauge over a window, not a counter that
+  # starts again on the hour as the totals do: a count that restarts no lower
+  # than it ended reads as no increase, hiding a block. Each entry carries its
+  # client and name, and only its time and its rules' list ids are read. The
+  # work segment is not in the log, and the window is well inside its rotation.
+  window = 900;
+  epoch = ''
+    def epoch: capture("^(?<t>.{19})(\\.[0-9]+)?(?<z>Z|[+-][0-9]{2}:[0-9]{2})$")
+      | (.t + "Z" | fromdateiso8601)
+        - (if .z == "Z" then 0
+           else (if .z[0:1] == "-" then -1 else 1 end) * ((.z[1:3] | tonumber) * 3600 + (.z[4:6] | tonumber) * 60) end);
+  '';
+  securityIds = pkgs.writeText "adguard-security-ids.jq" ''
+    ${epoch}
+    .data[] | select((.time | epoch) >= $since)
+    | [(.rules // [])[].filter_list_id | tostring] | unique[] | select($lists[.])
+  '';
+  # Where the next page starts, or nothing once a page reaches past the window
+  # or the log's start.
+  securityNext = pkgs.writeText "adguard-security-next.jq" ''
+    ${epoch}
+    if .oldest != "" and (.oldest | epoch) >= $since then .oldest else empty end
+  '';
+  securityRender = pkgs.writeText "adguard-security.jq" ''
+    [inputs] as $ids
+    | "# HELP fleet_adguard_security_blocked Queries each malware or phishing list blocked in the last ${toString (window / 60)} minutes.",
+      "# TYPE fleet_adguard_security_blocked gauge",
+      ($lists | to_entries[] | .key as $k
+       | "fleet_adguard_security_blocked{list=\"\(.value)\"} \([$ids[] | select(. == $k)] | length)")
+  '';
+
   # Every 30 seconds, the scrape interval. When AdGuard does not answer, or
   # answers something unreadable, only fleet_adguard_up 0 is written, so the
   # counters stop rather than drop to zero, which rate() would take as a reset.
@@ -127,10 +297,30 @@ let
       tmp=$(mktemp -p ${textfileDir})
       trap 'rm -f "$tmp"' EXIT
 
-      url="http://127.0.0.1:${toString cfg.port}/control/stats?recent=3600000"
-      if body=$(curl -sf --max-time 10 --netrc-file "$CREDENTIALS_DIRECTORY/netrc" "$url") &&
-        out=$(printf %s "$body" | jq -r --argjson roles '${roles}' -f ${render}); then
-        printf '%s\n' "$out" >"$tmp"
+      api="http://127.0.0.1:${toString cfg.port}/control"
+      get() { curl -sf --max-time 10 --netrc-file "$CREDENTIALS_DIRECTORY/netrc" "$@"; }
+
+      # The query log's blocked entries, a page at a time from the newest,
+      # back to the start of the window.
+      security() {
+        local since page ids="" next="" previous
+        since=$(($(date +%s) - ${toString window}))
+        while :; do
+          local args=(--get --data limit=1000 --data response_status=blocked)
+          [[ -z $next ]] || args+=(--data-urlencode "older_than=$next")
+          page=$(get "''${args[@]}" "$api/querylog") || return 1
+          ids+=$(jq -r --argjson since "$since" --argjson lists '${securityLists}' -f ${securityIds} <<<"$page")$'\n' || return 1
+          previous=$next
+          next=$(jq -r --argjson since "$since" -f ${securityNext} <<<"$page") || return 1
+          [[ -n $next && $next != "$previous" ]] || break
+        done
+        printf %s "$ids" | jq -nrR --argjson lists '${securityLists}' -f ${securityRender}
+      }
+
+      if body=$(get "$api/stats?recent=3600000") &&
+        out=$(printf %s "$body" | jq -r --argjson roles '${roles}' -f ${render}) &&
+        sec=$(security); then
+        printf '%s\n%s\n' "$out" "$sec" >"$tmp"
       else
         {
           echo "# HELP fleet_adguard_up Whether AdGuard's statistics API answered."
@@ -327,124 +517,7 @@ in
         };
       };
 
-      # Blocklists migrated from pihole gravity.db
       filters =
-        let
-          blocklists = [
-            # Ad blocking
-            {
-              url = "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts";
-              name = "StevenBlack Unified";
-            }
-            {
-              url = "https://raw.githubusercontent.com/PolishFiltersTeam/KADhosts/master/KADhosts.txt";
-              name = "KADhosts";
-            }
-            {
-              url = "https://v.firebog.net/hosts/static/w3kbl.txt";
-              name = "Firebog w3kbl";
-            }
-            {
-              url = "https://v.firebog.net/hosts/AdguardDNS.txt";
-              name = "Firebog AdGuard DNS";
-            }
-            {
-              url = "https://v.firebog.net/hosts/Admiral.txt";
-              name = "Firebog Admiral";
-            }
-            {
-              url = "https://raw.githubusercontent.com/anudeepND/blacklist/master/adservers.txt";
-              name = "anudeepND adservers";
-            }
-            {
-              url = "https://v.firebog.net/hosts/Easylist.txt";
-              name = "Firebog Easylist";
-            }
-            {
-              url = "https://pgl.yoyo.org/adservers/serverlist.php?hostformat=hosts&showintro=0&mimetype=plaintext";
-              name = "Peter Lowe adservers";
-            }
-            {
-              url = "https://raw.githubusercontent.com/bigdargon/hostsVN/master/hosts";
-              name = "hostsVN";
-            }
-            # Privacy / tracking
-            {
-              url = "https://v.firebog.net/hosts/Easyprivacy.txt";
-              name = "Firebog Easyprivacy";
-            }
-            {
-              url = "https://v.firebog.net/hosts/Prigent-Ads.txt";
-              name = "Firebog Prigent Ads";
-            }
-            # Windows and Office telemetry, for the PC WSL runs on, and
-            # Microsoft's apps on any machine. It replaces WindowsSpyBlocker's
-            # spy.txt, unchanged since 2022, in the same slot, so until the
-            # first refresh this id serves the old list's cached file rather
-            # than another list's (see the note on ids below). Adblock syntax:
-            # each rule also blocks its subdomains, the whole of
-            # events.data.microsoft.com among them. Applies to work as well.
-            # docs/privacy.md, "Telemetry coverage".
-            {
-              url = "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/adblock/native.winoffice.txt";
-              name = "HaGeZi Native Tracker: Microsoft";
-            }
-            {
-              url = "https://hostfiles.frogeye.fr/firstparty-trackers-hosts.txt";
-              name = "Frogeye first-party trackers";
-            }
-            # Malware / phishing
-            {
-              url = "https://raw.githubusercontent.com/DandelionSprout/adfilt/master/Alternate%20versions%20Anti-Malware%20List/AntiMalwareHosts.txt";
-              name = "DandelionSprout Anti-Malware";
-            }
-            {
-              url = "https://v.firebog.net/hosts/Prigent-Crypto.txt";
-              name = "Firebog Prigent Crypto";
-            }
-            {
-              url = "https://phishing.army/download/phishing_army_blocklist_extended.txt";
-              name = "Phishing Army";
-            }
-            {
-              url = "https://v.firebog.net/hosts/RPiList-Malware.txt";
-              name = "Firebog RPiList Malware";
-            }
-            {
-              url = "https://v.firebog.net/hosts/RPiList-Phishing.txt";
-              name = "Firebog RPiList Phishing";
-            }
-            {
-              url = "https://raw.githubusercontent.com/Spam404/lists/master/main-blacklist.txt";
-              name = "Spam404";
-            }
-            {
-              url = "https://raw.githubusercontent.com/AssoEchap/stalkerware-indicators/master/generated/hosts";
-              name = "Stalkerware Indicators";
-            }
-            {
-              url = "https://urlhaus.abuse.ch/downloads/hostfile/";
-              name = "URLhaus";
-            }
-            {
-              url = "https://lists.cyberhost.uk/malware.txt";
-              name = "CyberHost Malware";
-            }
-            {
-              url = "https://gitlab.com/quidsup/notrack-blocklists/-/raw/master/notrack-malware.txt";
-              name = "NoTrack Malware";
-            }
-            # Device telemetry, listed last for the reason below.
-            #
-            # Apple's OS and app analytics, for the iPhones on trusted and the
-            # work Mac. The Android phones there have no counterpart: HaGeZi's
-            # lists are per handset vendor, and none covers Google's own.
-            {
-              url = "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/adblock/native.apple.txt";
-              name = "HaGeZi Native Tracker: Apple";
-            }
-          ];
-        in
         # A list's id is its position, and AdGuard keeps each download as
         # filters/<id>.txt and serves that file until it is a day old
         # (internal/filtering/filter.go). Inserting a list moves every id after

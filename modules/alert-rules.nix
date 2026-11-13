@@ -132,6 +132,17 @@ in
           annotations.summary = "AdGuard's statistics on {{ $labels.instance }} have not been read for 30 minutes.";
         }
         {
+          # A device asked for a name on a malware or phishing list. The count
+          # is the last 15 minutes' (modules/adguardhome.nix), so the alert
+          # holds that long after the last such block, and a device that keeps
+          # asking is one push. Which device and which name are in that
+          # resolver's query log, and stay there.
+          alert = "SecurityListBlocked";
+          expr = "max by (instance, list) (fleet_adguard_security_blocked) > 0";
+          labels.severity = "warning";
+          annotations.summary = "{{ $labels.instance }} blocked a lookup on {{ $labels.list }}. Its query log names the device.";
+        }
+        {
           alert = "ConntrackPressure";
           expr = ''
             max by (instance) (node_nf_conntrack_entries{instance="${router}"} / node_nf_conntrack_entries_limit{instance="${router}"}) > 0.8

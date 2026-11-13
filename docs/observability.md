@@ -57,7 +57,7 @@ collector, from `/run/fleet-metrics`:
 |---|---|---|---|
 | `fleet_revision_info`, `fleet_root_device_info` | Every target | `fleet-metrics-facts` | 5 minutes |
 | `fleet_wan_addresses`, `fleet_wan_lease_remaining_seconds`, `fleet_wan_default_routes`, `fleet_wireguard_last_handshake_timestamp_seconds` | gate | `gate-metrics-facts` | 30 seconds |
-| `fleet_adguard_*`, totals from AdGuard's statistics API | core4, lifeline | `adguard-metrics` | 30 seconds |
+| `fleet_adguard_*`, totals from AdGuard's statistics API, and each security list's blocks in the last 15 minutes from its query log | core4, lifeline | `adguard-metrics` | 30 seconds |
 | `fleet_main_revision_info`, `fleet_main_revision_checked_timestamp_seconds` | core5 | `fleet-main-revision`, `git ls-remote` against main | 30 minutes |
 
 Metrics carry totals and names, never a client, a domain, a MAC address or a
@@ -143,6 +143,7 @@ revision, root device, last upgrade and failed units.
 | `WanDown` | gate's `wan` has no carrier, no lease or no default route, or both public resolvers fail pings, for 2 minutes | critical | The queries above show which. It arrives once the WAN is back, so it is often history, and the Watchdog's silence is what reaches the phone on time |
 | `ResolverFailing` | A resolver fails its probe, or over 5% of at least 100 answers in 15 minutes are SERVFAIL, for 5 minutes | critical | DNS dashboard: answering, then SERVFAIL. `systemctl status adguardhome unbound` on the host |
 | `AdGuardStatsMissing` | `fleet_adguard_up` is 0 for 30 minutes | warning | `journalctl -u adguard-metrics` on the host. DNS still works: this feeds dashboards only |
+| `SecurityListBlocked` | A malware or phishing list blocked a lookup in the last 15 minutes, named by resolver and list | warning | That resolver's query log, filtered to the list, names the device and the name |
 | `ConntrackPressure` | gate's table is over 80% of its limit for 10 minutes | warning | Fleet dashboard, Network: what is suddenly busy |
 | `DhcpPoolLow` | A segment's pool is over 90% leased for 15 minutes | warning | DHCP dashboard. Widen the pool in `lib/net.nix`, or find what is taking leases |
 | `DiskFilling` | A filesystem is over 85% full, or over half full and predicted full in 3 days, for an hour | warning | `df -h` on the host |
