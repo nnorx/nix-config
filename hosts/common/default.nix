@@ -14,6 +14,7 @@ in
 {
   imports = [
     ../../modules/baseline.nix
+    ../../modules/kernel-hardening.nix
     ../../modules/ssh.nix
     ../../modules/diag-login.nix
     ../../modules/firewall.nix

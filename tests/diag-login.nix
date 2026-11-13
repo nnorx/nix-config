@@ -63,6 +63,7 @@ let
         ../modules/ssh.nix
         ../modules/diag-login.nix
         ../modules/host-status.nix
+        ../modules/kernel-hardening.nix
       ];
 
       networking.nftables.enable = nftables;

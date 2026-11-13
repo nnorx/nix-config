@@ -99,7 +99,10 @@ rec {
     }:
     { lib, ... }:
     {
-      imports = [ ../../hosts/gate/routing.nix ];
+      imports = [
+        ../../hosts/gate/routing.nix
+        ../../modules/kernel-hardening.nix
+      ];
 
       virtualisation.interfaces = {
         ${gate.wanIface}.vlan = wire.wan;
