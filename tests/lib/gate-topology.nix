@@ -38,6 +38,8 @@ rec {
     # Nothing on it. gate's config expects its wired port, and without the
     # device its boot waits five minutes for it.
     wired = 3;
+    # The tunnel's peers, in gate-tunnel.
+    tunnel = 4;
   };
 
   filteredName = "filtered.example";
