@@ -18,7 +18,10 @@ let
   publicResolver = builtins.head net.publicResolvers;
   resolverIps = map (h: net.hosts.${h}.ip) net.resolvers;
   iotDevice = seg.iot.pool.first;
-  peerNames = builtins.attrNames vpn.peers;
+  # Peers with a key, as gate's rules have: an address without one is reserved.
+  peerNames = builtins.filter (p: vpn.peers ? ${p}) (
+    builtins.attrNames (import ../lib/wireguard-keys.nix).peers
+  );
 
   row = what: host: port: reached: {
     inherit
