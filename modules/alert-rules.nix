@@ -123,8 +123,9 @@ in
           # AdGuard's counts going missing, and only that: AdGuard not serving
           # is the DNS probe's, above. The read reaches the store through
           # node_exporter rather than a scrape of its own, and writes
-          # fleet_adguard_up 0 when AdGuard does not answer it. 30 minutes,
-          # since the counts feed only the dashboards.
+          # fleet_adguard_up 0 when AdGuard does not answer it. 30 minutes:
+          # the counts feed dashboards, and SecurityListBlocked, whose blocks
+          # stay in the query log.
           alert = "AdGuardStatsMissing";
           expr = "max by (instance) (fleet_adguard_up) == 0";
           for = "30m";
