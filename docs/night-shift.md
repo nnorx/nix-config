@@ -165,7 +165,7 @@ and checks them all first, so one mistake files none. Control or invisible
 characters are refused, with their line: what you read must be what is filed.
 It shows each in full, with where it lands, and asks; a skipped draft stays.
 An issue is created by you, in the backlog, never in `Queued`. Read each
-before you answer: filed as you, the night shift can take it.
+before you answer: what you file, the night shift can take.
 
 A draft can instead be a project's document, for a plan not yet built:
 
