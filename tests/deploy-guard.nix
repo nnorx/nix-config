@@ -92,6 +92,36 @@
         machine.fail("systemctl is-active --quiet deploy-guard")
         assert profile() == "system-2-link", profile()
 
+    with subtest("an arm naming the running generation is cleared"):
+        fresh()
+        mark(1, 2)
+        machine.succeed("systemctl start deploy-guard")
+        machine.wait_until_fails("systemctl is-active --quiet deploy-guard")
+        wait_log("already running generation 2")
+        machine.succeed(f"test ! -e {armed}")
+        machine.fail(f"{journal} | grep -q 'rolling back'")
+        assert profile() == "system-2-link", profile()
+
+    with subtest("a power cut during the countdown restarts it"):
+        fresh()
+        mark(2, 1)
+        machine.succeed("systemctl start deploy-guard")
+        wait_log("rolling back to generation 1 in 2 minutes")
+        # A cut minutes into the countdown finds the disk settled.
+        machine.succeed("sync")
+        machine.crash()
+        machine.start()
+        machine.wait_for_unit("multi-user.target")
+        machine.wait_until_succeeds(
+            "journalctl -u deploy-guard -b | grep -q 'rolling back to generation 1'",
+            timeout=60,
+        )
+        machine.wait_for_shutdown()
+        machine.start()
+        machine.wait_for_unit("multi-user.target")
+        assert profile() == "system-1-link", profile()
+        fresh()
+
     # Last, since it reboots: the driver's QEMU runs with -no-reboot, so the
     # guest's reboot powers it off and start() boots the same disk again.
     with subtest("an unconfirmed arm rolls back and reboots"):

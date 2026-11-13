@@ -17,8 +17,7 @@ no way in except the stick.
 to it: it activates without touching the bootloader, so a reboot undoes it. That
 does not cover boot-time changes. Interface renames land in udev at device
 enumeration, and initrd or bootloader changes never take effect at all, so those
-need `boot` plus a reboot, which is precisely the form that can leave an
-unreachable box.
+need `boot` plus a reboot, the form that can leave an unreachable box.
 
 [`modules/deploy-guard.nix`](../modules/deploy-guard.nix) closes that gap. Arm
 before rebooting; if the new generation comes up and nobody confirms within the
@@ -34,9 +33,9 @@ sudo deploy-guard confirm
 
 `deploy-guard status` says whether one is armed and which generation is running.
 
-An arm expires after six hours, so one abandoned after a failed `nrb` cannot
-roll back a later, unrelated reboot. If `deploy-guard status` still shows an old
-arm, `disarm` it.
+An arm lasts until `confirm`, the rollback, or six hours, so a reboot during the
+countdown, a power cut included, starts it again. `disarm` ends one abandoned
+after a failed `nrb`.
 
 It is on gate only, not fleet-wide: the Pis are a card-pull away from recovery,
 and gate is the host where an unreachable box means the house has no router. It

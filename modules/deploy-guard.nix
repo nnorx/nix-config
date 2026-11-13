@@ -157,17 +157,14 @@ let
           echo "running generation: $(running_generation)"
           ;;
         run)
-          # Called by the unit at boot, not by hand.
+          # Called by the unit at boot, not by hand. The marker lasts until the
+          # arm ends, at confirm, rollback or expiry, so a reboot during the
+          # countdown starts it again.
           [ -e "$armed" ] || exit 0
 
           # `read` fails on a marker with no final newline, as one written by
           # hand may be, though it has read the fields all the same.
           read -r minutes gen armed_at < "$armed" || true
-
-          # Consume the marker up front. Arming applies to exactly one boot, so
-          # a later unrelated reboot must not inherit a countdown, and neither
-          # must the reboot this guard is about to trigger.
-          rm -f "$armed"
 
           # An arm whose reboot never came is abandoned: `nrb && reboot` skips
           # the reboot when the build fails, and a fix deployed with `nrs`
@@ -183,22 +180,29 @@ let
           armed_at=$(armed_time "''${armed_at:-}")
           if [ -n "$armed_at" ] && [ "$(($(date +%s) - armed_at))" -gt "$max_age" ]; then
             echo "deploy-guard: ignoring an arm from $(date -d "@$armed_at"), over ${toString maxAgeHours} hours old; no rollback"
+            rm -f "$armed"
             exit 0
           fi
 
           # A minutes field the countdown cannot use, from a marker edited by
-          # hand or written before arm checked it, must not end the run: the
-          # marker is gone, so failing here would leave the boot unguarded
-          # while the journal said otherwise. The default keeps the protection.
+          # hand or written before arm checked it, must not end the run, which
+          # would leave the boot unguarded. The default keeps the protection.
           if ! valid_minutes "$minutes"; then
             echo "deploy-guard: the arm's minutes, '$minutes', are not a whole number from 1 to $max_minutes; counting down the default $default_minutes"
             minutes=$default_minutes
+          fi
+
+          if [ "$(readlink -f "$profile-$gen-link")" = "$(readlink -f /run/current-system)" ]; then
+            echo "deploy-guard: already running generation $gen; nothing to roll back"
+            rm -f "$armed"
+            exit 0
           fi
 
           echo "deploy-guard: rolling back to generation $gen in $minutes minutes unless confirmed"
           sleep "$((minutes * 60))"
 
           echo "deploy-guard: not confirmed, rolling back to generation $gen"
+          rm -f "$armed"
           nix-env --profile "$profile" --switch-generation "$gen"
           "$profile"/bin/switch-to-configuration boot
           systemctl reboot
@@ -218,10 +222,9 @@ in
     wantedBy = [ "multi-user.target" ];
 
     # Only a boot should run this. A switch that changes the unit would
-    # otherwise restart it: with an arm waiting, `run` would consume it and
-    # count down to a rollback with no reboot behind it, and during a
-    # countdown the restart would kill the sleep and find no marker, so the
-    # protection would end without a word.
+    # otherwise restart it: with an arm waiting, `run` would count down to a
+    # rollback with no reboot behind it, and during a countdown the restart
+    # would start the countdown over.
     restartIfChanged = false;
 
     # The countdown must outlive the unit's start-up, so this is a long-running
