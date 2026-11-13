@@ -123,13 +123,25 @@ in
           # AdGuard's counts going missing, and only that: AdGuard not serving
           # is the DNS probe's, above. The read reaches the store through
           # node_exporter rather than a scrape of its own, and writes
-          # fleet_adguard_up 0 when AdGuard does not answer it. 30 minutes,
-          # since the counts feed only the dashboards.
+          # fleet_adguard_up 0 when AdGuard does not answer it. 30 minutes:
+          # the counts feed dashboards, and SecurityListBlocked, whose blocks
+          # stay in the query log.
           alert = "AdGuardStatsMissing";
           expr = "max by (instance) (fleet_adguard_up) == 0";
           for = "30m";
           labels.severity = "warning";
           annotations.summary = "AdGuard's statistics on {{ $labels.instance }} have not been read for 30 minutes.";
+        }
+        {
+          # A device asked for a name on a malware or phishing list. The count
+          # is the last 15 minutes' (modules/adguardhome.nix), so the alert
+          # holds that long after the last such block, and a device that keeps
+          # asking is one push. Which device and which name are in that
+          # resolver's query log, and stay there.
+          alert = "SecurityListBlocked";
+          expr = "max by (instance, list) (fleet_adguard_security_blocked) > 0";
+          labels.severity = "warning";
+          annotations.summary = "{{ $labels.instance }} blocked a lookup on {{ $labels.list }}. Its query log names the device.";
         }
         {
           alert = "ConntrackPressure";

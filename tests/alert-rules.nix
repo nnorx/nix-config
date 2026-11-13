@@ -304,6 +304,30 @@ let
       ];
     }
 
+    # A security list blocks a lookup on core4 and holds it for 15 minutes;
+    # lifeline blocks none.
+    {
+      interval = "1m";
+      input_series = [
+        (series "fleet_adguard_security_blocked" (
+          node "core4" // { list = "Phishing Army"; }
+        ) "0x5 1x15 0x10")
+        (series "fleet_adguard_security_blocked" (node "lifeline" // { list = "Phishing Army"; }) "0x30")
+      ];
+      alert_rule_test = [
+        (expect "3m" "SecurityListBlocked" "fleet" [ ])
+        (expect "8m" "SecurityListBlocked" "fleet" [
+          {
+            instance = "core4";
+            list = "Phishing Army";
+            severity = "warning";
+            summary = "core4 blocked a lookup on Phishing Army. Its query log names the device.";
+          }
+        ])
+        (expect "25m" "SecurityListBlocked" "fleet" [ ])
+      ];
+    }
+
     {
       interval = "1m";
       input_series = [
