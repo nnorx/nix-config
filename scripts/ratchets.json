@@ -30,10 +30,12 @@
     "lifeline/sshd.service": 9.4,
     "lifeline/prometheus-node-exporter.service": 3.1,
     "lifeline/prometheus-unbound-exporter.service": 3.0,
+    "lifeline/tangd@.service": 0.7,
     "core5/home-assistant.service": 2.3,
     "core5/grafana.service": 1.4,
     "core5/victoriametrics.service": 3.0,
     "core5/sshd.service": 9.4,
-    "core5/prometheus-node-exporter.service": 3.1
+    "core5/prometheus-node-exporter.service": 3.1,
+    "core5/tangd@.service": 0.7
   }
 }

@@ -14,6 +14,7 @@
     ../../modules/home-assistant.nix
     ../../modules/home-assistant-backup.nix
     ../../modules/metrics.nix
+    ../../modules/tang.nix
     # The root's NVMe drive, by its namespace, which needs no reboot to read
     # (modules/smartctl.nix). There is one NVMe drive, so the name is stable.
     (import ../../modules/smartctl.nix { devices = [ "/dev/nvme0n1" ]; })
