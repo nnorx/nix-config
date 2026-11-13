@@ -347,6 +347,9 @@
     # The NVMe drive's health log, on core5's loopback (modules/smartctl.nix).
     smartctlExporter = 9633;
 
+    # Tang on core5 and lifeline, which gate's initrd asks to unlock its disk.
+    tang = 7654;
+
     # WireGuard on gate's WAN. 443 rather than 51820, because restrictive
     # Wi-Fi blocks unusual UDP ports more often than HTTP/3's.
     wireguard = 443;

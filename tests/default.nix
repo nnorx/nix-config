@@ -23,6 +23,7 @@ pkgs.lib.genAttrs
     "dns-metrics"
     "forge-dns"
     "unbound-root-zone"
+    "tang"
     "alerting"
     "grafana"
   ]

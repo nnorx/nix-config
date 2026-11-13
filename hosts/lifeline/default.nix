@@ -7,4 +7,6 @@
 #
 # A resolver because lib/net.nix lists it in `resolvers`: hosts/common imports
 # hosts/common/resolver.nix, which holds everything lifeline and core4 share.
-{ }
+{
+  imports = [ ../../modules/tang.nix ];
+}
