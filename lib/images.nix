@@ -69,8 +69,12 @@ in
       modules = [
         "${nixpkgs}/nixos/modules/installer/cd-dvd/installation-cd-minimal.nix"
         (
-          { lib, ... }:
+          { lib, pkgs, ... }:
           {
+            # A reinstall makes the host's Secure Boot keys here, before its
+            # own system exists to run sbctl.
+            environment.systemPackages = [ pkgs.sbctl ];
+
             # No host in this fleet uses ZFS, and on a rescue image the
             # default is actively wrong: boot.zfs.forceImportRoot defaults to
             # true, which imports a pool even when another system has it
