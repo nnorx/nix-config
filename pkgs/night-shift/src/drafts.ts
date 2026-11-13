@@ -96,8 +96,12 @@ interface Workspace {
 
 const WORKSPACE = `query { viewer { displayName }
     teams { nodes { id key states { nodes { id name type position } } projects(first: 100) { nodes { id name } } } }
-    repo: issueLabels(first: 250, filter: {parent: {name: {eq: "repo"}}}) { nodes { id name team { id } } }
-    labels: issueLabels(first: 250, filter: {isGroup: {eq: false}}) { nodes { id name team { id } parent { name } } } }`;
+    repo: issueLabels(first: 250, filter: {parent: {name: {eq: "repo"}}}) { nodes { id name team { id } } } }`;
+
+// A query of its own: joined to WORKSPACE, the two together pass Linear's
+// complexity cap.
+const LABELS = `query { labels: issueLabels(first: 250, filter: {isGroup: {eq: false}}) {
+    nodes { id name team { id } parent { name } } } }`;
 
 interface Filing {
   /** One line: what and where. */
@@ -282,7 +286,9 @@ export async function fileDrafts(env: Env, linear: Linear): Promise<Doc[]> {
     const st = lstatSync(f.path);
     return st.isFile() ? parseDraft(readFileSync(f.path)) : "not a regular file";
   });
-  const ws = await linear.gql<Workspace>(WORKSPACE);
+  const ws = await linear.gql<Omit<Workspace, "labels">>(WORKSPACE);
+  const needLabels = drafts.some((d) => typeof d !== "string" && d.fields.has("labels"));
+  const { labels } = needLabels ? await linear.gql<Pick<Workspace, "labels">>(LABELS) : { labels: { nodes: [] } };
   const needDocs = drafts.some((d) => typeof d !== "string" && d.keys.includes("doc"));
   const projects = needDocs ? await all<{ id: string; name: string }>(linear, PROJECTS, "projects") : [];
   const docs = needDocs ? await all<Doc>(linear, DOCS, "documents") : [];
@@ -290,7 +296,7 @@ export async function fileDrafts(env: Env, linear: Linear): Promise<Doc[]> {
   // Every draft is checked before any is offered, so a mistake files nothing.
   const filings = drafts.map((d, n) => {
     if (typeof d === "string") return d;
-    return d.keys.includes("doc") ? docFiling(d, projects, docs) : issueFiling(d, found[n]!.repo, ws);
+    return d.keys.includes("doc") ? docFiling(d, projects, docs) : issueFiling(d, found[n]!.repo, { ...ws, labels });
   });
   let bad = false;
   for (const [n, f] of filings.entries()) {
