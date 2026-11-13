@@ -202,6 +202,28 @@ kase("file_interactive", "file: a terminal answers y, then n: one filed, one kep
   assert.ok(existsSync(`${c.state}/backlog.md`), "then writes the backlog");
 }, true);
 
+kase("file_labels", "file: labels: shown, and sent after the repo label", async (c) => {
+  drafts(c);
+  writeFileSync(`${c.handoff}/good.md`,
+    readFileSync(`${here}/drafts/good.md`, "utf8").replace("priority: high", "priority: high\nlabels: Hands on"));
+  const { status, out } = await c.ns(["file"], { tty: "y\n" });
+  assert.equal(status, 0);
+  assert.ok(out.includes("TST · demo · high · Night shift · labels Hands on · into Backlog"), out);
+  assert.deepEqual(c.ops("issueCreate").map((l) => l.variables.i.labelIds), [["label-demo", "label-hands-on"]]);
+}, true);
+
+for (const [name, label, why] of [
+  ["unknown", "Elsewhere", "no label 'Elsewhere' for team TST"],
+  ["ambiguous", "Bug", "more than one label 'Bug' for team TST"],
+  ["repo", "demo", "'demo' is a repo label; name the repository with repo:"],
+]) {
+  kase(`file_label_${name}`, `file: a label, ${name}: nothing filed`, async (c) => {
+    drafts(c);
+    writeFileSync(`${c.handoff}/labelled.md`, `---\ntitle: forge: a label\nlabels: Hands on, ${label}\n---\n\nText.\n`);
+    await refused(c, "labelled.md", why!);
+  });
+}
+
 kase("file_doc_update", "file: a doc edited from its export: the change shown, the doc updated", async (c) => {
   c.repo("demo");
   projects(c);

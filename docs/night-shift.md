@@ -80,10 +80,10 @@ the repo's `.git/night-shift/`. If one of them fails, the issue lands in
 
 ## Using it
 
-- **Queue:** give an issue a `repo` label and move it to `Queued`, from the
-  phone or anywhere. Priority decides what starts first. Write the issue for a
-  reader who knows only the repo: the agent sees its title, description and
-  your comments, nothing else.
+- **Queue:** give an issue a `repo` label and move it to `Queued`. Priority
+  decides what starts first. `Hands on` issues go to `Needs you` unstarted.
+  Write the issue for a reader who knows only the repo: the agent sees its
+  title, description and your comments, nothing else.
 - **Handoff ready:** the comment says what changed, what the agent verified,
   and for nix-config, preflight's verdict on the branch, worked out by the
   dispatcher rather than taken from the agent. Evaluating the branch runs code
@@ -148,23 +148,24 @@ Claude writes issues as drafts, one file each, in the repository's
 title: forge: push to ntfy when night-shift runs keep failing
 priority: high
 project: Night shift
+labels: Hands on
 ---
 
 Goal: ...
 ```
 
-`repo` defaults to the repository the draft is in, so a draft for another
-repo names it. `priority` is urgent, high, medium, low or none; `project`
-must already exist in the team; `team` is needed only with more than one.
-The front matter takes those keys only, and no comments.
+`repo` defaults to the draft's repository. `priority` is urgent, high,
+medium, low or none; `project` must already exist in the team; `team` is
+needed only with more than one. Each of `labels`, comma-separated, must match
+exactly one label the team can use outside the `repo` group. The front
+matter takes those keys only, and no comments.
 
 `night-shift file` collects the drafts from every repository in `~/projects`
 and checks them all first, so one mistake files none. Control or invisible
-characters are refused, naming each and its line: what you read must be what
-is filed. It shows each in full, with where it lands, and asks; a draft you
-skip stays. An issue is created by you, in the team's backlog, never in
-`Queued`, which stays your move. Read each before you answer: filing it as you
-is what lets the night shift take it later.
+characters are refused, with their line: what you read must be what is filed.
+It shows each in full, with where it lands, and asks; a skipped draft stays.
+An issue is created by you, in the backlog, never in `Queued`. Read each
+before you answer: what you file, the night shift can take.
 
 A draft can instead be a project's document, for a plan not yet built:
 

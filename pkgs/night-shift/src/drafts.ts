@@ -14,6 +14,7 @@ import { askTty, commonDir, die, git, run, say, warn } from "./util.ts";
 //   priority: high          urgent, high, medium, low or none (default)
 //   project: Night shift    default: none; must exist in the team
 //   team: NNO               needed only with more than one team
+//   labels: Hands on, Bug   default: none; each one existing label, not repo's
 //   ---
 //
 //   ---
@@ -26,7 +27,7 @@ import { askTty, commonDir, die, git, run, say, warn } from "./util.ts";
 // each draft is shown and confirmed on its own. An issue lands in the
 // backlog, never in Queued: starting an agent stays his move.
 
-const ISSUE_KEYS = ["title", "repo", "priority", "project", "team"];
+const ISSUE_KEYS = ["title", "repo", "priority", "project", "team", "labels"];
 const DOC_KEYS = ["project", "doc", "updated"];
 const PRIORITIES: Record<string, number> = { urgent: 1, high: 2, medium: 3, low: 4, none: 0, "": 0 };
 const PRIORITY_NAMES = ["no priority", "urgent", "high", "medium", "low"];
@@ -90,11 +91,13 @@ interface Workspace {
     }[];
   };
   repo: { nodes: { id: string; name: string; team: { id: string } | null }[] };
+  labels: { nodes: { id: string; name: string; team: { id: string } | null; parent: { name: string } | null }[] };
 }
 
 const WORKSPACE = `query { viewer { displayName }
     teams { nodes { id key states { nodes { id name type position } } projects(first: 100) { nodes { id name } } } }
-    repo: issueLabels(first: 250, filter: {parent: {name: {eq: "repo"}}}) { nodes { id name team { id } } } }`;
+    repo: issueLabels(first: 250, filter: {parent: {name: {eq: "repo"}}}) { nodes { id name team { id } } }
+    labels: issueLabels(first: 250, filter: {isGroup: {eq: false}}) { nodes { id name team { id } parent { name } } } }`;
 
 interface Filing {
   /** One line: what and where. */
@@ -135,12 +138,20 @@ function issueFiling(d: Draft, repoDir: string, ws: Workspace): Filing | string 
   const priority = Object.hasOwn(PRIORITIES, named) ? PRIORITIES[named] : undefined;
   if (priority === undefined) return "priority is urgent, high, medium, low or none";
   const projectName = d.fields.get("project") ?? "";
+  const names = [...new Set((d.fields.get("labels") ?? "").split(",").map((n) => n.trim()).filter(Boolean))];
+  const labelIds = [labels[0]!.id];
+  for (const name of names) {
+    const usable = ws.labels.nodes.filter((l) => l.name === name && (l.team === null || l.team.id === team.id));
+    if (usable.some((l) => l.parent?.name === "repo")) return `'${name}' is a repo label; name the repository with repo:`;
+    if (usable.length !== 1) return `${usable.length ? "more than one" : "no"} label '${name}' for team ${key}`;
+    labelIds.push(usable[0]!.id);
+  }
   const input: Record<string, unknown> = {
     teamId: team.id,
     title,
     priority,
     description: `${d.body}\n\n${FILED}`,
-    labelIds: [labels[0]!.id],
+    labelIds,
     stateId: state.id,
   };
   if (projectName) {
@@ -148,7 +159,7 @@ function issueFiling(d: Draft, repoDir: string, ws: Workspace): Filing | string 
     if (projects.length !== 1) return `no single project '${projectName}' in team ${key}`;
     input.projectId = projects[0]!.id;
   }
-  const where = [key, repo, PRIORITY_NAMES[priority], ...(projectName ? [projectName] : [])];
+  const where = [key, repo, PRIORITY_NAMES[priority], ...(projectName ? [projectName] : []), ...(names.length ? [`labels ${names.join(", ")}`] : [])];
   return {
     shown: `${where.join(" · ")} · into ${state.name}`,
     title,
