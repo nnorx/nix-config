@@ -106,6 +106,7 @@ in
           (import ../modules/adguardhome.nix { adminUser = "core4"; })
           (import ../modules/unbound.nix { })
           ../modules/node-exporter.nix
+          ../modules/kernel-hardening.nix
         ];
 
         virtualisation.interfaces.end0.vlan = wire;

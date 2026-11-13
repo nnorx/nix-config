@@ -88,6 +88,7 @@ in
       imports = [
         sopsStub
         ../modules/metrics.nix
+        ../modules/kernel-hardening.nix
       ];
 
       virtualisation.memorySize = 2048;
