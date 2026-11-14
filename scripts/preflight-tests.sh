@@ -40,7 +40,8 @@ step "night-shift types"
 tsc -p pkgs/night-shift --typeRoots "$NIGHT_SHIFT_TYPES"
 
 step "night-shift dispatcher"
-NIGHT_SHIFT_BASH="$BASH" node --test tests/night-shift/*.test.ts
+NIGHT_SHIFT_BASH="$BASH" NIGHT_SHIFT_SCRIPT="$PWD/pkgs/night-shift/night-shift.sh" \
+  NIGHT_SHIFT_TS="$PWD/pkgs/night-shift/src/main.ts" node --test tests/night-shift/*.test.ts
 
 step "fleet-deploy"
 "$BASH" tests/fleet-deploy/run.sh

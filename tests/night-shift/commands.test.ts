@@ -3,7 +3,14 @@
 // the runs themselves.
 import assert from "node:assert/strict";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { type Case, here, kase } from "./harness.ts";
+import { test } from "node:test";
+import { type Case, here, kase, script, ts } from "./harness.ts";
+
+// The deployed dispatcher sets NIGHT_SHIFT_TS for the sessions it starts, so a
+// run there that took it from the environment would test the store's code.
+test("the dispatcher under test is not one from the store", () => {
+  for (const p of [script, ts]) assert.ok(!p.startsWith("/nix/store/"), `${p}: unset NIGHT_SHIFT_SCRIPT and NIGHT_SHIFT_TS`);
+});
 
 // --- check and status --------------------------------------------------------
 
