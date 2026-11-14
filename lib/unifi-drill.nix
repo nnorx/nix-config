@@ -1,7 +1,7 @@
 # The restore drill (docs/unifi.md, "Restoring"): core5's controller from
 # modules/unifi.nix, on core5's pinned images, in a VM on forge with a fresh
-# database. A package and never a check: the images are unfree, and every
-# check is built on main and pushed to the public cache (tests/default.nix).
+# database. Never a check: the images are unfree, and every check is built on
+# main and pushed to the public cache (tests/default.nix).
 #
 # The VM has no network but its UI, forwarded to forge's loopback. A restored
 # controller holds the real devices' addresses and credentials, and must not
