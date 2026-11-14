@@ -134,10 +134,6 @@ jobs:
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # main @ 2026-09-09
         with:
           diagnostic-endpoint: ""
-          # For the Pis' leg, as in cache.yml.
-          extra-conf: |
-            extra-substituters = https://nixos-raspberrypi.cachix.org
-            extra-trusted-public-keys = nixos-raspberrypi.cachix.org-1:4iMO9LXa8BqhU+Rpg6LQKiGa2lsNh/j2oiYLNOQ5sPI=
       # Read-only: no authToken. A pull request's build must never reach the
       # cache every host trusts.
       - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
@@ -148,7 +144,11 @@ jobs:
           for h in ${{ matrix.hosts }}; do
             args+=(".#nixosConfigurations.$h.config.system.build.etc")
           done
-          nix build --no-link --print-build-logs --accept-flake-config "${args[@]}"
+          # For the Pis' leg, on the command line as in cache.yml.
+          nix build --no-link --print-build-logs --accept-flake-config \
+            --extra-substituters https://nixos-raspberrypi.cachix.org \
+            --extra-trusted-public-keys nixos-raspberrypi.cachix.org-1:4iMO9LXa8BqhU+Rpg6LQKiGa2lsNh/j2oiYLNOQ5sPI= \
+            "${args[@]}"
 
   # Runs the NixOS VM tests on pull requests. `check` only evaluates them, so
   # without this a change that breaks gate's firewall or DNS tests, the main
