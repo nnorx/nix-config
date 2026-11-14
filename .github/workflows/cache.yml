@@ -77,9 +77,10 @@ jobs:
           name: nnorx-nix-config
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
           # Push via post-build hooks: each path this job builds, with the
-          # part of its closure cache.nixos.org lacks. The default captures everything added to the store,
-          # which would re-upload the several GB substituted from
-          # cache.nixos.org and burn cache quota for no benefit.
+          # part of its closure cache.nixos.org lacks. The default captures
+          # everything added to the store, which would re-upload the several
+          # GB substituted from cache.nixos.org and burn cache quota for no
+          # benefit.
           useDaemon: true
 
       - name: Build Pi system closures
