@@ -3,7 +3,7 @@
 # tests/preflight-brief/ and fails when its JSON brief differs from the case's
 # expected.json. The verdict decides whether a merge needs Nick at hand, and a
 # slip in a rule changes it with no error, so a rule change has to show which
-# verdicts it moves. scripts/preflight.sh runs this as its first step.
+# verdicts it moves. scripts/preflight-tests.sh runs this first.
 #
 # Each case is a directory holding input.json, in the shape preflight.sh hands
 # the rules ({head, base, ok, files, versions, rev}, the hosts' facts as

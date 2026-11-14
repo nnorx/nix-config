@@ -11,18 +11,25 @@
 # /etc, and who can log in. Comparing pieces says what kind of change reaches a
 # host, where the toplevel alone says only that something does. All of them are
 # evaluated anyway on the way to the toplevel, so this costs seconds.
-{ ref }:
+{
+  ref,
+  withUnits ? false,
+}:
 let
   flake = builtins.getFlake ref;
 
-  facts =
+  pin =
     host:
+    (host.extendModules {
+      modules = [ { system.configurationRevision = host.pkgs.lib.mkForce "pinned"; } ];
+    }).config;
+  configs = builtins.mapAttrs (_: pin) flake.nixosConfigurations;
+
+  facts =
+    name:
     let
-      inherit (host.pkgs) lib;
-      c =
-        (host.extendModules {
-          modules = [ { system.configurationRevision = lib.mkForce "pinned"; } ];
-        }).config;
+      inherit (flake.nixosConfigurations.${name}.pkgs) lib;
+      c = configs.${name};
       enabled = lib.filterAttrs (_: x: x.enable);
     in
     {
@@ -95,7 +102,33 @@ let
     };
 in
 {
-  hosts = builtins.mapAttrs (_: facts) flake.nixosConfigurations;
+  hosts = builtins.mapAttrs (name: _: facts name) configs;
 
   homes = builtins.mapAttrs (_: h: h.activationPackage.drvPath) flake.homeConfigurations;
+
+  # The text of each unit scripts/ratchets.sh scores ("<host>/<unit>", the keys
+  # of its caps), null for one not enabled, so scripts/systemd-security.nix
+  # need not evaluate the hosts again.
+  units =
+    let
+      caps = "${flake}/scripts/ratchets.json";
+      names =
+        if withUnits && builtins.pathExists caps then
+          builtins.attrNames (builtins.fromJSON (builtins.readFile caps)).systemd or { }
+        else
+          [ ];
+      text =
+        name:
+        let
+          m = builtins.match "([^/]+)/(.+)" name;
+          u = configs.${builtins.elemAt m 0}.systemd.units.${builtins.elemAt m 1} or { };
+        in
+        if u.enable or false then builtins.unsafeDiscardStringContext u.text else null;
+    in
+    builtins.listToAttrs (
+      map (name: {
+        inherit name;
+        value = text name;
+      }) names
+    );
 }

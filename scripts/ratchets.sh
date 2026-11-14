@@ -11,6 +11,8 @@
 # --tighten lowers each cap to the tree's measure, and drops a script's own cap
 # once it fits the default. --rev <rev> measures a commit, not the working tree.
 # RATCHETS_CAPS and RATCHETS_STAND_INS are scripts/test-ratchets-systemd.sh's.
+# RATCHETS_UNITS, preflight's, names a JSON file of the units' text, so the
+# hosts are not evaluated again.
 
 usage() {
   echo "usage: ratchets.sh [--rev <rev> | --tighten]" >&2
@@ -93,8 +95,9 @@ elif [[ $units != '[]' ]]; then
   ref=git+file://$PWD
   if [[ -n $rev ]]; then ref+="?rev=$(git rev-parse --verify "$rev^{commit}")"; fi
   stand_ins=${RATCHETS_STAND_INS:+standIns = \"$RATCHETS_STAND_INS\";}
+  texts=${RATCHETS_UNITS:+texts = builtins.fromJSON (builtins.readFile \"$RATCHETS_UNITS\");}
   out=$(nix build --impure --no-link --print-out-paths --expr \
-    "import $PWD/scripts/systemd-security.nix { ref = \"$ref\"; units = builtins.fromJSON ''$units''; $stand_ins }") ||
+    "import $PWD/scripts/systemd-security.nix { ref = \"$ref\"; units = builtins.fromJSON ''$units''; $stand_ins $texts }") ||
     exit
   scores=$(cat "$out")
 fi

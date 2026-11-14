@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs scripts/ratchets.sh on a stand-in unit of known exposure: at its cap
 # the run passes, a tenth under it fails, and --tighten lowers a cap above it
-# to the score. scripts/preflight.sh runs this before the ratchets.
+# to the score. scripts/preflight-tests.sh runs this, last of its suites.
 set -euo pipefail
 
 root=$(realpath -- "$(dirname -- "$0")/..")
