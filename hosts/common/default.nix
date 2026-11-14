@@ -22,6 +22,7 @@ in
     ../../modules/net-assertions.nix
     ../../modules/host-status.nix
     ../../modules/node-exporter.nix
+    ../../modules/journal-upload.nix
     ../../modules/alerts.nix
   ]
   # The one role chosen here, by net.resolvers rather than by each host.

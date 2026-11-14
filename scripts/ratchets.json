@@ -1,7 +1,7 @@
 {
-  "prose": 28509,
+  "prose": 28633,
   "comments": {
-    "nix": 28.0,
+    "nix": 27.7,
     "sh": 21.7
   },
   "shell": {
@@ -36,6 +36,8 @@
     "core5/victoriametrics.service": 3.0,
     "core5/sshd.service": 9.4,
     "core5/prometheus-node-exporter.service": 3.1,
-    "core5/tangd@.service": 0.7
+    "core5/tangd@.service": 0.7,
+    "core5/victorialogs.service": 3.0,
+    "core5/vmauth-logs.service": 1.0
   }
 }

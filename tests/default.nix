@@ -27,6 +27,7 @@ pkgs.lib.genAttrs
     "tang"
     "alerting"
     "grafana"
+    "journal-upload"
   ]
   (
     name:

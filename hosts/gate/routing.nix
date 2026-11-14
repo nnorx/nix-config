@@ -410,6 +410,18 @@ in
   # particular interface is configured. The retries below are the safety net.
   systemd.services.kea-dhcp4-server.after = map (i: "network-addresses-${i}.service") dhcpIfaces;
 
+  # Kea's lines name each client's MAC and lease, the work segment's among
+  # them, so they stay on gate, in a journal of their own that
+  # modules/journal-upload.nix does not read, kept as gate's main one is:
+  # `journalctl --namespace=kea -u kea-dhcp4-server`.
+  systemd.services.kea-dhcp4-server.serviceConfig.LogNamespace = "kea";
+  environment.etc."systemd/journald@kea.conf".text = ''
+    [Journal]
+    Storage=persistent
+    SystemMaxUse=1G
+    MaxRetentionSec=3month
+  '';
+
   services.kea.dhcp4 = {
     enable = true;
     settings = {

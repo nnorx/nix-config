@@ -22,6 +22,8 @@ Failed and missed jobs are a separate, hosted path, `modules/alerts.nix`
 | node_exporter | Each target's address; gate's servers gateway | `nodeExporter` | `modules/node-exporter.nix` |
 | Unbound exporter | core4's and lifeline's addresses | `unboundExporter` | `modules/unbound.nix` |
 | Kea exporter | gate's servers gateway | `keaExporter` | `hosts/gate/metrics.nix` |
+| VictoriaLogs, the fleet's journals | core5 loopback | `victoriaLogs` | `modules/logs.nix` |
+| vmauth, journal uploads alone | core5's address | `victoriaLogsInsert` | `modules/logs.nix` |
 
 Exporters on other hosts accept connections from core5's address alone.
 
@@ -104,6 +106,20 @@ time() - fleet_wireguard_last_handshake_timestamp_seconds   # seconds since each
 
 A handshake timestamp of 0 means none since `wg0` came up, so its age reads as
 decades.
+
+## Logs
+
+Each of `metricsTargets` uploads its journal to VictoriaLogs as it is written
+(`modules/journal-upload.nix`), except Kea's lines, which stay on gate in a
+journal namespace of their own. An upload resumes from its saved cursor, so
+lines written while core5 is down follow when it is back; its first start
+begins at the newest entry. The store keeps a year, at most 20 GiB, and stops
+taking lines under 50 GiB free. Grafana has it as the VictoriaLogs datasource,
+and `fleet-ssh core5` reaches it on loopback:
+
+```
+curl -s http://127.0.0.1:<victoriaLogs>/select/logsql/query --data-urlencode 'query=_time:1h _HOSTNAME:gate' | wc -l
+```
 
 ## Alerts
 
