@@ -12,7 +12,7 @@ Privacy project.
 |---|---|---|---|
 | every NixOS host | Binary substitution | cache.nixos.org, two Cachix caches | |
 | every NixOS host | Flake fetches | GitHub | |
-| every NixOS host | Time | NixOS's NTP pool | |
+| every NixOS host | Time | NixOS's pool; core5, Cloudflare's | |
 | gate | Recursive DNS | Root, TLD and authoritative servers | QNAME minimisation, a local root zone |
 | gate | DDNS | Cloudflare's API | A token for one zone, writes only on change |
 | gate | DHCP on `wan` | The ISP | No hostname, no vendor class |
@@ -166,8 +166,8 @@ is down, the request retries over DoH to Cloudflare or Quad9 by address.
 ## core5
 
 **All of its DNS**, the UniFi containers' included, goes over strict
-DNS-over-TLS to Quad9, so the collector does not depend on the resolvers it
-monitors (`hosts/core5/dns.nix`).
+DNS-over-TLS to Quad9, not the resolvers it monitors (`hosts/core5/dns.nix`).
+Its **time**: Cloudflare's, by address.
 
 **Pings to the public resolvers** (`modules/blackbox.nix`), every 30 seconds,
 for `WanDown`.

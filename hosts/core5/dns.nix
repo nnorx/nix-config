@@ -20,4 +20,7 @@
     LLMNR = false;
     MulticastDNS = false;
   };
+
+  # By address: TLS needs the clock, and core5's RTC loses it without power.
+  networking.timeServers = net.timeServers;
 }

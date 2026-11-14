@@ -273,6 +273,12 @@
     }
   ];
 
+  # core5's time (hosts/core5/dns.nix): Cloudflare's.
+  timeServers = [
+    "162.159.200.1"
+    "162.159.200.123"
+  ];
+
   # Where each Unbound fetches the root zone (RFC 8806, modules/unbound.nix):
   # the list from Unbound's example configuration, IPv4 alone as Unbound
   # recurses over IPv4. Losing them all costs the local copy, not resolution.
