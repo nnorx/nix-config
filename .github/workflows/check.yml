@@ -59,11 +59,12 @@ jobs:
       # All of preflight but flake check, which `flake-check` runs beside it.
       - run: nix run .#preflight -- --flake-check skip ${GITHUB_BASE_REF:+--base "origin/$GITHUB_BASE_REF"}
 
-  # Preflight's `nix flake check`, on a runner of its own. In one job it and
-  # the evaluations ran in a row, since flake check alone peaks near 12 GB
-  # and could not share a 16 GB runner with them. Side by side, a pull request
-  # waits for the slower of the two rather than both. The same trigger as
-  # `check`, and like it a required check on main.
+  # Preflight's flake check, on a runner of its own. Side by side with
+  # `check`, a pull request waits for the slower of the two rather than both.
+  # `nix flake check` held every output in one process, which peaked at
+  # 15.4 GB of the runner's 16. Preflight gives each output a process, as
+  # many at once as the runner has cores, so this job peaks near 4 GB. The
+  # same trigger as `check`, and like it a required check on main.
   flake-check:
     runs-on: ubuntu-latest
     # As check's.

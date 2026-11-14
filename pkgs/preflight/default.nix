@@ -8,6 +8,7 @@
   jq,
   coreutils,
   gnused,
+  findutils,
   time,
   gawk,
   gnugrep,
@@ -31,6 +32,8 @@ writeShellApplication {
     jq
     coreutils
     gnused
+    # xargs, for flake check's processes.
+    findutils
     # GNU time, for each evaluation's peak memory.
     time
     # The rest for the night-shift dispatcher's tests
@@ -47,6 +50,7 @@ writeShellApplication {
   ];
   runtimeEnv = {
     PREFLIGHT_EVAL = "${../../scripts/preflight-eval.nix}";
+    PREFLIGHT_OUTPUTS = "${../../scripts/preflight-outputs.nix}";
     PREFLIGHT_BRIEF = "${../../scripts/preflight-brief.jq}";
     NIGHT_SHIFT_TYPES = "${nightShiftModules}/node_modules/@types";
   };

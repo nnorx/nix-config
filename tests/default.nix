@@ -1,6 +1,6 @@
-# The flake's checks.x86_64-linux. `nix flake check --no-build`, in preflight,
-# only evaluates these. check.yml's `vm-tests` job builds, and so runs, every
-# attribute here on pull requests, so a new test needs no workflow edit.
+# The flake's checks.x86_64-linux. Preflight's flake check only evaluates
+# these. check.yml's `vm-tests` job builds, and so runs, every attribute here
+# on pull requests, so a new test needs no workflow edit.
 # cache-vm-tests.yml builds them on main and pushes them to Cachix, so a pull
 # request copies each test whose inputs it leaves alone instead of running it.
 # To run one locally, on a machine with KVM:

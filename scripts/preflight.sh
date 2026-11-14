@@ -1,7 +1,6 @@
 # Every check a change needs, in one command, and the one CI runs. Built by
-# pkgs/preflight as `apps.<system>.preflight` with writeShellApplication, which adds
-# the shebang, errexit, nounset and pipefail. PREFLIGHT_EVAL and
-# PREFLIGHT_BRIEF name preflight-eval.nix and preflight-brief.jq in the store.
+# pkgs/preflight as `apps.<system>.preflight` with writeShellApplication, which
+# adds the shebang, errexit, nounset and pipefail. PREFLIGHT_* are store paths.
 #
 #   1. The brief's rules, against the hand-written cases in
 #      tests/preflight-brief/ (scripts/test-preflight-brief.sh). A slip in a
@@ -21,18 +20,15 @@
 #      before the minutes the steps below take. Then fleet-deploy,
 #      home/fleet-deploy.sh, against stubbed hosts, nix and cache
 #      (tests/fleet-deploy/run.sh), for the same reasons: it deploys the Pis.
-#   3. `nix flake check --all-systems --no-build`. --all-systems, or nix skips
-#      the aarch64 hosts on an x86 machine; --no-build, so this stays an
-#      evaluation and never a multi-hour Pi kernel build.
-#   4. Every host's toplevel and every Home Manager config, evaluated. flake
-#      check alone does neither: it passes a host whose toplevel cannot
-#      evaluate (a missing sops file did exactly that), and it skips
-#      homeConfigurations, so a broken WSL or macOS profile looked green.
-#      The change and its base are evaluated at once, as two nix processes,
-#      since each is single-threaded and neither needs the other. flake check
-#      runs before them, not beside them: it alone peaks near 12 GB, and all
-#      three at once passed 18 GB on forge, more than a 16 GB GitHub runner
-#      has. Each evaluation's time and peak memory follow its output.
+#   3. Flake check: what `nix flake check --all-systems --no-build` evaluates,
+#      less the hosts (scripts/preflight-outputs.nix). Nix keeps all it has
+#      evaluated, and flake check peaked at 15.4 GB, so each piece gets a
+#      process, at most 8 at once, and none passes 1.7 GB.
+#   4. Every host's toplevel and every Home Manager config, evaluated: nix
+#      flake check only asks that a toplevel be a derivation, and skips
+#      homeConfigurations. The change and its base are evaluated at once, as
+#      two nix processes, since each is single-threaded and neither needs the
+#      other. Each evaluation's time and peak memory follow its output.
 #   5. The brief: which of them the change actually touches, against a base,
 #      by default where this branch left origin/main, and for each host what
 #      kind of change it gets (scripts/preflight-brief.jq). That answers
@@ -52,10 +48,8 @@
 # on files. --json <file> also writes the brief as JSON, for tools that act on
 # the verdict.
 #
-# --flake-check skip leaves out step 3, and --flake-check only runs it alone.
-# CI uses them to run flake check on a runner of its own, beside the rest:
-# in a row the two are most of preflight's time, and flake check's 12 GB
-# cannot share a 16 GB runner with the evaluations (check.yml).
+# --flake-check skip leaves out step 3, and --flake-check only runs it alone,
+# as CI does on a runner of its own, beside the rest (check.yml).
 #
 # Uses the nix on PATH rather than one of its own, so it talks to the daemon in
 # the way everything else on the machine does.
@@ -183,11 +177,23 @@ peak() {
   [[ -s $work/$1.time ]] || return 0
   awk -v name="$label" '{ printf "   %s: %.0f s, peak %.1f GB\n", name, $1, $2 / 1048576 }' "$work/$1.time"
 }
+piece() {
+  nix eval --impure --json --expr "import $PREFLIGHT_OUTPUTS { ref = \"$ref\"; only = \"$1\"; }" </dev/null >/dev/null \
+    2>"$work/piece-$1.err" || { echo "!! flake check: $1 did not evaluate" >>"$work/piece-$1.err" && false; }
+}
 
 if [[ $flake_check != skip ]]; then
-  step "flake check"
-  timed flake-check nix flake check --all-systems --no-build "$ref"
-  peak flake-check "flake check"
+  jobs=$(($(nproc) < 8 ? $(nproc) : 8))
+  step "flake check: every output but the hosts, $jobs at a time"
+  nix eval --impure --json --expr "import $PREFLIGHT_OUTPUTS { ref = \"$ref\"; }" </dev/null >"$work/pieces.json"
+  export work ref
+  export -f piece
+  status=0
+  jq -r '.[]' "$work/pieces.json" | timed flake-check xargs -P "$jobs" -I{} "$BASH" -c "piece {}" || status=$?
+  # Each warning once, rather than once a process.
+  cat "$work"/piece-*.err | awk '!/warning:/ || !seen[$0]++' >&2
+  ((status == 0)) || exit 1
+  peak flake-check "flake check, wall time and the largest piece"
 fi
 [[ $flake_check != only ]] || exit 0
 

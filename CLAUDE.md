@@ -8,9 +8,9 @@ before changing it.
 
 ## Checking a change
 
-- `nix run .#preflight` is the check, and what CI runs. It formats, runs
-  `nix flake check --all-systems --no-build`, evaluates every host's toplevel
-  and every Home Manager config (flake check does neither), and prints a
+- `nix run .#preflight` is the check, and what CI runs. It formats, evaluates
+  what `nix flake check` would, and every host's toplevel and every Home
+  Manager config (flake check does neither), and prints a
   brief against where the branch left `origin/main`: which configs the change
   touches, and per host whether it reboots tonight, changes its boot path,
   networking or logins, which services restart, and which packages move. Its
