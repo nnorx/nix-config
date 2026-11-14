@@ -74,21 +74,8 @@ if [[ $url == https://api.linear.app/graphql ]]; then
     echo '{"errors": [{"message": "Authentication required"}]}'
     exit 0
   fi
-  # Linear refuses a query past 10,000 points, and nested connections
-  # multiply. Roughly: the largest product of `first:` down any path.
-  cost=$(awk 'BEGIN { RS = "\001" } {
-    s = $0; d = 0; p = 0; m[0] = 1; next_first = 1; max = 1
-    while (length(s)) {
-      if (p > 0 && match(s, /^first: *[0-9]+/)) {
-        n = substr(s, 1, RLENGTH); gsub(/[^0-9]/, "", n); next_first = n; s = substr(s, RLENGTH + 1); continue
-      }
-      c = substr(s, 1, 1); s = substr(s, 2)
-      if (c == "(") p++
-      else if (c == ")") p--
-      else if (p == 0 && c == "{") { d++; m[d] = m[d - 1] * next_first; next_first = 1; if (m[d] > max) max = m[d] }
-      else if (p == 0 && c == "}") d--
-    }
-    print max }' <<<"$query")
+  # Linear refuses a query past 10,000 points, added up as cost.ts says.
+  cost=$(node "${BASH_SOURCE[0]%/*}/cost.ts" "$query" "$vars")
   if ((cost > 10000)); then
     record --argjson cost "$cost" '{tool: "linear", op: "too complex", cost: $cost}'
     echo '{"errors": [{"message": "Query too complex"}]}'
