@@ -22,6 +22,7 @@ pkgs.lib.genAttrs
     "diag-login"
     "dns-metrics"
     "forge-dns"
+    "core5-dns"
     "unbound-root-zone"
     "tang"
     "alerting"

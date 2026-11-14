@@ -8,6 +8,7 @@
 }:
 {
   imports = [
+    ./dns.nix
     ../../modules/docker.nix
     ../../modules/unifi.nix
     ../../modules/unifi-backup.nix
@@ -86,12 +87,6 @@
       "x-systemd.idle-timeout=1min"
     ];
   };
-
-  # Public resolvers rather than the fleet's own. Deliberate as far as it goes:
-  # core5 runs the metrics stack, which watches the resolvers and alerts when
-  # they fail, so pointing it at core4 or lifeline would make monitoring
-  # depend on the thing it monitors.
-  networking.nameservers = net.publicResolvers;
 
   # The switch and AP need all four UniFi ports: the UI for us, inform for
   # device state, STUN to stay reachable, and discovery for adoption. The

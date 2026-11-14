@@ -119,7 +119,7 @@ cannot work:
   file is rendered from the same sops file that just failed to decrypt. AdGuard
   does not start, the host cannot resolve `github.com`, and the upgrade that
   would carry the fix cannot fetch it.
-- **core5** resolves through public resolvers directly, so its nightly upgrade
+- **core5** asks Quad9 directly, so its nightly upgrade
   could pull a re-key merged to `main` and apply it without anyone touching the
   host. Useful if it happens; not a recovery plan.
 - **gate** has no upgrade timer.
