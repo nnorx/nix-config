@@ -24,8 +24,8 @@ import { after, test } from "node:test";
 
 export const here = import.meta.dirname;
 const root = resolve(here, "../..");
-const script = resolve(process.env.NIGHT_SHIFT_SCRIPT ?? `${root}/pkgs/night-shift/night-shift.sh`);
-const ts = resolve(process.env.NIGHT_SHIFT_TS ?? `${root}/pkgs/night-shift/src/main.ts`);
+export const script = resolve(process.env.NIGHT_SHIFT_SCRIPT ?? `${root}/pkgs/night-shift/night-shift.sh`);
+export const ts = resolve(process.env.NIGHT_SHIFT_TS ?? `${root}/pkgs/night-shift/src/main.ts`);
 const bash = process.env.NIGHT_SHIFT_BASH ?? "bash";
 
 const work = mkdtempSync(join(tmpdir(), "night-shift-ts."));
