@@ -34,13 +34,14 @@ let
   # is refused with the alerting ones, and diag's reach stays at the host
   # itself. The metrics store's own port is refused too, so diag queries it
   # through vmauth, at VictoriaMetrics' usual port, which passes reads alone,
-  # and its admin APIs take a key besides (modules/metrics.nix). All four run
+  # and its admin APIs take a key besides (modules/metrics.nix). All of them run
   # on core5 alone (modules/alerting.nix, modules/blackbox.nix,
   # modules/metrics.nix); the ports are refused on every host so that the
   # rule is one rule everywhere.
   refusedPorts = [
     net.ports.alertmanager
     net.ports.vmalert
+    net.ports.vmalertLogs
     net.ports.blackboxExporter
     net.ports.victoriaMetricsStore
   ];

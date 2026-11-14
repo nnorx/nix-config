@@ -14,19 +14,20 @@
 # nixos-upgrade.service is a stand-in, as in tests/deploy-agent.nix, run once
 # so host-status has an upgrade in the journal to report. Stand-in HTTP
 # listeners sit on each server's loopback, at VictoriaMetrics' port (vmauth's
-# on core5), the two alerting ports, the blackbox exporter's and the metrics
+# on core5), the three alerting ports, the blackbox exporter's and the metrics
 # store's own, and on the client at VictoriaMetrics' port, so a connection the
 # rule did not refuse would succeed.
 { net }:
 let
   user = "server";
 
-  # What the stand-ins listen on: one port diag may query, and four it may
+  # What the stand-ins listen on: one port diag may query, and five it may
   # not, the list modules/diag-login.nix refuses.
   queryPort = net.ports.victoriaMetrics;
   refusedPorts = [
     net.ports.alertmanager
     net.ports.vmalert
+    net.ports.vmalertLogs
     net.ports.blackboxExporter
     net.ports.victoriaMetricsStore
   ];

@@ -23,6 +23,12 @@ let
     )
   );
 
+  # The journals' rules, which vmalert-tool cannot run: tests/log-alerts.nix
+  # raises each in VMs, and the dry run below parses their LogsQL.
+  logRules = pkgs.writeText "log-alert-rules.json" (
+    builtins.toJSON (import ../modules/log-alert-rules.nix)
+  );
+
   # A series as vmalert-tool reads it: a selector and its values, one per
   # interval, in promtool's notation (`a+bxn` is n steps from a by b).
   series =
@@ -700,7 +706,7 @@ let
 in
 pkgs.runCommand "alert-rules" { nativeBuildInputs = [ pkgs.victoriametrics ]; } ''
   # A dry run first, so a rule vmalert cannot load fails here by name.
-  vmalert -dryRun -rule=${rules}
+  vmalert -dryRun -rule=${rules} -rule=${logRules}
   vmalert-tool unittest \
     --files ${file "short" "1m" short} \
     --files ${file "disk" "1m" disk} \

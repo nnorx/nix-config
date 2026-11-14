@@ -1,8 +1,9 @@
-# Alerts over the fleet's metrics, on the collector: vmalert evaluates the rules
-# in ./alert-rules.nix against VictoriaMetrics, and Alertmanager delivers what
-# fires to the ntfy topic the phone follows, the one modules/alerts.nix already
-# posts to. Imported by modules/metrics.nix. docs/observability.md is the
-# runbook.
+# Alerts over the fleet's metrics and journals, on the collector: vmalert
+# evaluates the rules in ./alert-rules.nix against VictoriaMetrics, vmalert-logs
+# those in ./log-alert-rules.nix against VictoriaLogs (./logs.nix), and
+# Alertmanager delivers what fires to the ntfy topic the phone follows, the
+# one modules/alerts.nix already posts to. Imported by modules/metrics.nix.
+# docs/observability.md is the runbook.
 #
 # Delivery. ntfy.sh formats Alertmanager's webhook itself
 # (`?template=alertmanager`), so nothing runs between the two. Each severity is
@@ -22,9 +23,9 @@
 # it again as a new one.
 #
 # What leaves the house is the whole webhook body, which the ntfy template
-# formats: each alert's labels and annotations, held to names in
-# ./alert-rules.nix, and the two services' own URLs, which are set here to
-# loopback addresses rather than left to default to the host's name.
+# formats: each alert's labels and annotations, held to names in the two rule
+# files, and the services' own URLs, which are set here to loopback addresses
+# rather than left to default to the host's name.
 #
 # What this cannot see is core5 itself failing, or the WAN: an alert that
 # cannot leave the house arrives when it can. The Watchdog covers both from
@@ -43,6 +44,7 @@ let
   # vmalert writes its alerts' state there.
   vm = "http://127.0.0.1:${toString net.ports.victoriaMetricsStore}";
   vmalertAddress = "127.0.0.1:${toString net.ports.vmalert}";
+  vmalertLogsAddress = "127.0.0.1:${toString net.ports.vmalertLogs}";
   alertmanagerAddress = "127.0.0.1:${toString net.ports.alertmanager}";
   ph = config.sops.placeholder;
 
@@ -136,6 +138,21 @@ in
     };
   };
 
+  # One datasource each, so the journals' rules run apart. Its alerts are
+  # written to the store beside the other's, for the Alerting dashboard; none
+  # has a `for` to restore, so it reads nothing back.
+  services.vmalert.instances.logs = {
+    enable = true;
+    rules = import ./log-alert-rules.nix;
+    settings = {
+      "datasource.url" = "http://127.0.0.1:${toString net.ports.victoriaLogs}";
+      "notifier.url" = [ "http://${alertmanagerAddress}" ];
+      "remoteWrite.url" = vm;
+      httpListenAddr = vmalertLogsAddress;
+      "external.url" = "http://${vmalertLogsAddress}";
+    };
+  };
+
   services.prometheus.alertmanager = {
     enable = true;
     listenAddress = "127.0.0.1";
@@ -166,6 +183,16 @@ in
             group_wait = "10s";
             group_interval = "1m";
             repeat_interval = "5m";
+          }
+          {
+            # The host's own user logging in, which is mostly routine: one push
+            # for a session across hosts, and one an hour at most while
+            # logins go on. Each holds an hour (./log-alert-rules.nix), past
+            # either wait, so none has resolved before its push.
+            matchers = [ ''alertname="HostUserLogin"'' ];
+            receiver = "info";
+            group_wait = "15m";
+            group_interval = "1h";
           }
           {
             matchers = [ ''severity="critical"'' ];
@@ -212,8 +239,17 @@ in
     after = [ "victoriametrics.service" ];
     serviceConfig = import ../lib/hardening.nix;
   };
+  systemd.services.vmalert-logs = {
+    after = [
+      "victorialogs.service"
+      "victoriametrics.service"
+    ];
+    serviceConfig = import ../lib/hardening.nix;
+  };
 
-  # Both answer their own metrics, which the store keeps beside its own.
+  # Each answers its own metrics, which the store keeps beside its own.
+  # vmalert-logs is not one of ScrapeDown's exceptions, so vmalert says when
+  # it stops answering.
   services.victoriametrics.prometheusConfig.scrape_configs =
     map
       (
@@ -232,6 +268,10 @@ in
         {
           job = "vmalert";
           address = vmalertAddress;
+        }
+        {
+          job = "vmalert-logs";
+          address = vmalertLogsAddress;
         }
         {
           job = "alertmanager";

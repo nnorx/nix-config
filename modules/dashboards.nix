@@ -658,7 +658,7 @@ let
           targets = [
             {
               expr = "vmalert_config_last_reload_successful";
-              legendFormat = "vmalert";
+              legendFormat = "{{job}}";
             }
             {
               expr = "alertmanager_config_last_reload_successful";

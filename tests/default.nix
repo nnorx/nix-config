@@ -28,6 +28,7 @@ pkgs.lib.genAttrs
     "alerting"
     "grafana"
     "journal-upload"
+    "log-alerts"
   ]
   (
     name:

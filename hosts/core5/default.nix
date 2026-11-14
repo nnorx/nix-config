@@ -28,6 +28,7 @@
     "victoriametrics"
     "vmauth"
     "vmalert"
+    "vmalert-logs"
     "alertmanager"
     "grafana"
     "victorialogs"
