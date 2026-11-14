@@ -194,6 +194,13 @@
 
       packages = import ./lib/images.nix { inherit nixpkgs nixos-raspberrypi sshPubKeys; };
 
+      # Outside packages, so flake check leaves it unevaluated: CI's runner has
+      # no memory to spare for another NixOS system.
+      legacyPackages.x86_64-linux.unifi-drill = import ./lib/unifi-drill.nix {
+        inherit nixpkgs net;
+        core5 = self.nixosConfigurations.core5.config;
+      };
+
       nixosConfigurations = {
         # Not mkPi: core5's nixosSystem comes from nixos-raspberrypi (see
         # fleetSpecialArgs in lib/mk.nix). It shares the fleet's specialArgs
