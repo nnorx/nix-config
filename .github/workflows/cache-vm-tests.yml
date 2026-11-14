@@ -8,11 +8,9 @@ name: Cache VM tests
 # booting the VMs again. A pull request that changes a test's inputs still
 # runs that test.
 #
-# Beside cache.yml rather than in it. cache.yml serialises whole runs, so a
-# job there would wait out a Pi 4 kernel compile of up to five hours before
-# the tests ran. And cache.yml's result is what says the Pis can substitute
-# tonight's upgrade, which a timing-bound test failing on a busy runner
-# should not turn red.
+# Beside cache.yml rather than in it: cache.yml's result is what says the Pis
+# can substitute tonight's upgrade, which a timing-bound test failing on a
+# busy runner should not turn red.
 #
 # The outputs are empty directories, but useDaemon pushes everything the job
 # builds, which includes each test's VM systems and driver, and the cache is

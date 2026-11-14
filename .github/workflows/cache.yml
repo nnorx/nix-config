@@ -1,11 +1,11 @@
 name: Cache
 
-# Builds every Pi's system closure on native aarch64 runners and pushes the
-# result to Cachix, so the hosts substitute instead of compiling.
-#
-# This exists because linux_rpi4 is in no public cache: without it, a kernel
-# bump costs each Pi 4 roughly 9-15 hours of compiling, separately, with no
-# shared build output between them.
+# Builds every Pi's system closure on native aarch64 runners and pushes it to
+# Cachix. The Pis substitute or fail (modules/baseline.nix), and the fleet's
+# own derivations, the toplevels and everything generated for them, are in no
+# public cache. Cachix skips what cache.nixos.org holds, so each push also
+# carries what the job took from nixos-raspberrypi's cache, which the hosts do
+# not trust.
 #
 # GitHub's ubuntu-*-arm runners are free for public repositories and are real
 # aarch64 hardware, so this is a native build rather than qemu emulation.
@@ -22,12 +22,8 @@ on:
 permissions:
   contents: read
 
-# Serialise runs but never cancel one in flight. Cancelling is the right default
-# for test suites, where a superseded result is worthless — here it is the
-# opposite: nix does not checkpoint partial builds, so killing a run discards
-# the whole kernel compile, and the kernel derivation is usually identical
-# between commits anyway (only a flake.lock change moves it). A superseded run
-# still populates the cache with paths the next one would otherwise rebuild.
+# Serialise runs but never cancel one in flight: a superseded run still pushes
+# paths the next one would otherwise build.
 concurrency:
   group: cache-${{ github.ref }}
   cancel-in-progress: false
@@ -43,12 +39,9 @@ env:
 
 jobs:
   build:
-    # Split by kernel, not by host. core4 and lifeline resolve to the *same*
-    # Pi 4 kernel derivation, so they share a job and nix compiles it once.
-    # core5's kernel comes from nixos-raspberrypi's cache and the rest of its
-    # system from cache.nixos.org, so its job takes minutes. It stays apart
-    # so that a Pi 4 kernel compile that passes the timeout below, and so
-    # caches nothing, does not take core5's push down with it.
+    # Split by Pi model. core4 and lifeline share the Pi 4 kernel and most of
+    # their closures, so they share a job. core5 has its own, so a failure
+    # building one model's systems does not keep the other's from the cache.
     strategy:
       fail-fast: false
       matrix:
@@ -59,11 +52,11 @@ jobs:
             hosts: core5
     name: build (${{ matrix.name }})
     runs-on: ubuntu-24.04-arm
-    # A cold Pi 4 kernel build measured ~31 objects/min on the Pi itself
-    # against a ~20-30k object config, i.e. 9-15h. These runners are perhaps
-    # 3-5x quicker, so 2-5h. 180 was a guess and too tight; 350 sits just under
-    # GitHub's 360-minute hard limit for hosted runners.
-    timeout-minutes: 350
+    # Every kernel and nearly every package comes from a public cache, and
+    # jobs measured one to two minutes. 30 leaves room for a lock bump's
+    # rebuilds of the fleet's own derivations. A job that needs more is
+    # compiling something no public cache has, and should fail where it shows.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -83,8 +76,8 @@ jobs:
         with:
           name: nnorx-nix-config
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          # Push via post-build hooks, so only paths this job actually *builds*
-          # are uploaded. The default captures everything added to the store,
+          # Push via post-build hooks: each path this job builds, with the
+          # part of its closure cache.nixos.org lacks. The default captures everything added to the store,
           # which would re-upload the several GB substituted from
           # cache.nixos.org and burn cache quota for no benefit.
           useDaemon: true

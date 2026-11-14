@@ -117,8 +117,7 @@ rewritten on every start, so edits made to it on the host do not survive.
 ## Upgrades and rollback
 
 **Home Assistant moves whenever `flake.lock` moves `nixpkgs-unstable`**, and
-core5's automatic upgrade applies that at 05:00 without anyone present. Merge
-lock bumps early in the day, as with any other.
+core5's automatic upgrade applies that at 05:00 without anyone present.
 
 **Treat an upgrade as one-way.** Home Assistant migrates the recorder database
 forward on start and does not support downgrades. Rolling core5 back a

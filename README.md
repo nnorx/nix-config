@@ -363,10 +363,10 @@ has them, and what to do when one fires.
 | Workflow | Trigger | What it does |
 |---|---|---|
 | `check.yml` | PR, and push to `main` | `nix run .#preflight`, and its brief on what the change touches in the run's summary. Its flake check runs beside the rest as `flake-check`, on a runner of its own |
-| `check.yml`, `build-etc` | PR | Builds each fleet host's `/etc` (the Pis on an aarch64 runner, gate on x86), so a script that fails shellcheck or a ruleset that fails its check turns the PR red instead of `cache.yml` after merge. `/etc` has every service but not the kernel, so it takes minutes |
+| `check.yml`, `build-etc` | PR | Builds each fleet host's `/etc` (the Pis on an aarch64 runner, gate on x86), so a script that fails shellcheck or a ruleset that fails its check turns the PR red instead of `cache.yml` after merge. `/etc` has every service script and unit |
 | `check.yml`, `vm-tests` | PR | Builds, and so runs, every NixOS VM test in the flake's `checks.x86_64-linux`, each on a runner of its own with KVM and reported as its own check, `vm-tests (<name>)`. They cover gate's firewall and DNS rules and its exporters, the resolvers' DNS metrics, and forge's DNS away from home, and `check` only evaluates them, so without this a change that breaks one merges green. A test whose inputs the PR leaves alone is copied from Cachix rather than run |
 | `cache.yml` | push to `main` | Builds every Pi's system closure on native aarch64 runners, pushes to Cachix |
-| `cache-vm-tests.yml` | push to `main` | Builds every VM test and pushes the results to Cachix, for `vm-tests` to copy. Separate from `cache.yml`, so the tests do not wait behind a kernel compile |
+| `cache-vm-tests.yml` | push to `main` | Builds every VM test and pushes the results to Cachix, for `vm-tests` to copy. Separate from `cache.yml`, so a flaky test cannot turn the Pis' cache run red |
 | `update-flake.yml` | Mondays 12:00 UTC | Opens a PR bumping `flake.lock` |
 | `image-updates.yml` | Tuesdays 12:00 UTC | Keeps an `images` issue open while a pinned container image is behind its registry |
 
@@ -376,11 +376,11 @@ to merge only when someone can be home while the Pis upgrade. The verdict is
 advice and never fails the check. The rules are in
 [`scripts/preflight-brief.jq`](scripts/preflight-brief.jq).
 
-`cache.yml` exists because `linux_rpi4` is in no public cache. Without it a
-kernel bump costs each Pi 4 roughly 9 to 15 hours of compiling, separately, with
-no shared output between them. Its jobs also read nixos-raspberrypi's cache,
-and each push carries the whole closure, so the hosts trust only the fleet's
-cache and cache.nixos.org. That list is written once, in `flake.nix`'s
+`cache.yml` exists because the Pis substitute or fail (`modules/baseline.nix`),
+and the fleet's own derivations are in no public cache. Its jobs also read
+nixos-raspberrypi's cache, and each push carries the closure less what
+cache.nixos.org holds, so the hosts trust only the fleet's cache and
+cache.nixos.org. That list is written once, in `flake.nix`'s
 `nixConfig`, and `modules/baseline.nix` puts it in each host's `nix.conf`.
 
 GitHub Actions are pinned to commit SHAs, since `cache.yml` pushes to a cache

@@ -136,7 +136,6 @@ def host_brief($name; $b; $h):
       }[.]] | prose) as $what
   | {
       auto: $auto,
-      kernelChanged: any($rb[]; . == "kernel"),
       touched: $touched,
       findings: [
         if $rb == [] then empty
@@ -212,12 +211,6 @@ def plan_findings($hosts):
             "Both resolvers take this change tonight (\($dns | join(", "))), an hour apart. If it breaks resolution, the house has no DNS until one is fixed.")
           end),
 
-      ([$auto[] | select(.value.kernelChanged) | .key] as $k
-        | if $k == [] then empty
-          else finding("review"; "cache";
-            "Merge early in the day. A Pi kernel that cache.yml has to build takes 2 to 5 hours, and an upgrade that runs before it finishes fails (\($k | join(", "))).")
-          end),
-
       # Addressing in lib/net.nix that reaches hosts on both sides lands in two
       # halves, the first tonight, so the Pis can end up ahead of gate.
       ([$hosts | to_entries[] | select(.value.auto | not) | .key] as $manual
@@ -256,7 +249,7 @@ def model:
   | {
       base: $rev,
       configs: $configs,
-      hosts: ($hosts | map_values(del(.touched, .auto, .kernelChanged))),
+      hosts: ($hosts | map_values(del(.touched, .auto))),
       plan: $plan,
       verdict: (
         if $ok | not then

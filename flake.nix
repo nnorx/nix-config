@@ -22,17 +22,18 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    # Raspberry Pi 5 support (boot firmware, kernel, config.txt management)
+    # core5's boot firmware, kernel and config.txt, and the Pi 4s' kernel
+    # (pi4CachedKernel in lib/mk.nix).
     #
     # No nixpkgs.follows. Its kernel and firmware are built from its own
     # nixpkgs pin and served from its cache; following ours would make the
-    # Pi 5 kernel ours to compile. core5's userland comes from our nixpkgs
+    # Pi kernels ours to compile. core5's userland comes from our nixpkgs
     # anyway, passed to its nixosSystem (see core5 below), and that does not
     # move the kernel.
     #
     # `develop`, the project's default branch, is where its kernel and
     # firmware updates land and what its cache builds. `main` is not, so a
-    # pin there keeps the Pi 5 kernel wherever that branch last stopped, and
+    # pin there keeps the Pi kernels wherever that branch last stopped, and
     # the weekly flake update has nothing to move.
     nixos-raspberrypi.url = "github:nvmd/nixos-raspberrypi/develop";
 
@@ -254,7 +255,10 @@
         };
         lifeline = mkPi {
           hostname = "lifeline";
-          hardwareModules = [ nixos-hardware.nixosModules.raspberry-pi-4 ];
+          hardwareModules = [
+            nixos-hardware.nixosModules.raspberry-pi-4
+            pi4CachedKernel
+          ];
         };
 
         # The router: x86_64 and UEFI, with its own hardware-configuration.nix.

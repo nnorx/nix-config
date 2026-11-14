@@ -14,7 +14,7 @@ under any approach, which makes [backups](#backups) the part that matters.
 Decided on evidence rather than taste. Both `unifi` and `mongodb` are unfree
 (Ubiquiti's EULA and the SSPL), so Hydra does not build them and
 `cache.nixos.org` does not carry them. The module path would mean core5
-compiling MongoDB from source, CI attempting the same inside its 350-minute cap,
+compiling MongoDB from source, CI attempting the same inside its timeout,
 and the result being pushed to a *public* Cachix, which is redistribution of
 both.
 

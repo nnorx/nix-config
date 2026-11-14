@@ -5,7 +5,7 @@
 # Both `unifi` and `mongodb` are unfree (Ubiquiti's EULA and SSPL), so Hydra
 # does not build them and cache.nixos.org does not carry them. The module path
 # would mean a Pi compiling MongoDB from source, CI attempting the same build
-# inside its 350-minute cap, and the result being pushed to a *public* Cachix,
+# inside its timeout, and the result being pushed to a *public* Cachix,
 # which is redistribution of both. Pinned images avoid all three.
 #
 # It also decouples controller upgrades from `nix flake update`. UniFi's

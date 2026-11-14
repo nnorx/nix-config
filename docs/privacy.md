@@ -46,7 +46,7 @@ gate, the three Pis and forge all import `modules/baseline.nix`.
 - **Binary substitution.** `nnorx-nix-config.cachix.org`, then
   cache.nixos.org. Each build asks them
   for the store paths it needs, from the house's WAN address. A Pi that
-  cannot substitute compiles its kernel for half a day.
+  cannot substitute fails its upgrade, since it never builds.
 - **Flake fetches.** `nrs`, `nrb` and the Pis' upgrade fetch
   `github:nnorx/nix-config` with `--refresh`, so GitHub sees each deploy;
   `flake.lock`'s inputs come from GitHub too.
