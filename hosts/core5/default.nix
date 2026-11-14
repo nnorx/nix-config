@@ -15,6 +15,7 @@
     ../../modules/home-assistant.nix
     ../../modules/home-assistant-backup.nix
     ../../modules/metrics.nix
+    ../../modules/logs.nix
     ../../modules/tang.nix
     # The root's NVMe drive, by its namespace, which needs no reboot to read
     # (modules/smartctl.nix). There is one NVMe drive, so the name is stable.
@@ -29,6 +30,8 @@
     "vmalert"
     "alertmanager"
     "grafana"
+    "victorialogs"
+    "vmauth-logs"
   ];
 
   # This host's user, which the UniFi container runs as.

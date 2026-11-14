@@ -21,10 +21,10 @@
 # has; CI's vm-tests job runs it on pull requests.
 #
 # core5 is modules/metrics.nix itself, which brings the probes and the alerting
-# stack with it, on core5's address. The other hosts' targets are absent, so
-# their scrapes fail, which is harmless; the series queried is one the test
-# imports. sops-nix is a stand-in, as in ./alerting.nix, and the secrets are
-# test values.
+# stack with it, and modules/logs.nix, on core5's address. The other hosts'
+# targets are absent, so their scrapes fail, which is harmless; the series
+# queried is one the test imports. sops-nix is a stand-in, as in
+# ./alerting.nix, and the secrets are test values.
 { net, unstable }:
 let
   collector = net.metricsCollector;
@@ -88,6 +88,7 @@ in
       imports = [
         sopsStub
         ../modules/metrics.nix
+        ../modules/logs.nix
         ../modules/kernel-hardening.nix
       ];
 
@@ -162,6 +163,11 @@ in
 
       with subtest("the datasource answers its health check"):
           out = ${collector}.succeed(f"curl -s {grafana}/api/datasources/uid/victoriametrics/health")
+          assert '"status":"OK"' in out, out
+
+      with subtest("the logs datasource answers its health check"):
+          ${collector}.wait_for_unit("victorialogs.service")
+          out = ${collector}.succeed(f"curl -s {grafana}/api/datasources/uid/victorialogs/health")
           assert '"status":"OK"' in out, out
 
       with subtest("a query through the datasource returns the store's series"):

@@ -299,6 +299,7 @@
 
   # Named rather than derived from `hosts`, since each target opens a port to
   # the collector (docs/observability.md). gate is scraped at `metricsSegment`.
+  # Each target also uploads its journal to the collector (modules/logs.nix).
   metricsCollector = "core5";
   metricsTargets = [
     "core4"
@@ -336,6 +337,11 @@
     victoriaMetrics = 8428;
     victoriaMetricsStore = 8430;
     grafana = 3030;
+
+    # The fleet's journals (modules/logs.nix): the store on the collector's
+    # loopback, and a vmauth on its address passing journal uploads alone.
+    victoriaLogs = 9428;
+    victoriaLogsInsert = 9429;
 
     # On the collector's loopback (modules/alerting.nix). vmalert's default,
     # 8880, is the UniFi guest portal on the same host.
