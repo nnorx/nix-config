@@ -136,9 +136,9 @@ per-client stats and rules need. `networking.nat` masquerades only outbound on
 resolvers instead.
 
 **gate resolves through its own Unbound on loopback**, recursing, so it can
-be rebuilt with both Pis down. core5 uses public resolvers for the same shape
-of reason: it monitors the resolvers ([observability.md](observability.md)).
-Every fallback names two operators, Cloudflare and Quad9, and never Google.
+be rebuilt with both Pis down. core5 asks Quad9 over TLS, not the fleet, since
+it monitors the resolvers ([observability.md](observability.md)). AdGuard's
+fallback and guest name Cloudflare and Quad9, never Google.
 
 **Clients with hardcoded resolvers are redirected.** gate's `dns-redirect`
 chain rewrites plaintext port 53 from the segments the table marks, whatever

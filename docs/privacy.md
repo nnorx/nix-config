@@ -12,7 +12,7 @@ Privacy project.
 |---|---|---|---|
 | every NixOS host | Binary substitution | cache.nixos.org, two Cachix caches | |
 | every NixOS host | Flake fetches | GitHub | |
-| every NixOS host | Time | NixOS's NTP pool | |
+| every NixOS host | Time | NixOS's pool; core5, Cloudflare's | |
 | gate | Recursive DNS | Root, TLD and authoritative servers | QNAME minimisation, a local root zone |
 | gate | DDNS | Cloudflare's API | A token for one zone, writes only on change |
 | gate | DHCP on `wan` | The ISP | No hostname, no vendor class |
@@ -21,7 +21,7 @@ Privacy project.
 | core4, lifeline | Blocklist downloads | Eight list operators | |
 | Pis | Nightly upgrade | GitHub and the caches | |
 | Pis | Alerts and heartbeats | ntfy.sh, healthchecks.io | No log lines, a secret topic |
-| core5 | All of its DNS | Cloudflare and Quad9, plaintext | |
+| core5 | All of its DNS | Quad9, over TLS | Never plaintext |
 | core5 | Off-box backups | A private GitHub repo | age-encrypted |
 | core5 | Container image pulls | Docker Hub, lscr.io | Pinned by digest |
 | core5 | UniFi controller | Ubiquiti | Remote management and analytics off |
@@ -165,9 +165,9 @@ is down, the request retries over DoH to Cloudflare or Quad9 by address.
 
 ## core5
 
-**All of its DNS** goes to `net.publicResolvers`, plaintext and unfiltered,
-so the monitoring collector does not depend on the resolvers it monitors
-(`hosts/core5/default.nix`).
+**All of its DNS**, the UniFi containers' included, goes over strict
+DNS-over-TLS to Quad9, not the resolvers it monitors (`hosts/core5/dns.nix`).
+Its **time**: Cloudflare's, by address.
 
 **Pings to the public resolvers** (`modules/blackbox.nix`), every 30 seconds,
 for `WanDown`.

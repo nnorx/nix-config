@@ -257,10 +257,11 @@
     "9.9.9.9" # Quad9
   ];
 
-  # forge's DNS away from home, over TLS (hosts/forge/dns.nix). One operator,
-  # since systemd-resolved stays on whichever server last answered, so a
-  # second would collect lookups after any hiccup in the first. Quad9 keeps no
-  # client addresses and refuses known-malicious names, as AdGuard does.
+  # DNS over TLS: forge's away from home (hosts/forge/dns.nix), and all of
+  # core5's (hosts/core5/dns.nix). One operator, since systemd-resolved stays
+  # on whichever server last answered, so a second would collect lookups after
+  # any hiccup in the first. Quad9 keeps no client addresses and refuses
+  # known-malicious names, as AdGuard does.
   encryptedResolvers = [
     {
       ip = "9.9.9.9";
@@ -270,6 +271,12 @@
       ip = "149.112.112.112";
       name = "dns.quad9.net";
     }
+  ];
+
+  # core5's time (hosts/core5/dns.nix): Cloudflare's.
+  timeServers = [
+    "162.159.200.1"
+    "162.159.200.123"
   ];
 
   # Where each Unbound fetches the root zone (RFC 8806, modules/unbound.nix):
