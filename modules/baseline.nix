@@ -74,8 +74,8 @@ in
   };
 
   # In nix.conf as well as flake.nix, since Nix ignores client-supplied
-  # settings from untrusted users, and a host that misses the cache compiles
-  # the Pi 4 kernel for 9-15 hours.
+  # settings from untrusted users, and the fleet's own derivations are in no
+  # other cache: a Pi that misses it fails its upgrade.
   nix.settings = {
     substituters = flakeCaches.extra-substituters;
     trusted-public-keys = flakeCaches.extra-trusted-public-keys;

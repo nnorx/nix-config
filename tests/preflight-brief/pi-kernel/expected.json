@@ -29,13 +29,7 @@
       "versions": []
     }
   },
-  "plan": [
-    {
-      "area": "cache",
-      "level": "review",
-      "text": "Merge early in the day. A Pi kernel that cache.yml has to build takes 2 to 5 hours, and an upgrade that runs before it finishes fails (pi)."
-    }
-  ],
+  "plan": [],
   "verdict": {
     "level": "be there",
     "text": "Merge when you can be at hand tonight: pi (reboot). docs/recovery.md has the way back."

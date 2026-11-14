@@ -102,13 +102,11 @@ rec {
       extraModules = [ ../hosts/common/pi.nix ] ++ hardwareModules ++ extraModules;
     };
 
-  # The Raspberry Pi bcm2711 kernel that nixos-raspberrypi builds, for a Pi 4
-  # otherwise set up by nixos-hardware. That module's own kernel is built from
-  # our nixpkgs and is in no public cache, so every nixpkgs bump costs
-  # cache.yml hours compiling it. This one is built from nixos-raspberrypi's
-  # own nixpkgs pin and cached upstream, the same way core5's is; a
-  # nixpkgs.follows on that input (see its comment) would make it ours to
-  # compile again.
+  # The Pi 4s' kernel: the Raspberry Pi bcm2711 kernel that nixos-raspberrypi
+  # builds from its own nixpkgs pin and caches, as it does core5's. The one
+  # nixos-hardware's module sets is built from our nixpkgs and is in no public
+  # cache, so each nixpkgs bump would mean hours compiling it. A
+  # nixpkgs.follows on that input would make this one ours to compile too.
   #
   # Only the kernel moves. U-Boot, extlinux and the device-tree filter stay
   # nixos-hardware's, and the dtbs come from this kernel. Its kernelPackages

@@ -34,11 +34,12 @@ before changing it.
   `nix build --no-link .#checks.x86_64-linux.<name>`. On forge the nix daemon
   has KVM, so this works from the sandbox, which shows no `/dev/kvm`.
 - The flake only sees files git tracks. `git add` a new file before evaluating.
-- Do not build aarch64 closures locally. The Pi 4 kernel is in no public cache
-  and takes hours to compile. `cache.yml` builds it on push to main.
+- Do not build aarch64 closures locally. forge has no aarch64 builder;
+  `cache.yml` builds the Pis' closures on push to main.
 - To check that a Pi can fetch its system for a commit, after `cache.yml` has
-  run for it, ask the cache for the toplevel. `cache.yml` pushes whole
-  closures, so the toplevel being there means the upgrade can substitute:
+  run for it, ask the cache for the toplevel. `cache.yml` pushes each closure
+  less what cache.nixos.org holds, which the Pis also use, so the toplevel
+  being there means the upgrade can substitute:
 
   ```
   p=$(nix eval --raw .#nixosConfigurations.<pi>.config.system.build.toplevel.outPath)
@@ -175,8 +176,6 @@ does not carry. The servers keep their names either way.
   changes go behind `deploy-guard` (`docs/recovery.md`).
 - `switch` does not start a newly added `network-addresses-<iface>` unit. The
   interface stays down until a reboot.
-- Merge `flake.lock` bumps early in the day. A kernel rebuild in `cache.yml`
-  takes 2 to 5 hours, and a Pi upgrade that runs before it finishes fails.
 
 ## Git and PRs
 
