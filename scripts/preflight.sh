@@ -2,33 +2,17 @@
 # pkgs/preflight as `apps.<system>.preflight` with writeShellApplication, which
 # adds the shebang, errexit, nounset and pipefail. PREFLIGHT_* are store paths.
 #
-#   1. The brief's rules, against the hand-written cases in
-#      tests/preflight-brief/ (scripts/test-preflight-brief.sh). A slip in a
-#      rule changes verdicts with no error, so this fails the run instead.
-#      First, since it takes milliseconds.
-#      Beside it, cve-scan's report, against tests/cve-scan-report/
-#      (scripts/test-cve-scan-report.sh): the report says which whitelist
-#      rules are dead, and a slip there gets a rule removed that still
-#      suppresses something, or keeps one that suppresses nothing.
-#   2. The night-shift dispatcher, pkgs/night-shift/, type-checked (Node runs
-#      its TypeScript with the types stripped, unchecked), then run against
-#      stubbed Linear, GitHub, ntfy and Claude (tests/night-shift/*.test.ts,
-#      through harness.ts). It runs
-#      unattended, acts as Nick in Linear and deletes worktrees and branches,
-#      and nothing else checks its guards once a change lands. Second, since
-#      it needs no evaluation and takes seconds, so a broken guard shows
-#      before the minutes the steps below take. Then fleet-deploy,
-#      home/fleet-deploy.sh, against stubbed hosts, nix and cache
-#      (tests/fleet-deploy/run.sh), for the same reasons: it deploys the Pis.
+#   1, 2. The test suites, of the brief's and cve-scan's rules, the
+#      night-shift dispatcher, fleet-deploy and the ratchets' exposure score
+#      (scripts/preflight-tests.sh, which says why each is there).
 #   3. Flake check: what `nix flake check --all-systems --no-build` evaluates,
 #      less the hosts (scripts/preflight-outputs.nix). Nix keeps all it has
 #      evaluated, and flake check peaked at 15.4 GB, so each piece gets a
 #      process, at most 8 at once, and none passes 1.7 GB.
 #   4. Every host's toplevel and every Home Manager config, evaluated: nix
 #      flake check only asks that a toplevel be a derivation, and skips
-#      homeConfigurations. The change and its base are evaluated at once, as
-#      two nix processes, since each is single-threaded and neither needs the
-#      other. Each evaluation's time and peak memory follow its output.
+#      homeConfigurations. The change and its base at once, in two nix
+#      processes, each followed by its time and peak memory.
 #   5. The brief: which of them the change actually touches, against a base,
 #      by default where this branch left origin/main, and for each host what
 #      kind of change it gets (scripts/preflight-brief.jq). That answers
@@ -36,12 +20,17 @@
 #      night, and whether that needs Nick at hand. It is advice and never
 #      fails the run.
 #   6. The ratchets (scripts/ratchets.sh): caps on prose, comment density,
-#      shell length and each listening unit's systemd exposure, after the
-#      exposure's own test (scripts/test-ratchets-systemd.sh). Past a cap the
-#      run fails, once formatting has run too.
+#      shell length and each listening unit's systemd exposure, scored from
+#      the unit text step 4 evaluated, so the hosts are evaluated no third
+#      time. Past a cap the run fails, once formatting has run too.
 #   7. Formatting, as CI checks it. Last, so a formatting slip never hides an
 #      evaluation error or the brief above. Files that were not formatted get
 #      formatted, and the run fails so the change is looked at.
+#
+# The test suites run beside steps 3 and 4: they evaluate nothing and hold
+# under 1 GB. Steps 3 and 4 run in turn: on forge they take about 6.5 and 9 GB
+# a run, and night-shift agents start several runs at once. Each step's output
+# is printed whole when it ends, and the first step to fail ends the run.
 #
 # --head <rev> checks a commit instead of the working tree, so a branch can be
 # briefed without checking it out; formatting is then skipped, since it works
@@ -127,46 +116,42 @@ if [[ -z $head && -n $untracked ]]; then
   while IFS= read -r path; do echo "   $path"; done <<<"$untracked"
 fi
 
-if [[ $flake_check != only ]]; then
-  step "brief rules"
-  # Under --head too: the brief below uses the rules this preflight was built
-  # with (PREFLIGHT_BRIEF), not the commit's, and those are what this tests.
-  # $BASH, since writeShellApplication puts no bash on PATH.
-  "$BASH" scripts/test-preflight-brief.sh
-
-  step "cve-scan report rules"
-  "$BASH" scripts/test-cve-scan-report.sh
-
-  step "night-shift types"
-  tsc -p pkgs/night-shift --typeRoots "$NIGHT_SHIFT_TYPES"
-
-  step "night-shift dispatcher"
-  # From the checkout under --head too: the working tree's dispatcher, not the
-  # commit's.
-  NIGHT_SHIFT_BASH="$BASH" node --test tests/night-shift/*.test.ts
-
-  step "fleet-deploy"
-  "$BASH" tests/fleet-deploy/run.sh
-fi
-
 work=$(mktemp -d)
-# The evaluations below run in the background, each in a process group of its
-# own (set -m), so one kill stops nix along with the time wrapping it, and no
-# nix outlives a run that fails or is stopped: the night shift's bwrap and
-# CI's step both expect that. INT and TERM become exits, so the trap runs for
-# them too.
-bg=()
+# Each step runs in a process group of its own (set -m), so one kill stops all
+# it started, and no nix outlives a run that fails or is stopped: the night
+# shift's bwrap and CI's step expect that. INT and TERM exit, for the trap.
+declare -A running=() ended=()
 cleanup() {
-  for pid in "${bg[@]}"; do kill -- "-$pid" 2>/dev/null || true; done
+  for pid in "${!running[@]}"; do kill -- "-$pid" 2>/dev/null || true; done
   rm -rf "$work"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-# Wall time and peak memory of a nix process, from GNU time (in runtimeInputs,
-# since a runner need not have it), so the log says how close a run came to
-# the runner's memory.
+# start <step> <command...>, its output kept apart so steps never interleave.
+start() {
+  set -m
+  "${@:2}" >"$work/$1.log" 2>&1 &
+  set +m
+  running[$!]=$1
+}
+# Until the step named $1 has ended, prints each step as it ends. The first to
+# fail ends the run with its status.
+await() {
+  local pid status
+  while [[ -z ${ended[$1]:-} ]]; do
+    status=0
+    wait -n -p pid "${!running[@]}" || status=$?
+    ended[${running[$pid]}]=1
+    cat "$work/${running[$pid]}.log" >&$((status == 0 ? 1 : 2))
+    ((status == 0)) || exit "$status"
+    unset "running[$pid]"
+  done
+}
+
+# Wall time and peak memory of a nix process, so the log says how close a run
+# came to the machine's memory. GNU time, from runtimeInputs.
 timed() {
   local name=$1
   shift
@@ -182,54 +167,70 @@ piece() {
     2>"$work/piece-$1.err" || { echo "!! flake check: $1 did not evaluate" >>"$work/piece-$1.err" && false; }
 }
 
-if [[ $flake_check != skip ]]; then
+flake_check() {
+  local jobs status=0
   jobs=$(($(nproc) < 8 ? $(nproc) : 8))
   step "flake check: every output but the hosts, $jobs at a time"
   nix eval --impure --json --expr "import $PREFLIGHT_OUTPUTS { ref = \"$ref\"; }" </dev/null >"$work/pieces.json"
   export work ref
   export -f piece
-  status=0
   jq -r '.[]' "$work/pieces.json" | timed flake-check xargs -P "$jobs" -I{} "$BASH" -c "piece {}" || status=$?
   # Each warning once, rather than once a process.
   cat "$work"/piece-*.err | awk '!/warning:/ || !seen[$0]++' >&2
   ((status == 0)) || exit 1
   peak flake-check "flake check, wall time and the largest piece"
-fi
-[[ $flake_check != only ]] || exit 0
+}
 
 evaluate() {
-  timed "$2" nix eval --impure --json --expr "import $PREFLIGHT_EVAL { ref = \"$1\"; }" \
+  timed "$2" nix eval --impure --json --expr "import $PREFLIGHT_EVAL { ref = \"$1\"; $3 }" \
     </dev/null >"$work/$2.json" 2>"$work/$2.err"
 }
 
-step "evaluate every host and home config, and compare with ${base:0:12}"
-set -m
-evaluate "$ref" head &
-bg+=("$!")
-evaluate "git+file://$root?rev=$base" base &
-bg+=("$!")
-set +m
-
-# The change failing to evaluate fails the run with nix's error, as it did in
-# the foreground. Each status comes from `wait <pid>`; a bare wait drops them.
-status=0
-wait "${bg[0]}" || status=$?
-cat "$work/head.err" >&2
-((status == 0)) || exit "$status"
-peak head
+# The change failing to evaluate fails the run with nix's error.
+eval_head() {
+  local status=0
+  step "evaluate every host and home config"
+  evaluate "$ref" head "withUnits = true;" || status=$?
+  cat "$work/head.err"
+  ((status == 0)) || exit "$status"
+  peak head
+}
 
 # The base failing to evaluate is not this change's fault, and says nothing
 # about it, so the run goes on. But the comparison is then unknown, not "new",
 # and the brief says so rather than flagging every host.
-base_ok=true
-wait "${bg[1]}" || base_ok=false
-bg=()
-peak base
-if ! $base_ok; then
+eval_base() {
+  step "evaluate them at the base, ${base:0:12}"
+  evaluate "git+file://$root?rev=$base" base "" || touch "$work/base.failed"
+  peak base
+  [[ -e $work/base.failed ]] || return 0
   echo '{"hosts": {}, "homes": {}}' >"$work/base.json"
   echo "!! The base did not evaluate, so what this changes is unknown. Its error ends:"
   tail -n 15 "$work/base.err" | sed 's/^/   /'
+}
+
+# Past a cap the run fails, but after formatting, so the step leaves its status.
+ratchets() {
+  step "ratchets"
+  RATCHETS_UNITS=$work/units.json "$BASH" scripts/ratchets.sh ${head:+--rev "$head"} ||
+    echo "$?" >"$work/ratchets.status"
+}
+
+[[ $flake_check == only ]] || start tests "$BASH" scripts/preflight-tests.sh
+if [[ $flake_check != skip ]]; then
+  start flake-check flake_check
+  await flake-check
 fi
+[[ $flake_check != only ]] || exit 0
+
+start head eval_head
+start base eval_base
+await head
+jq '.units' "$work/head.json" >"$work/units.json"
+start ratchets ratchets
+await base
+base_ok=true
+[[ ! -e $work/base.failed ]] || base_ok=false
 
 # Package name -> versions in a derivation's closure. That is the build
 # closure, compilers included, but reading it needs nothing built, only the
@@ -277,6 +278,8 @@ brief() {
   jq -r --arg format "$1" -f "$PREFLIGHT_BRIEF" "$work/brief-input.json"
 }
 
+# The tests' failure ends the run before the brief, as when they ran first.
+await tests
 echo
 brief text
 if [[ -n ${GITHUB_STEP_SUMMARY:-} ]]; then
@@ -286,14 +289,11 @@ if [[ -n $json ]]; then
   brief json >"$json"
 fi
 
-step "ratchets"
-ratchets=0
-{ "$BASH" scripts/test-ratchets-systemd.sh && "$BASH" scripts/ratchets.sh ${head:+--rev "$head"}; } || ratchets=$?
-
+await ratchets
 if [[ -n $head ]]; then
   step "format: skipped, since --head checks a commit and formatting works on files"
 else
   step "format"
   nix fmt -- --ci .
 fi
-((ratchets == 0)) || exit "$ratchets"
+[[ ! -s $work/ratchets.status ]] || exit "$(<"$work/ratchets.status")"

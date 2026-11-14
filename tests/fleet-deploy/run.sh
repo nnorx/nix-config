@@ -8,7 +8,7 @@
 # for the cache through GitHub's errors, a reboot seen to happen, the window's
 # own reboot waited for, ssh kept off the prompts' stdin, and main moving
 # underneath it.
-# scripts/preflight.sh runs it after the night-shift dispatcher's tests.
+# scripts/preflight-tests.sh runs it after the night-shift dispatcher's tests.
 #
 # Each case is a directory of its own, $FD, holding the hosts' state and the
 # stubs' answers, and a clone of a two-commit repository whose origin's path

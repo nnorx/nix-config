@@ -1,7 +1,8 @@
 # The exposure score `systemd-analyze security --offline=yes` gives each unit
 # named in `units` ("<host>/<unit>"), as one JSON object, for
 # scripts/ratchets.sh. A file at `<standIns>/<host>/<unit>` replaces that unit,
-# for scripts/test-ratchets-systemd.sh.
+# for scripts/test-ratchets-systemd.sh. In `texts`, preflight's, a name maps to
+# the unit's text as scripts/preflight-eval.nix evaluated it, or to null.
 #
 # Each unit is the text NixOS writes for it, so nothing of the host is built
 # and the Pis need no aarch64 builder. Not listed: docker.service, which NixOS
@@ -15,6 +16,7 @@
   ref,
   units,
   standIns ? null,
+  texts ? { },
 }:
 let
   flake = builtins.getFlake ref;
@@ -25,13 +27,18 @@ let
       host = builtins.head (builtins.split "/" name);
       unit = pkgs.lib.removePrefix "${host}/" name;
       config = flake.nixosConfigurations.${host}.config;
+      missing = throw "systemd-security: ${host} has no enabled ${unit}";
     in
     if standIns != null && builtins.pathExists "${standIns}/${name}" then
       builtins.readFile "${standIns}/${name}"
+    else if texts ? ${name} && texts.${name} != null then
+      texts.${name}
+    else if texts ? ${name} then
+      missing
     else if config.systemd.units.${unit}.enable or false then
       builtins.unsafeDiscardStringContext config.systemd.units.${unit}.text
     else
-      throw "systemd-security: ${host} has no enabled ${unit}";
+      missing;
 in
 pkgs.runCommand "systemd-security"
   {
