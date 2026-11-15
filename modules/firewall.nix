@@ -41,6 +41,9 @@ in
   networking.firewall = {
     enable = true;
 
+    # Pinned strict: NixOS 26.11 makes "loose" the default.
+    checkReversePath = true;
+
     # Nothing global. Every open port is scoped to an interface, here and in
     # the host configs.
     allowedTCPPorts = [ ];

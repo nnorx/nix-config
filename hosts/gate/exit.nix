@@ -156,10 +156,9 @@ in
   };
 
   networking.firewall = {
-    # Strict, which 26.11 no longer makes the default, with the tunnel exempt
-    # for the same reason as its kernel setting above, but never for a house
-    # address, which only a LAN interface carries.
-    checkReversePath = true;
+    # The tunnel is exempt from the strict filter for the same reason as its
+    # kernel setting above, but never for a house address, which only a LAN
+    # interface carries.
     extraReversePathFilterRules = ''
       iifname "${exit}" ip saddr != ${houseSet} accept comment "exit tunnel: replies route back by main"
     '';
