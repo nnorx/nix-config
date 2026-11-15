@@ -24,6 +24,10 @@ let
   # reads the head every 30 minutes, so this is a dozen reads failing in a row.
   headFresh = 6;
 
+  # Whether anything rides the exit tunnel. Until something does, an outage
+  # takes nothing offline, so it is not worth a high-priority push.
+  exitCarries = net.exitSegments != [ ] || net.exitResolvers;
+
   # Kea's statistics by segment rather than subnet, so no address leaves the
   # house. Shared with the DHCP dashboard.
   kea = import ../lib/kea-segments.nix { inherit lib net; };
@@ -98,15 +102,17 @@ in
           # so 5 is past a failover that worked. The handshake reads 0 until
           # the first one after the tunnel comes up; 0 does not raise the
           # largest reading over the window, so it counts as down once it has
-          # lasted that long, as a stale handshake does. Tunneled segments
-          # fail closed meanwhile, so they are offline.
+          # lasted that long, as a stale handshake does. What rides the tunnel
+          # fails closed meanwhile, which is what makes it critical.
           alert = "ExitTunnelDown";
           expr = ''
             time() - max by (instance) (max_over_time(fleet_exit_last_handshake_timestamp_seconds{instance="${router}"}[5m])) > 300
           '';
           for = "3m";
-          labels.severity = "critical";
-          annotations.summary = "${router}'s exit tunnel has not handshaken for 5 minutes, so the segments it carries are offline.";
+          labels.severity = if exitCarries then "critical" else "warning";
+          annotations.summary =
+            "${router}'s exit tunnel has not handshaken for 5 minutes"
+            + (if exitCarries then ", so what it carries is offline." else ". Nothing rides it yet.");
         }
         {
           # Opened by hand for a long outage, and it pushes on open and close
