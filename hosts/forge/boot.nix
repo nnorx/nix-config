@@ -27,12 +27,12 @@ in
   # The default is unbounded. Lanzaboote reads this same value.
   boot.loader.systemd-boot.configurationLimit = 10;
 
-  # systemd in the initrd: a better passphrase prompt, and the path to TPM2
-  # unlocking later. It is also what makes hibernation to a swapfile simple:
-  # systemd records the image location in the HibernateLocation EFI variable
-  # when it hibernates, and the initrd resumes from it, so there is no
-  # resume_offset to compute and keep in sync with the file.
-  boot.initrd.systemd.enable = true;
+  # The initrd runs systemd, the NixOS default, and forge relies on it: a
+  # better passphrase prompt, and the path to TPM2 unlocking later. It is also
+  # what makes hibernation to a swapfile simple: systemd records the image
+  # location in the HibernateLocation EFI variable when it hibernates, and the
+  # initrd resumes from it, so there is no resume_offset to compute and keep in
+  # sync with the file.
 
   # Everyday swap in compressed RAM. It has a higher priority than the swapfile
   # from disko.nix, so the disk is written when hibernating and almost never
