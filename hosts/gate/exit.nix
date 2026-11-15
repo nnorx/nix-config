@@ -56,14 +56,121 @@ let
 
   conf = config.sops.templates."exit-tunnel.conf";
   ph = config.sops.placeholder;
+
+  # Servers in one city, in the order the watchdog tries them. The key and
+  # inner address are the account's, so each takes the same interface.
+  roles = [
+    "primary"
+    "failover1"
+    "failover2"
+  ];
+  privateKey = lib.escapeShellArg config.sops.secrets.exit-private-key.path;
+  secretPaths =
+    what: toString (map (r: lib.escapeShellArg config.sops.secrets."exit-${r}-${what}".path) roles);
+  # gate-metrics-facts (./metrics.nix) reads the role in use from here.
+  stateDir = "/run/exit-tunnel";
+  keepalive = toString 25;
+  deadAfter = toString 180;
+
+  watchdog = pkgs.writeShellApplication {
+    name = "exit-watchdog";
+    runtimeInputs = [
+      pkgs.coreutils
+      pkgs.gawk
+      pkgs.wireguard-tools
+    ];
+    text = ''
+      roles=(${toString roles})
+      keys=(${secretPaths "public-key"})
+      endpoints=(${secretPaths "endpoint"})
+
+      record() {
+        local tmp
+        tmp=$(mktemp -p ${stateDir})
+        printf '%s\n' "$1" >"$tmp"
+        chmod 0644 "$tmp"
+        mv "$tmp" ${stateDir}/server
+      }
+
+      # The tunnel's own config with that role's server, made by printf, a
+      # builtin, so no key or endpoint is in any process's arguments; syncconf
+      # drops the old peer. wg would print a value it refused, so its errors
+      # are replaced.
+      use_role() {
+        local key endpoint
+        key=$(cat "''${keys[$1]}") || key=""
+        endpoint=$(cat "''${endpoints[$1]}") || endpoint=""
+        if wg syncconf ${exit} <(printf '[Interface]\nPrivateKey = %s\n\n[Peer]\nPublicKey = %s\nEndpoint = %s\nAllowedIPs = 0.0.0.0/0\nPersistentKeepalive = %s\n' \
+          "$(cat ${privateKey})" "$key" "$endpoint" ${keepalive}) 2>/dev/null; then
+          record "''${roles[$1]}"
+        else
+          echo "wg refused ''${roles[$1]}: check its exit-* entries in secrets/gate.yaml" >&2
+          return 1
+        fi
+      }
+
+      # By hand, with the unit stopped: `exit-watchdog <role>` switches once.
+      if [ $# -gt 0 ]; then
+        for i in "''${!roles[@]}"; do
+          if [ "$1" = "''${roles[i]}" ]; then
+            use_role "$i" && echo "switched to $1"
+            exit
+          fi
+        done
+        echo "usage: exit-watchdog [''${roles[*]}]" >&2
+        exit 2
+      fi
+
+      # The role is found by the peer's key, so restarting this unit alone
+      # keeps the server in use. A key that is none of them names no role.
+      peer=$(wg show ${exit} peers | head -n 1)
+      current=-1
+      role="no role"
+      for i in "''${!roles[@]}"; do
+        if [ "$peer" = "$(cat "''${keys[i]}")" ]; then
+          current=$i
+          role=''${roles[i]}
+          break
+        fi
+      done
+      if [ "$current" -ge 0 ]; then
+        echo "on $role"
+        record "$role"
+      else
+        echo "${exit}'s peer is no role's, so the next switch is to ''${roles[0]}"
+        record ""
+      fi
+
+      # Judged from the later of its last handshake and the last switch (or
+      # this start), so a server just switched to has the full time to answer.
+      since=$(date +%s)
+      while sleep 10; do
+        now=$(date +%s)
+        handshake=$(wg show ${exit} latest-handshakes | awk '$2 > m { m = $2 } END { print m + 0 }')
+        [ "$handshake" -gt "$since" ] || handshake=$since
+        [ $((now - handshake)) -gt ${deadAfter} ] || continue
+
+        next=$(((current + 1) % ''${#roles[@]}))
+        if use_role "$next"; then
+          echo "no handshake from $role in ${deadAfter} s, switched to ''${roles[next]}"
+          role=''${roles[next]}
+        fi
+        current=$next
+        since=$now
+      done
+    '';
+  };
 in
 {
   sops.secrets = {
     exit-private-key = { };
-    exit-primary-public-key = { };
-    exit-primary-endpoint = { };
     exit-address.restartUnits = [ "exit-tunnel.service" ];
-  };
+  }
+  # Read at each switch, so a new failover needs no restart.
+  // lib.genAttrs (lib.concatMap (r: [
+    "exit-${r}-public-key"
+    "exit-${r}-endpoint"
+  ]) roles) (_: { });
 
   # Read only at start, so a new key or server restarts the tunnel.
   sops.templates."exit-tunnel.conf" = {
@@ -76,7 +183,7 @@ in
       PublicKey = ${ph.exit-primary-public-key}
       Endpoint = ${ph.exit-primary-endpoint}
       AllowedIPs = 0.0.0.0/0
-      PersistentKeepalive = 25
+      PersistentKeepalive = ${keepalive}
     '';
   };
 
@@ -186,6 +293,34 @@ in
     postStop = ''
       ip link del dev ${exit} 2>/dev/null || true
     '';
+  };
+
+  # For the runbook's hand check: `exit-watchdog <role>`.
+  environment.systemPackages = [ watchdog ];
+
+  # A loop rather than a timer, as the time since a switch is state, and the
+  # tunnel's restart is what returns it to the primary. It never returns on
+  # its own: the exit address, which banks watch, moves with the server.
+  systemd.services.exit-watchdog = {
+    description = "Exit tunnel failover between servers";
+    wantedBy = [
+      "multi-user.target"
+      "exit-tunnel.service"
+    ];
+    bindsTo = [ "exit-tunnel.service" ];
+    partOf = [ "exit-tunnel.service" ];
+    after = [ "exit-tunnel.service" ];
+    serviceConfig = import ../../lib/hardening.nix // {
+      ExecStart = lib.getExe watchdog;
+      Restart = "always";
+      RestartSec = "10s";
+      # Root for the sops entries, which are root's alone.
+      CapabilityBoundingSet = [ "CAP_NET_ADMIN" ];
+      RuntimeDirectory = baseNameOf stateDir;
+      RuntimeDirectoryMode = "0755";
+      # So the metrics still name the last server while it is stopped.
+      RuntimeDirectoryPreserve = true;
+    };
   };
 
   networking.firewall = {

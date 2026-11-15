@@ -102,11 +102,12 @@ gate's firewall changes go behind `deploy-guard`.
 
 ## Exit tunnel
 
-`wg-exit` is gate's WireGuard client to one VPN provider server
-(`hosts/gate/exit.nix`). A segment in `exitSegments` (`lib/net.nix`) leaves
-through it instead of `wan`, and through nothing while it is down. Each
-segment is turned on in a deploy of its own; work and servers never are.
-The provider's key, its endpoint and gate's inner address are in sops alone.
+`wg-exit` is gate's WireGuard client to a VPN provider's server, one of three
+in one city (`hosts/gate/exit.nix`). A segment in `exitSegments`
+(`lib/net.nix`) leaves through it instead of `wan`, and through nothing while
+it is down. Each segment is turned on in a deploy of its own; work and
+servers never are. The servers' keys and endpoints and gate's inner address
+are in sops alone.
 
 | Piece | What it does |
 |---|---|
@@ -116,7 +117,8 @@ The provider's key, its endpoint and gate's inner address are in sops alone.
 | Table `exit` (100) | `default dev wg-exit`, then `unreachable default metric 100` |
 | `exit-mark` | Marks the resolvers' port 53 in prerouting, with `exitResolvers` on |
 | `exit-routing.service` | Sets the rules and table above before `network-pre.target`, reconciling 1100 and 1200 on every start |
-| `exit-tunnel.service` | Makes `wg-exit` from the rendered `exit-tunnel.conf`, MTU 1420 |
+| `exit-tunnel.service` | Makes `wg-exit` from the rendered `exit-tunnel.conf`, MTU 1420, on the primary |
+| `exit-watchdog.service` | Moves `wg-exit` to the next server when one stops answering; writes the role to `/run/exit-tunnel/server` |
 | `forward-allow` | Out `wg-exit` for tunneled segments and the mark; out `wan` dropped into `exit-leak-dropped` |
 | `exit-masquerade`, `exit-mss` | NAT to gate's inner address; MSS clamped to the tunnel's MTU |
 | `gate-metrics-facts` | `fleet_exit_*`: handshake, bytes, the server by role, leak drops, open bypasses; no endpoint or key |
@@ -133,19 +135,20 @@ fallback and bootstrap. The rest stays on `wan`, as does core5. Once on, and
 after each new key, `ssh core4 dig +norec +short CH TXT hostname.bind
 @k.root-servers.net` prints a K-root instance, not the provider's resolver.
 
-**Keys and server.** From the repo, in your own terminal, inside
+**Keys and servers.** From the repo, in your own terminal, inside
 `nix shell nixpkgs#sops nixpkgs#jq nixpkgs#wireguard-tools`. The private key is made on gate, straight into sops; the
 second line prints its public half. Register that as a device in the
 provider's account with DNS hijacking off, and note its inner address.
-Then paste the server's public key, its `address:port`, and the inner
-address with `/32` at each silent prompt:
+Then paste each server's public key and `address:port`, and the inner
+address with `/32`, at the silent prompts. To swap one server, give the third
+line only its two entries.
 
 ```bash
 ssh gate wg genkey | jq -R . | sops set --value-stdin secrets/gate.yaml '["exit-private-key"]'
 sops decrypt --extract '["exit-private-key"]' secrets/gate.yaml | wg pubkey
-for k in exit-primary-public-key exit-primary-endpoint exit-address; do printf '%s: ' "$k"; read -rs v && echo && printf '"%s"' "$v" | sops set --value-stdin secrets/gate.yaml "[\"$k\"]"; done; unset v k
-for k in exit-private-key exit-primary-public-key; do sops decrypt --extract "[\"$k\"]" secrets/gate.yaml | grep -qE '^[A-Za-z0-9+/]{43}=$' && echo "$k ok"; done
-sops decrypt --extract '["exit-primary-endpoint"]' secrets/gate.yaml | grep -qE '^[0-9.]+:[0-9]+$' && echo "endpoint ok"
+for k in exit-{primary,failover1,failover2}-{public-key,endpoint} exit-address; do printf '%s: ' "$k"; read -rs v && echo && printf '"%s"' "$v" | sops set --value-stdin secrets/gate.yaml "[\"$k\"]"; done; unset v k
+for k in exit-private-key exit-{primary,failover1,failover2}-public-key; do sops decrypt --extract "[\"$k\"]" secrets/gate.yaml | grep -qE '^[A-Za-z0-9+/]{43}=$' && echo "$k ok"; done
+for k in exit-{primary,failover1,failover2}-endpoint; do sops decrypt --extract "[\"$k\"]" secrets/gate.yaml | grep -qE '^[0-9.]+:[0-9]+$' && echo "$k ok"; done
 sops decrypt --extract '["exit-address"]' secrets/gate.yaml | grep -qE '^[0-9.]+/32$' && echo "address ok"
 ```
 
@@ -155,7 +158,7 @@ Activation fails while any is missing. Deploy with `nrs` behind deploy-guard
 **Checks.** After a deploy, and when the tunnel is in doubt:
 
 ```bash
-ssh -t gate 'h=$(sudo wg show wg-exit latest-handshakes | cut -f2); echo "handshake $(( $(date +%s) - h ))s ago"'
+ssh -t gate 'h=$(sudo wg show wg-exit latest-handshakes | cut -f2); echo "handshake $(( $(date +%s) - h ))s ago"; cat /run/exit-tunnel/server'
 ssh -t gate 'sudo nft list counter inet nixos-fw exit-leak-dropped; ip rule; ip route show table exit'
 ```
 
@@ -166,6 +169,25 @@ gate`, bound to each way out in turn, printing only ping and speeds:
 ```bash
 NIXPKGS_ALLOW_UNFREE=1 nix shell --impure nixpkgs#ookla-speedtest nixpkgs#jq
 for i in wg-exit wan; do speedtest --accept-license --accept-gdpr -I $i -f json | jq -c --arg i $i '{via: $i, ping: .ping.latency, down: (.download.bandwidth * 8 / 1e6), up: (.upload.bandwidth * 8 / 1e6)}'; done
+```
+
+**Failover.** `exit-watchdog` moves the peer to the next role, `primary`,
+`failover1`, `failover2`, then `primary`, once the one in use has gone 180 s
+without a handshake, counted from the switch for a new one. With none
+answering it keeps cycling, closed. It never returns to the primary itself,
+as the exit address, which banks watch, moves with the server. Restarting
+the tunnel does, dropping open connections:
+`ssh -t gate sudo systemctl restart exit-tunnel`.
+
+A slow server is not a dead one, and the watchdog sees only the dead. Now and
+then, at evening peak, put each role in by hand from `ssh -t gate`, run the
+speed test above, and reorder the sops entries if one has fallen behind:
+
+```bash
+sudo systemctl stop exit-watchdog
+sudo exit-watchdog failover1
+# the speed test, then the next role; after the last:
+sudo systemctl restart exit-tunnel
 ```
 
 ## An address on the wrong wire
