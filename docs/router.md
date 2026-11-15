@@ -112,18 +112,26 @@ The provider's key, its endpoint and gate's inner address are in sops alone.
 |---|---|
 | `ip rule` 1000 | `lookup main suppress_prefixlength 0`: the house's own routes win |
 | `ip rule` 1100 | `iif <segment's interface> lookup exit`, one per tunneled segment |
+| `ip rule` 1200 | `fwmark <exitMark> lookup exit`, with `exitResolvers` on |
 | Table `exit` (100) | `default dev wg-exit`, then `unreachable default metric 100` |
-| `exit-routing.service` | Sets the three above before `network-pre.target`, reconciling the 1100 rules on every start |
+| `exit-mark` | Marks the resolvers' port 53 in prerouting, with `exitResolvers` on |
+| `exit-routing.service` | Sets the rules and table above before `network-pre.target`, reconciling 1100 and 1200 on every start |
 | `exit-tunnel.service` | Makes `wg-exit` from the rendered `exit-tunnel.conf`, MTU 1420 |
-| `forward-allow` | Out `wg-exit` for tunneled segments; out `wan` dropped into `exit-leak-dropped` |
+| `forward-allow` | Out `wg-exit` for tunneled segments and the mark; out `wan` dropped into `exit-leak-dropped` |
 | `exit-masquerade`, `exit-mss` | NAT to gate's inner address; MSS clamped to the tunnel's MTU |
 | `gate-metrics-facts` | `fleet_exit_*`: handshake, bytes, the server by role, leak drops, open bypasses; no endpoint or key |
 
-gate's own traffic matches no `iif` rule, so wg0, NTP, DNS, DDNS and the
-tunnel's own packets stay on `wan`. A tunneled client's packet for an address
-on `wan`'s own subnet takes `main`'s connected route and is dropped and
-counted. Reverse-path filtering stays strict but for `wg-exit`, whose replies
+gate's own traffic matches no `iif` rule and carries no mark, so wg0, NTP,
+DNS, DDNS and the tunnel's own packets stay on `wan`. A tunneled packet for an
+address on `wan`'s own subnet takes `main`'s connected route and is dropped
+and counted. Reverse-path filtering stays strict but for `wg-exit`, whose replies
 come from addresses `main` routes to `wan`, though never from a house address.
+
+**The resolvers.** With `exitResolvers` on, core4's and lifeline's port 53
+takes the tunnel: Unbound's recursion and root zone transfers, AdGuard's
+fallback and bootstrap. The rest stays on `wan`, as does core5. Once on, and
+after each new key, `ssh core4 dig +norec +short CH TXT hostname.bind
+@k.root-servers.net` prints a K-root instance, not the provider's resolver.
 
 **Keys and server.** From the repo, in your own terminal, inside
 `nix shell nixpkgs#sops nixpkgs#jq nixpkgs#wireguard-tools`. The private key is made on gate, straight into sops; the

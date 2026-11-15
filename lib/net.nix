@@ -253,6 +253,12 @@
   };
   exitMtu = 1420;
 
+  # Whether the resolvers' port 53 out of the house, their recursion, takes
+  # the exit tunnel, failing closed as a segment does. gate marks it with
+  # `exitMark` and routes the mark into the exit table.
+  exitResolvers = false;
+  exitMark = 100;
+
   # AdGuard over Unbound, handed out by DHCP and the target of gate's port-53
   # redirect. Named by host, so consumers read both address and segment.
   resolvers = [

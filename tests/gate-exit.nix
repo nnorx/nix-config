@@ -1,11 +1,13 @@
-# gate's exit tunnel, end to end in VMs, with trusted in `exitSegments`: a
-# trusted client reaches the internet from the provider's address and work
-# from `wan`'s; with the provider down, the tunnel gone, or the routing rule
-# deleted, trusted reaches nothing and nothing of it leaves by `wan`; DoT is
-# refused in the tunnel as out `wan`; gate's own traffic and wg0 stay on
-# `wan`; the provider cannot send from a house address; and the rules unit
-# reconciles what it finds. gate's metrics textfile reports all of it by
-# role, never by address. docs/router.md, "Exit tunnel", has the design.
+# gate's exit tunnel, end to end in VMs, with trusted in `exitSegments` and
+# `exitResolvers` on: a trusted client, and a resolver's port 53, reach the
+# internet from the provider's address, while work, another server's port 53
+# and a resolver's other traffic leave from `wan`'s; with the provider down,
+# the tunnel gone, or a routing rule deleted, the tunneled reach nothing and
+# nothing of theirs leaves by `wan`; DoT is refused in the tunnel as out
+# `wan`; gate's own traffic and wg0 stay on `wan`; the provider cannot send
+# from a house address; and the rules unit reconciles what it finds. gate's
+# metrics textfile reports all of it by role, never by address.
+# docs/router.md, "Exit tunnel", has the design.
 #
 # `nix build .#checks.x86_64-linux.gate-exit`. It needs KVM, which forge's
 # daemon has; CI's vm-tests job runs it on pull requests.
@@ -18,6 +20,7 @@
 let
   testNet = net // {
     exitSegments = [ "trusted" ];
+    exitResolvers = true;
   };
   topology = import ./lib/gate-topology.nix { net = testNet; };
   seg = net.segments;
@@ -139,6 +142,54 @@ let
         (topology.probe pkgs)
       ];
     };
+
+  # Both resolvers' addresses on one VM, and one of the fleet's other servers.
+  resolverIps = map (h: net.hosts.${h}.ip) net.resolvers;
+  otherServer = builtins.head (
+    builtins.filter (
+      h:
+      !(builtins.elem h net.resolvers)
+      && (net.hosts.${h}.segment or null) == net.hosts.${builtins.head net.resolvers}.segment
+      && net.hosts.${h} ? ip
+    ) (builtins.attrNames net.hosts)
+  );
+
+  # `ask udp|tcp host port [source]` sends a line and prints the first line
+  # back, "timeout" when nothing comes, or "error" when ICMP refuses it.
+  ask =
+    pkgs:
+    pkgs.writers.writePython3Bin "ask" { } ''
+      import socket
+      import sys
+
+      proto, host, port = sys.argv[1], sys.argv[2], int(sys.argv[3])
+      source = sys.argv[4] if len(sys.argv) > 4 else ""
+      udp = proto == "udp"
+      kind = socket.SOCK_DGRAM if udp else socket.SOCK_STREAM
+      s = socket.socket(socket.AF_INET, kind)
+      s.settimeout(5)
+      s.bind((source, 0))
+      try:
+          s.connect((host, port))
+          s.send(b"q\n")
+          print(s.recv(64).decode().strip())
+      except socket.timeout:
+          print("timeout")
+      except OSError:
+          print("error")
+    '';
+
+  onServers =
+    addresses:
+    { pkgs, ... }:
+    {
+      imports = [ (topology.onServers addresses) ];
+      environment.systemPackages = [
+        pkgs.curl
+        pkgs.socat
+        (ask pkgs)
+      ];
+    };
 in
 {
   name = "gate-exit";
@@ -184,6 +235,7 @@ in
           pkgs.curl
           pkgs.wireguard-tools
           (topology.probe pkgs)
+          (ask pkgs)
         ];
         # After the firewall's rpfilter chain, at mangle + 10.
         networking.nftables.tables.past-rpfilter = {
@@ -209,6 +261,16 @@ in
             [ -z "$line" ] && break
           done
           printf 'HTTP/1.0 200 OK\r\n\r\n%s\n' "$SOCAT_PEERADDR"
+        '';
+        # Reads the query first: unread input makes socat's read of the
+        # answer fail with a reset.
+        peer = pkgs.writeShellScript "peer" ''
+          read -r _
+          printf '%s\n' "$SOCAT_PEERADDR"
+        '';
+        # Over TCP, one answer per line, so a flow can be held open.
+        answers = pkgs.writeShellScript "answers" ''
+          while read -r _; do printf '%s\n' "$SOCAT_PEERADDR"; done
         '';
       in
       {
@@ -236,6 +298,17 @@ in
           wantedBy = [ "multi-user.target" ];
           script = "${pkgs.socat}/bin/socat TCP-LISTEN:853,fork,reuseaddr EXEC:${pkgs.coreutils}/bin/true";
         };
+        systemd.services.listen-53-udp = {
+          wantedBy = [ "multi-user.target" ];
+          # Bound, so answers come from the address asked; it may not be up yet.
+          script = "${pkgs.socat}/bin/socat UDP-RECVFROM:53,bind=${site},fork EXEC:${peer}";
+          serviceConfig.Restart = "on-failure";
+          serviceConfig.RestartSec = 1;
+        };
+        systemd.services.listen-53-tcp = {
+          wantedBy = [ "multi-user.target" ];
+          script = "${pkgs.socat}/bin/socat TCP-LISTEN:53,fork,reuseaddr EXEC:${answers}";
+        };
         networking.nftables = {
           enable = true;
           tables.seen = {
@@ -243,10 +316,12 @@ in
             content = ''
               counter tcp-from-wan {}
               counter udp-from-wan {}
+              counter dns-from-wan {}
               chain input {
                 type filter hook input priority filter; policy accept;
                 ip saddr ${isp.gate} tcp dport { 80, 853 } counter name "tcp-from-wan"
                 ip saddr ${isp.gate} udp dport { 53, 123 } counter name "udp-from-wan"
+                ip saddr ${isp.gate} meta l4proto { tcp, udp } th dport 53 counter name "dns-from-wan"
               }
             '';
           };
@@ -297,6 +372,8 @@ in
 
     trusted = client "trusted";
     work = client "work";
+    resolver = onServers resolverIps;
+    server = onServers [ net.hosts.${otherServer}.ip ];
   };
 
   testScript = ''
@@ -309,10 +386,12 @@ in
     internet.wait_for_open_port(80)
     internet.wait_for_open_port(853)
     internet.wait_for_open_port(9000)
+    internet.wait_for_open_port(53)
+    internet.wait_until_succeeds("ss -Hlun '( sport = :53 )' | grep -q .", timeout=30)
     provider.wait_for_unit("wireguard-wg-provider.service")
     gate.wait_for_unit("nftables.service")
     gate.wait_for_unit("exit-tunnel.service")
-    for m in [gate, internet, provider, remote, trusted, work]:
+    for m in [gate, internet, provider, remote, trusted, work, resolver, server]:
         m.wait_for_unit("network.target")
     trusted.wait_until_succeeds("ping -c1 -W1 ${seg.trusted.gateway}", timeout=60)
     work.wait_until_succeeds("ping -c1 -W1 ${seg.work.gateway}", timeout=60)
@@ -328,6 +407,15 @@ in
 
     def from_wan():
         return counter(internet, "ip seen", "tcp-from-wan")
+
+    def dns_from_wan():
+        return counter(internet, "ip seen", "dns-from-wan")
+
+    def ask(machine, proto, source=""):
+        return machine.succeed(f"ask {proto} ${site} 53 {source}").strip()
+
+    resolvers = [${builtins.concatStringsSep ", " (map (ip: "\"${ip}\"") resolverIps)}]
+    mark_rule = f"1200:\tfrom all fwmark {hex(${toString net.exitMark})} lookup ${net.exitTable.name}"
 
     fetch = "curl -sS -m 5 http://${site}/"
 
@@ -363,10 +451,11 @@ in
         for s in identifying:
             assert s not in text, [l for l in text.splitlines() if s in l]
 
-    with subtest("the rules: main without its default, then trusted into the exit table"):
+    with subtest("the rules: main without its default, then trusted and the mark into the exit table"):
         rules = gate.succeed("ip rule show")
         assert "1000:\tfrom all lookup main suppress_prefixlength 0" in rules, rules
         assert "1100:\tfrom all iif br-trusted lookup ${net.exitTable.name}" in rules, rules
+        assert mark_rule in rules, rules
         routes = gate.succeed("ip route show table ${net.exitTable.name}")
         assert "default dev ${exit}" in routes, routes
         assert "unreachable default metric 100" in routes, routes
@@ -408,6 +497,16 @@ in
     with subtest("a work client leaves by wan"):
         assert seen(work) == "${isp.gate}"
 
+    with subtest("each resolver's port 53 leaves through the provider, by UDP and TCP"):
+        for ip in resolvers:
+            resolver.wait_until_succeeds(f"ask udp ${site} 53 {ip} | grep -qx ${far.provider}", timeout=60)
+            assert ask(resolver, "tcp", ip) == "${far.provider}"
+
+    with subtest("a resolver's other traffic, and another server's port 53, leave by wan"):
+        assert seen(resolver) == "${isp.gate}"
+        assert ask(server, "udp") == "${isp.gate}"
+        assert ask(server, "tcp") == "${isp.gate}"
+
     with subtest("gate reaches the internet through the exit when bound to it"):
         assert gate.succeed("curl -sS -m 5 --interface ${exit} http://${site}/").strip() == "${far.provider}"
 
@@ -427,7 +526,9 @@ in
 
     with subtest("gate's own NTP and DNS leave by wan"):
         before = counter(internet, "ip seen", "udp-from-wan")
-        gate.succeed("probe udp ${site} 123; probe udp ${site} 53")
+        gate.succeed("probe udp ${site} 123")
+        assert ask(gate, "udp") == "${isp.gate}"
+        assert ask(gate, "tcp") == "${isp.gate}"
         assert counter(internet, "ip seen", "udp-from-wan") >= before + 2
 
     with subtest("a peer dialing wg0 on wan still handshakes"):
@@ -435,20 +536,28 @@ in
         handshake = remote.succeed("wg show wg-home latest-handshakes").split()[1]
         assert int(handshake) > 0, handshake
 
-    with subtest("the provider down: trusted times out, and nothing leaves by wan"):
+    with subtest("the provider down: trusted and the resolvers time out, and nothing leaves by wan"):
         provider.succeed("systemctl stop wireguard-wg-provider.service")
-        wan_before = from_wan()
+        wan_before, dns_before = from_wan(), dns_from_wan()
         trusted.fail(fetch)
         assert from_wan() == wan_before, "trusted left by wan"
+        for ip in resolvers:
+            assert ask(resolver, "udp", ip) == "timeout"
+        assert ask(resolver, "tcp", resolvers[0]) == "timeout"
+        assert dns_from_wan() == dns_before, "a resolver's port 53 left by wan"
         assert seen(work) == "${isp.gate}"
+        assert ask(server, "udp") == "${isp.gate}"
         provider.succeed("systemctl start wireguard-wg-provider.service")
         trusted.wait_until_succeeds(f"{fetch} | grep -qx ${far.provider}", timeout=90)
+        resolver.wait_until_succeeds(f"ask udp ${site} 53 {resolvers[0]} | grep -qx ${far.provider}", timeout=90)
 
     with subtest("the tunnel gone: unreachable, not wan"):
         gate.succeed("systemctl stop exit-tunnel.service")
-        before, wan_before = leaked(), from_wan()
+        before, wan_before, dns_before = leaked(), from_wan(), dns_from_wan()
         trusted.fail(fetch)
         assert from_wan() == wan_before, "trusted left by wan"
+        assert ask(resolver, "udp", resolvers[0]) in ("timeout", "error")
+        assert dns_from_wan() == dns_before, "a resolver's port 53 left by wan"
         assert leaked() == before, "the unreachable route let a packet through to forward"
         text = metrics()
         assert one(text, "fleet_exit_last_handshake_timestamp_seconds") == 0
@@ -483,20 +592,67 @@ in
         assert one(text, "fleet_exit_leak_dropped_bytes_total") > 0
         anonymous(text)
 
+    with subtest("the mark's rule gone: the leak drop catches the resolvers, and counts them"):
+        # A query held open too, as for trusted above.
+        resolver.succeed(
+            "systemd-run --unit=hold -p Environment=PATH=/run/current-system/sw/bin "
+            f"sh -c 'while :; do echo x; sleep 0.2; done | socat -u STDIN TCP:${site}:53,bind={resolvers[0]}'"
+        )
+        internet.wait_until_succeeds("ss -Htn state established '( sport = :53 )' | grep -q .", timeout=30)
+        dns_before = dns_from_wan()
+        gate.succeed("ip rule del priority 1200")
+        held = leaked()
+        for _ in range(30):
+            if leaked() > held:
+                break
+            time.sleep(0.5)
+        else:
+            raise AssertionError("the resolver's established flow was not counted by the leak drop")
+        resolver.succeed("systemctl stop hold")
+        assert dns_from_wan() == dns_before, "the resolver's held flow left by wan"
+        before = leaked()
+        assert ask(resolver, "udp", resolvers[0]) == "timeout"
+        assert ask(resolver, "tcp", resolvers[0]) == "timeout"
+        assert dns_from_wan() == dns_before, "a resolver's port 53 left by wan"
+        assert leaked() > before, "exit-leak-dropped did not rise"
+        gate.succeed("systemctl restart exit-routing.service")
+        resolver.wait_until_succeeds(f"ask udp ${site} 53 {resolvers[0]} | grep -qx ${far.provider}", timeout=60)
+
     with subtest("the rules unit restores what is listed, drops the rest, and adds no duplicate"):
         gate.succeed("ip rule add priority 1100 iif ${gate.trunkIface}.${toString seg.work.id} table ${toString net.exitTable.id}")
         # Strays into other tables, and the suppress rule gone beside one.
         gate.succeed("ip rule add priority 1100 iif lo table main")
         gate.succeed("ip rule del priority 1000 lookup main suppress_prefixlength 0")
         gate.succeed("ip rule add priority 1000 iif lo table main")
+        # Beside the mark's: another mark, and the right one limited to lo.
+        gate.succeed("ip rule add priority 1200 fwmark ${toString (net.exitMark + 1)} table main")
+        gate.succeed("ip rule add priority 1200 iif lo fwmark ${toString net.exitMark} table ${toString net.exitTable.id}")
         gate.succeed("systemctl restart exit-routing.service")
         gate.succeed("systemctl restart exit-routing.service")
+        # Right as it stands, so a restart leaves it untouched.
+        rewrites = "journalctl -u exit-routing.service -o cat | grep -c 'rewriting the rules at 1200'"
+        n = gate.succeed(rewrites).strip()
+        gate.succeed("systemctl restart exit-routing.service")
+        assert gate.succeed(rewrites).strip() == n, "exit-routing rewrote a rule that was right"
         assert "lookup main suppress_prefixlength 0" in gate.succeed("ip rule show priority 1000")
         gate.succeed("ip rule del priority 1000 iif lo table main")
         assert gate.succeed("ip rule show priority 1000").count("\n") == 1
         rules = gate.succeed("ip rule show priority 1100")
         assert rules.strip() == "1100:\tfrom all iif br-trusted lookup ${net.exitTable.name}", rules
+        rules = gate.succeed("ip rule show priority 1200")
+        assert rules.strip() == mark_rule, rules
         assert seen(trusted) == "${far.provider}"
+        assert ask(resolver, "udp", resolvers[0]) == "${far.provider}"
         assert seen(work) == "${isp.gate}"
+
+    with subtest("a near miss alone at the mark's priority is rewritten"):
+        for miss in ["not fwmark ${toString net.exitMark}", "fwmark ${toString net.exitMark}/0xff", f"from {resolvers[0]} fwmark ${toString net.exitMark}"]:
+            gate.succeed("ip rule del priority 1200")
+            gate.succeed(f"ip rule add priority 1200 {miss} table ${toString net.exitTable.id}")
+            # Many restarts in a row would hit the unit's start limit.
+            gate.succeed("systemctl reset-failed exit-routing.service; systemctl restart exit-routing.service")
+            rules = gate.succeed("ip rule show priority 1200")
+            assert rules.strip() == mark_rule, f"{miss}: {rules}"
+        assert ask(resolver, "udp", resolvers[0]) == "${far.provider}"
   '';
 }
