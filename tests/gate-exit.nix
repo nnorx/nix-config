@@ -624,11 +624,9 @@ in
         gate.succeed("ip rule add priority 1100 iif lo table main")
         gate.succeed("ip rule del priority 1000 lookup main suppress_prefixlength 0")
         gate.succeed("ip rule add priority 1000 iif lo table main")
-        # Beside the mark's: another mark, and near misses of the right one.
+        # Beside the mark's: another mark, and the right one limited to lo.
         gate.succeed("ip rule add priority 1200 fwmark ${toString (net.exitMark + 1)} table main")
         gate.succeed("ip rule add priority 1200 iif lo fwmark ${toString net.exitMark} table ${toString net.exitTable.id}")
-        gate.succeed("ip rule add priority 1200 not fwmark ${toString net.exitMark} table ${toString net.exitTable.id}")
-        gate.succeed("ip rule add priority 1200 fwmark ${toString net.exitMark}/0xff table ${toString net.exitTable.id}")
         gate.succeed("systemctl restart exit-routing.service")
         gate.succeed("systemctl restart exit-routing.service")
         # Right as it stands, so a restart leaves it untouched.
@@ -646,5 +644,14 @@ in
         assert seen(trusted) == "${far.provider}"
         assert ask(resolver, "udp", resolvers[0]) == "${far.provider}"
         assert seen(work) == "${isp.gate}"
+
+    with subtest("a near miss alone at the mark's priority is rewritten"):
+        for miss in ["not fwmark ${toString net.exitMark}", "fwmark ${toString net.exitMark}/0xff", f"from {resolvers[0]} fwmark ${toString net.exitMark}"]:
+            gate.succeed("ip rule del priority 1200")
+            gate.succeed(f"ip rule add priority 1200 {miss} table ${toString net.exitTable.id}")
+            gate.succeed("systemctl restart exit-routing.service")
+            rules = gate.succeed("ip rule show priority 1200")
+            assert rules.strip() == mark_rule, f"{miss}: {rules}"
+        assert ask(resolver, "udp", resolvers[0]) == "${far.provider}"
   '';
 }
