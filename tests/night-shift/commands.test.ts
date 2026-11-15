@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { test } from "node:test";
-import { type Case, here, kase, script, ts } from "./harness.ts";
+import { Case, here, kase, script, ts } from "./harness.ts";
 
 // The deployed dispatcher sets NIGHT_SHIFT_TS for the sessions it starts, so a
 // run there that took it from the environment would test the store's code.
@@ -220,6 +220,24 @@ kase("file_labels", "file: labels: shown, and sent after the repo label", async 
   assert.deepEqual(c.ops("issueCreate").map((l) => l.variables.i.labelIds), [["label-demo", "label-hands-on"]]);
   assert.equal(c.ops("labels").length, 1, "the labels in a query of their own");
 }, true);
+
+// Linear refused WORKSPACE with the labels joined to it. The stub must too,
+// whatever weights cost.ts comes to use.
+const WORKSPACE_WITH_LABELS = `query { viewer { displayName }
+    teams { nodes { id key states { nodes { id name type position } } projects(first: 100) { nodes { id name } } } }
+    repo: issueLabels(first: 250, filter: {parent: {name: {eq: "repo"}}}) { nodes { id name team { id } } }
+    labels: issueLabels(first: 250, filter: {isGroup: {eq: false}}) { nodes { id name team { id } parent { name } } } }`;
+
+test("file: the workspace and labels in one query: too complex, as Linear found it", async () => {
+  const c = new Case("file_too_complex");
+  const res = await fetch(c.env().NIGHT_SHIFT_LINEAR_URL!, {
+    method: "POST",
+    headers: { Authorization: "test-key", "Content-Type": "application/json" },
+    body: JSON.stringify({ query: WORKSPACE_WITH_LABELS, variables: {} }),
+  });
+  assert.deepEqual(await res.json(), { errors: [{ message: "Query too complex" }] });
+  assert.equal(c.ops("too complex").length, 1);
+});
 
 for (const [name, label, why] of [
   ["unknown", "Elsewhere", "no label 'Elsewhere' for team TST"],
