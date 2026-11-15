@@ -9,7 +9,7 @@
 #   modules/node-exporter.nix  the host-status facts for node_exporter
 #   modules/offbox-push.nix    each backup push
 #   hosts/gate/govee.nix       smcroute
-#   hosts/gate/metrics.nix     gate's WAN lease and WireGuard handshakes
+#   hosts/gate/metrics.nix     gate's WAN lease, WireGuard and exit tunnel
 #
 # Each merges this into its serviceConfig with `//` and keeps its own settings,
 # and its reasons for them, beside it. Plain data rather than a module, so a

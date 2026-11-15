@@ -384,7 +384,7 @@ in
         assert one(text, "fleet_exit_transmit_bytes_total") > 0
         assert roles(text) == {"primary": 1, "failover1": 0, "failover2": 0}, roles(text)
         assert bypasses(text) == {"trusted": 0, "resolvers": 0}, bypasses(text)
-        assert one(text, "fleet_exit_leak_dropped_packets_total") == leaked()
+        assert one(text, "fleet_exit_leak_dropped_packets_total") <= leaked()
         one(text, "fleet_exit_leak_dropped_bytes_total")
         anonymous(text)
 
@@ -399,6 +399,8 @@ in
         text = metrics()
         assert roles(text) == {"primary": 0, "failover1": 0, "failover2": 0}, roles(text)
         anonymous(text)
+        gate.succeed(": > /run/exit-tunnel/server")
+        assert roles(metrics()) == {"primary": 0, "failover1": 0, "failover2": 0}
         gate.succeed("rm -r /run/exit-tunnel /run/exit-bypass")
         assert roles(metrics())["primary"] == 1
 
@@ -475,7 +477,8 @@ in
         assert from_wan() == wan_before, "trusted left by wan"
         assert leaked() > before, "exit-leak-dropped did not rise"
         text = metrics()
-        assert one(text, "fleet_exit_leak_dropped_packets_total") == leaked() > 0
+        # Retransmits may still be dropped after the snapshot.
+        assert before < one(text, "fleet_exit_leak_dropped_packets_total") <= leaked()
         assert one(text, "fleet_exit_leak_dropped_bytes_total") > 0
         anonymous(text)
 

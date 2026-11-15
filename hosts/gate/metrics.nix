@@ -67,9 +67,9 @@ let
   ];
   bypassable = net.exitSegments ++ [ "resolvers" ];
 
-  # The lease and the WireGuard handshakes, as metrics. Neither has a
-  # collector in node_exporter. Nothing here prints the WAN address: jq reads
-  # it, and emits only counts and lifetimes.
+  # The lease, the WireGuard handshakes and the exit tunnel, as metrics. None
+  # has a collector in node_exporter. Nothing here prints the WAN address: jq
+  # reads it, and emits only counts and lifetimes.
   facts = pkgs.writeShellApplication {
     name = "gate-metrics-facts";
     runtimeInputs = with pkgs; [
@@ -96,7 +96,11 @@ let
       # gone reads as no handshake and nothing carried, not as missing.
       read -r handshake < <(wg show ${exit} latest-handshakes 2>/dev/null | awk '$2 > m { m = $2 } END { printf "%d\n", m }')
       read -r rx tx < <(wg show ${exit} transfer 2>/dev/null | awk '{ rx += $2; tx += $3 } END { printf "%d %d\n", rx, tx }')
-      server=$(cat ${exitServerFile} 2>/dev/null || echo primary)
+      # No file is primary. One that cannot be read names no role, so it shows.
+      server=primary
+      if [ -e ${exitServerFile} ]; then
+        server=$(tr -d '[:space:]' 2>/dev/null <${exitServerFile}) || server=""
+      fi
       leak=$(nft -j list counter inet nixos-fw exit-leak-dropped 2>/dev/null |
         jq -r '.nftables[].counter // empty | "\(.packets) \(.bytes)"') || leak=""
 
@@ -143,7 +147,7 @@ let
         ${lib.concatMapStrings (segment: ''
           printf 'fleet_exit_bypass_open{segment="${segment}"} %d\n' "$([ -e ${bypassDir}/${segment} ] && echo 1 || echo 0)"
         '') bypassable}
-        # Missing while the ruleset has no such counter, as mid-reload.
+        # Left out only if the ruleset has no such counter.
         if [ -n "$leak" ]; then
           read -r packets bytes <<<"$leak"
           echo '# HELP fleet_exit_leak_dropped_packets_total Packets from tunneled segments routed out wan and dropped. A ruleset reload zeroes it.'
@@ -204,8 +208,8 @@ in
     iifname "${scrapeIface}" ip saddr ${collector.ip} tcp dport { ${toString net.ports.nodeExporter}, ${toString net.ports.keaExporter} } accept comment "metrics, to ${net.metricsCollector} alone"
   '';
 
-  # Every 30 seconds, the scrape interval. The lease and the handshakes change
-  # under a running system, so this is read rather than written at build time.
+  # Every 30 seconds, the scrape interval. All of it changes under a running
+  # system, so this is read rather than written at build time.
   systemd.services.gate-metrics-facts = {
     description = "Write gate's WAN lease, WireGuard handshakes and exit tunnel for node_exporter";
     serviceConfig = import ../../lib/hardening.nix // {
