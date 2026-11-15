@@ -649,7 +649,8 @@ in
         for miss in ["not fwmark ${toString net.exitMark}", "fwmark ${toString net.exitMark}/0xff", f"from {resolvers[0]} fwmark ${toString net.exitMark}"]:
             gate.succeed("ip rule del priority 1200")
             gate.succeed(f"ip rule add priority 1200 {miss} table ${toString net.exitTable.id}")
-            gate.succeed("systemctl restart exit-routing.service")
+            # Many restarts in a row would hit the unit's start limit.
+            gate.succeed("systemctl reset-failed exit-routing.service; systemctl restart exit-routing.service")
             rules = gate.succeed("ip rule show priority 1200")
             assert rules.strip() == mark_rule, f"{miss}: {rules}"
         assert ask(resolver, "udp", resolvers[0]) == "${far.provider}"
