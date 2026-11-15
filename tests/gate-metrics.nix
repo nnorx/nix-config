@@ -152,6 +152,12 @@ in
         }):
             assert one(text, "fleet_wireguard_last_handshake_timestamp_seconds", peer=peer) == 0
 
+    with subtest("no exit tunnel and no segment in it: no handshake, primary, no bypass"):
+        assert one(text, "fleet_exit_last_handshake_timestamp_seconds") == 0
+        assert one(text, "fleet_exit_transmit_bytes_total") == 0
+        assert one(text, "fleet_exit_server", role="primary") == 1
+        assert series(text, "fleet_exit_bypass_open") == [({"segment": "resolvers"}, 0)]
+
     with subtest("Kea pool usage per segment"):
         print("\n".join(l for l in keaText.splitlines() if "addresses" in l))
         iot = "${seg.iot.subnet}"

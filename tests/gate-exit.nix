@@ -4,7 +4,8 @@
 # deleted, trusted reaches nothing and nothing of it leaves by `wan`; DoT is
 # refused in the tunnel as out `wan`; gate's own traffic and wg0 stay on
 # `wan`; the provider cannot send from a house address; and the rules unit
-# reconciles what it finds. docs/router.md, "Exit tunnel", has the design.
+# reconciles what it finds. gate's metrics textfile reports all of it by
+# role, never by address. docs/router.md, "Exit tunnel", has the design.
 #
 # `nix build .#checks.x86_64-linux.gate-exit`. It needs KVM, which forge's
 # daemon has; CI's vm-tests job runs it on pull requests.
@@ -142,7 +143,10 @@ in
 {
   name = "gate-exit";
 
-  node.specialArgs.net = testNet;
+  node.specialArgs = {
+    net = testNet;
+    hostname = "gate";
+  };
 
   nodes = {
     gate =
@@ -157,8 +161,12 @@ in
           (topology.router { })
           ../hosts/gate/wireguard.nix
           ../hosts/gate/exit.nix
+          ../hosts/gate/metrics.nix
+          ../modules/node-exporter.nix
           sopsStub
         ];
+        # Kea is off in this topology, so its exporter would only retry.
+        services.prometheus.exporters.kea.enable = lib.mkForce false;
         # As modules/baseline.nix sets them.
         boot.kernel.sysctl = {
           "net.ipv4.conf.all.rp_filter" = 1;
@@ -293,6 +301,7 @@ in
 
   testScript = ''
     import json
+    import re
     import time
 
     start_all()
@@ -325,6 +334,34 @@ in
     def seen(client):
         return client.succeed(fetch).strip()
 
+    def metrics():
+        gate.succeed("systemctl start gate-metrics-facts.service")
+        return gate.succeed("cat /run/fleet-metrics/gate.prom")
+
+    def one(text, name, **want):
+        hits = []
+        for line in text.splitlines():
+            m = re.match(r"^([a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{(.*)\})? (\S+)$", line)
+            if m and m.group(1) == name:
+                labels = dict(re.findall(r'(\w+)="([^"]*)"', m.group(2) or ""))
+                if all(labels.get(k) == w for k, w in want.items()):
+                    hits.append(float(m.group(3)))
+        assert len(hits) == 1, f"{name} {want}: {hits}"
+        return hits[0]
+
+    def roles(text):
+        return {r: one(text, "fleet_exit_server", role=r) for r in ("primary", "failover1", "failover2")}
+
+    def bypasses(text):
+        return {s: one(text, "fleet_exit_bypass_open", segment=s) for s in ("trusted", "resolvers")}
+
+    # Every stand-in that would say whom gate reaches, and which account.
+    identifying = ["${far.provider}", "${inner.gate}", "${inner.provider}", "${keys.provider.public}", "${keys.gateExit.public}"]
+
+    def anonymous(text):
+        for s in identifying:
+            assert s not in text, [l for l in text.splitlines() if s in l]
+
     with subtest("the rules: main without its default, then trusted into the exit table"):
         rules = gate.succeed("ip rule show")
         assert "1000:\tfrom all lookup main suppress_prefixlength 0" in rules, rules
@@ -336,6 +373,34 @@ in
     with subtest("a trusted client leaves through the provider"):
         trusted.wait_until_succeeds(f"{fetch} | grep -qx ${far.provider}", timeout=60)
         assert seen(trusted) == "${far.provider}"
+
+    with subtest("the textfile reports the tunnel up, by role and never by address"):
+        text = metrics()
+        print(text)
+        now = int(gate.succeed("date +%s"))
+        handshake = one(text, "fleet_exit_last_handshake_timestamp_seconds")
+        assert now - 180 < handshake <= now, f"handshake {handshake}, now {now}"
+        assert one(text, "fleet_exit_receive_bytes_total") > 0
+        assert one(text, "fleet_exit_transmit_bytes_total") > 0
+        assert roles(text) == {"primary": 1, "failover1": 0, "failover2": 0}, roles(text)
+        assert bypasses(text) == {"trusted": 0, "resolvers": 0}, bypasses(text)
+        assert one(text, "fleet_exit_leak_dropped_packets_total") == leaked()
+        one(text, "fleet_exit_leak_dropped_bytes_total")
+        anonymous(text)
+
+    with subtest("the textfile follows the watchdog's and exit-bypass's state, and echoes neither"):
+        gate.succeed("mkdir -p /run/exit-tunnel /run/exit-bypass")
+        gate.succeed("echo failover1 > /run/exit-tunnel/server; touch /run/exit-bypass/trusted /run/exit-bypass/${far.provider}")
+        text = metrics()
+        assert roles(text) == {"primary": 0, "failover1": 1, "failover2": 0}, roles(text)
+        assert bypasses(text) == {"trusted": 1, "resolvers": 0}, bypasses(text)
+        anonymous(text)
+        gate.succeed("echo ${far.provider}:${toString providerPort} > /run/exit-tunnel/server")
+        text = metrics()
+        assert roles(text) == {"primary": 0, "failover1": 0, "failover2": 0}, roles(text)
+        anonymous(text)
+        gate.succeed("rm -r /run/exit-tunnel /run/exit-bypass")
+        assert roles(metrics())["primary"] == 1
 
     with subtest("a work client leaves by wan"):
         assert seen(work) == "${isp.gate}"
@@ -382,6 +447,9 @@ in
         trusted.fail(fetch)
         assert from_wan() == wan_before, "trusted left by wan"
         assert leaked() == before, "the unreachable route let a packet through to forward"
+        text = metrics()
+        assert one(text, "fleet_exit_last_handshake_timestamp_seconds") == 0
+        assert one(text, "fleet_exit_receive_bytes_total") == 0
         gate.succeed("systemctl start exit-tunnel.service")
         trusted.wait_until_succeeds(f"{fetch} | grep -qx ${far.provider}", timeout=90)
 
@@ -406,6 +474,10 @@ in
         trusted.fail(fetch)
         assert from_wan() == wan_before, "trusted left by wan"
         assert leaked() > before, "exit-leak-dropped did not rise"
+        text = metrics()
+        assert one(text, "fleet_exit_leak_dropped_packets_total") == leaked() > 0
+        assert one(text, "fleet_exit_leak_dropped_bytes_total") > 0
+        anonymous(text)
 
     with subtest("the rules unit restores what is listed, drops the rest, and adds no duplicate"):
         gate.succeed("ip rule add priority 1100 iif ${gate.trunkIface}.${toString seg.work.id} table ${toString net.exitTable.id}")
