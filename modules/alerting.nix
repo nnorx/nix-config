@@ -213,9 +213,9 @@ in
           equal = [ "instance" ];
         }
         {
-          # With the WAN down, every recursion fails.
+          # With the WAN down, every recursion fails and the exit tunnel with it.
           source_matchers = [ ''alertname="WanDown"'' ];
-          target_matchers = [ ''alertname="ResolverFailing"'' ];
+          target_matchers = [ ''alertname=~"ResolverFailing|ExitTunnelDown"'' ];
         }
       ];
     };

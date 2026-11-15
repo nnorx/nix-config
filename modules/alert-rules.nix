@@ -24,6 +24,10 @@ let
   # reads the head every 30 minutes, so this is a dozen reads failing in a row.
   headFresh = 6;
 
+  # Whether anything rides the exit tunnel. Until something does, an outage
+  # takes nothing offline, so it is not worth a high-priority push.
+  exitCarries = net.exitSegments != [ ] || net.exitResolvers;
+
   # Kea's statistics by segment rather than subnet, so no address leaves the
   # house. Shared with the DHCP dashboard.
   kea = import ../lib/kea-segments.nix { inherit lib net; };
@@ -91,6 +95,49 @@ in
           for = "2m";
           labels.severity = "critical";
           annotations.summary = "${router}'s WAN is down: no link, no lease or no default route, or neither public resolver answers a ping.";
+        }
+        {
+          # With keepalive at 25 seconds a live tunnel re-handshakes about
+          # every 2 minutes, and the failover watchdog switches servers at 3,
+          # so 5 is past a failover that worked. The handshake reads 0 until
+          # the first one after the tunnel comes up; 0 does not raise the
+          # largest reading over the window, so it counts as down once it has
+          # lasted that long, as a stale handshake does. What rides the tunnel
+          # fails closed meanwhile, which is what makes it critical.
+          alert = "ExitTunnelDown";
+          expr = ''
+            time() - max by (instance) (max_over_time(fleet_exit_last_handshake_timestamp_seconds{instance="${router}"}[5m])) > 300
+          '';
+          for = "3m";
+          labels.severity = if exitCarries then "critical" else "warning";
+          annotations.summary =
+            "${router}'s exit tunnel has not handshaken for 5 minutes"
+            + (if exitCarries then ", so what it carries is offline." else ". Nothing rides it yet.");
+        }
+        {
+          # Opened by hand for a long outage, and it pushes on open and close
+          # itself. This holds while it is open, since that segment's traffic
+          # reaches the ISP unhidden until it closes.
+          alert = "ExitBypassOpen";
+          expr = ''max by (instance, segment) (fleet_exit_bypass_open{instance="${router}"}) == 1'';
+          labels.severity = "warning";
+          annotations.summary = "{{ $labels.segment }} is bypassing ${router}'s exit tunnel and leaves by the WAN until exit-bypass closes.";
+        }
+        {
+          # A tunneled segment routed to `wan` while the tunnel is up: its
+          # `iif` rule or the exit table has gone, and the leak drop is all
+          # that holds. While the tunnel is down, those drops are failing
+          # closed as designed, and ExitTunnelDown says so. Rising in every 2
+          # minutes for 5, so drops counted just before a recovery do not
+          # fire once the handshake is fresh.
+          alert = "ExitLeakWhileUp";
+          expr = ''
+            max by (instance) (increase(fleet_exit_leak_dropped_packets_total{instance="${router}"}[2m])) > 0
+              and on (instance) (time() - max by (instance) (fleet_exit_last_handshake_timestamp_seconds{instance="${router}"}) < 300)
+          '';
+          for = "5m";
+          labels.severity = "critical";
+          annotations.summary = "${router} dropped traffic from a tunneled segment headed for the WAN while the exit tunnel was up.";
         }
         {
           # Either the resolver does not answer core5's probe, a name Unbound
