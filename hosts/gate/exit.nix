@@ -1,6 +1,7 @@
 # The exit tunnel: gate as a WireGuard client of a VPN provider, so a segment
-# in `exitSegments` (lib/net.nix) reaches the internet through it rather than
-# `wan`, and through nothing when it is down. docs/router.md, "Exit tunnel",
+# in `exitSegments` (lib/net.nix), and with `exitResolvers` the resolvers'
+# port 53, reaches the internet through it rather than `wan`, and through
+# nothing when it is down. docs/router.md, "Exit tunnel",
 # has the design and the runbook.
 #
 # Not `networking.wireguard`, which takes the peer as Nix strings: the
@@ -22,9 +23,22 @@ let
   # Rule priorities, ahead of `main` at 32766.
   suppressPriority = "1000";
   ifacePriority = "1100";
+  markPriority = "1200";
+
+  nftSet = xs: "{ ${lib.concatStringsSep ", " xs} }";
+  quoted = map (x: "\"${x}\"");
 
   tunneled = builtins.attrNames (lib.filterAttrs (_: s: builtins.elem s net.exitSegments) segmentOn);
-  tunneledSet = "{ ${lib.concatMapStringsSep ", " (i: "\"${i}\"") tunneled} }";
+  tunneledSet = nftSet (quoted tunneled);
+
+  # The resolvers' port 53 from where they sit, so no other host and no
+  # spoofed source is marked. gate's own DNS is output, never prerouting.
+  mark = toString net.exitMark;
+  resolverIps = map (h: net.hosts.${h}.ip) net.resolvers;
+  resolverSegments = map (h: net.hosts.${h}.segment) net.resolvers;
+  resolverIfaces = builtins.attrNames (
+    lib.filterAttrs (_: s: builtins.elem s resolverSegments) segmentOn
+  );
   houseSet = "{ ${lib.concatStringsSep ", " (lib.mapAttrsToList (_: s: s.subnet) net.segments)} }";
 
   # IPv4 and TCP headers. The route out a LAN interface says 1500, so the
@@ -111,6 +125,23 @@ in
       for iface in $wanted; do
         [[ $have == *" $iface "* ]] || ip rule add priority ${ifacePriority} iif "$iface" table ${table}
       done
+
+      # The resolvers' mark into the exit table, while `exitResolvers` is on.
+      want_mark=${lib.boolToString net.exitResolvers}
+      kept=false
+      while IFS='|' read -r tbl fwmark iface; do
+        if $want_mark && ! $kept && [ "$tbl" = ${net.exitTable.name} ] && [ -n "$fwmark" ] && [ -z "$iface" ] && (( fwmark == ${mark} )); then
+          kept=true
+          continue
+        fi
+        sel=(priority ${markPriority} table "$tbl")
+        [ -z "$fwmark" ] || sel+=(fwmark "$fwmark")
+        [ -z "$iface" ] || sel+=(iif "$iface")
+        ip rule del "''${sel[@]}"
+      done < <(jq -r '.[] | select(.priority == ${markPriority}) | "\(.table)|\(.fwmark // "")|\(.iif // "")"' <<<"$rules")
+      if $want_mark && ! $kept; then
+        ip rule add priority ${markPriority} fwmark ${mark} table ${table}
+      fi
     '';
   };
 
@@ -171,6 +202,10 @@ in
         iifname ${tunneledSet} oifname "${wan}" counter name "exit-leak-dropped" drop comment "a tunneled segment never leaves by wan"
         iifname ${tunneledSet} oifname "${exit}" accept comment "tunneled segments, out the exit tunnel"
       ''
+      + lib.optionalString net.exitResolvers ''
+        meta mark ${mark} oifname "${wan}" counter name "exit-leak-dropped" drop comment "the resolvers' recursion never leaves by wan"
+        meta mark ${mark} iifname ${nftSet (quoted resolverIfaces)} oifname "${exit}" accept comment "the resolvers' recursion, out the exit tunnel"
+      ''
     );
   };
 
@@ -196,6 +231,14 @@ in
           type filter hook forward priority mangle; policy accept;
           oifname "${exit}" tcp flags & (syn | rst) == syn tcp option maxseg size set rt mtu comment "exit tunnel: clamp to its MTU"
           iifname "${exit}" tcp flags & (syn | rst) == syn tcp option maxseg size set ${exitMss} comment "exit tunnel: clamp to its MTU"
+        }
+      ''
+      # Before routing, which is what reads the mark. A house destination
+      # still routes by `main`, through the suppress rule ahead of the mark's.
+      + lib.optionalString net.exitResolvers ''
+        chain exit-mark {
+          type filter hook prerouting priority mangle; policy accept;
+          iifname ${nftSet (quoted resolverIfaces)} ip saddr ${nftSet resolverIps} meta l4proto { tcp, udp } th dport 53 meta mark set ${mark} comment "the resolvers' recursion, into the exit table"
         }
       '';
     };
