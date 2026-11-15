@@ -13,7 +13,7 @@
   ...
 }:
 {
-  home.packages = lib.optionals pkgs.stdenv.isLinux [
+  home.packages = lib.optionals pkgs.stdenv.hostPlatform.isLinux [
     (pkgs.writeShellApplication {
       name = "fleet-deploy";
       # nix and git are the ones on PATH, as for preflight, so they talk to

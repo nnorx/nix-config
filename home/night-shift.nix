@@ -24,7 +24,7 @@ let
   home = config.home.homeDirectory;
   policy = import ../lib/claude-sandbox.nix {
     inherit lib;
-    isDarwin = pkgs.stdenv.isDarwin;
+    isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
   };
 
   # The only place outside a worktree that commands in the sandbox may write:

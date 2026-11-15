@@ -39,7 +39,7 @@
 
       # Misc
       core.editor = "nano";
-      core.autocrlf = if pkgs.stdenv.isLinux then "input" else false;
+      core.autocrlf = if pkgs.stdenv.hostPlatform.isLinux then "input" else false;
 
       # Credential helper - platform-appropriate
       #
@@ -53,7 +53,7 @@
       # and git prompts and caches nothing, rather than fall back to a path
       # the sandbox shows.
       credential.helper =
-        if pkgs.stdenv.isDarwin then
+        if pkgs.stdenv.hostPlatform.isDarwin then
           "osxkeychain"
         else
           "cache --timeout=3600 --socket=\"\${XDG_RUNTIME_DIR:?unset, so no credential cache}/git/credential-cache\"";
@@ -181,7 +181,7 @@
       # https on Linux, matching that helper; forge has no GitHub SSH key, so
       # ssh here would break `gh repo clone`. macOS keeps ssh. `gh auth login`
       # also stores a protocol per host, which overrides this for that host.
-      git_protocol = if pkgs.stdenv.isDarwin then "ssh" else "https";
+      git_protocol = if pkgs.stdenv.hostPlatform.isDarwin then "ssh" else "https";
       prompt = "enabled";
     };
   };

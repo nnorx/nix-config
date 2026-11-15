@@ -240,7 +240,7 @@ let
 in
 {
   # Linux only, like the rest of this file: the Mac is not an admin machine.
-  home.packages = lib.optionals pkgs.stdenv.isLinux [
+  home.packages = lib.optionals pkgs.stdenv.hostPlatform.isLinux [
     fleetSsh
     fleetStatus
   ];
@@ -256,7 +256,7 @@ in
   # Home Manager owns ~/.ssh/config from here on. Hosts it does not generate go
   # in ~/.ssh/config.local, which is read first, so an entry there for a fleet
   # host would win over the one generated here.
-  programs.ssh = lib.mkIf pkgs.stdenv.isLinux {
+  programs.ssh = lib.mkIf pkgs.stdenv.hostPlatform.isLinux {
     enable = true;
     # Home Manager's legacy defaults are deprecated, and none are wanted.
     enableDefaultConfig = false;
@@ -279,7 +279,7 @@ in
     ) fleet;
   };
 
-  programs.keychain = lib.mkIf pkgs.stdenv.isLinux {
+  programs.keychain = lib.mkIf pkgs.stdenv.hostPlatform.isLinux {
     enable = true;
     # keychain 2.9.0+ auto-detects the ssh agent, so `agents` is deprecated
     # and omitted. Key names resolve relative to ~/.ssh.

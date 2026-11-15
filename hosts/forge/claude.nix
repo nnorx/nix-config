@@ -36,7 +36,7 @@
 let
   policy = import ../../lib/claude-sandbox.nix {
     inherit lib;
-    isDarwin = pkgs.stdenv.isDarwin;
+    isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
   };
   format = pkgs.formats.json { };
   secretsDir = "/run/secrets.d";
