@@ -267,6 +267,10 @@ in
           read -r _
           printf '%s\n' "$SOCAT_PEERADDR"
         '';
+        # Over TCP, one answer per line, so a flow can be held open.
+        answers = pkgs.writeShellScript "answers" ''
+          while read -r _; do printf '%s\n' "$SOCAT_PEERADDR"; done
+        '';
       in
       {
         imports = [
@@ -302,7 +306,7 @@ in
         };
         systemd.services.listen-53-tcp = {
           wantedBy = [ "multi-user.target" ];
-          script = "${pkgs.socat}/bin/socat TCP-LISTEN:53,fork,reuseaddr EXEC:${peer}";
+          script = "${pkgs.socat}/bin/socat TCP-LISTEN:53,fork,reuseaddr EXEC:${answers}";
         };
         networking.nftables = {
           enable = true;
@@ -588,8 +592,24 @@ in
         anonymous(text)
 
     with subtest("the mark's rule gone: the leak drop catches the resolvers, and counts them"):
+        # A query held open too, as for trusted above.
+        resolver.succeed(
+            "systemd-run --unit=hold -p Environment=PATH=/run/current-system/sw/bin "
+            f"sh -c 'while :; do echo x; sleep 0.2; done | socat -u STDIN TCP:${site}:53,bind={resolvers[0]}'"
+        )
+        internet.wait_until_succeeds("ss -Htn state established '( sport = :53 )' | grep -q .", timeout=30)
+        dns_before = dns_from_wan()
         gate.succeed("ip rule del priority 1200")
-        before, dns_before = leaked(), dns_from_wan()
+        held = leaked()
+        for _ in range(30):
+            if leaked() > held:
+                break
+            time.sleep(0.5)
+        else:
+            raise AssertionError("the resolver's established flow was not counted by the leak drop")
+        resolver.succeed("systemctl stop hold")
+        assert dns_from_wan() == dns_before, "the resolver's held flow left by wan"
+        before = leaked()
         assert ask(resolver, "udp", resolvers[0]) == "timeout"
         assert ask(resolver, "tcp", resolvers[0]) == "timeout"
         assert dns_from_wan() == dns_before, "a resolver's port 53 left by wan"
@@ -603,11 +623,18 @@ in
         gate.succeed("ip rule add priority 1100 iif lo table main")
         gate.succeed("ip rule del priority 1000 lookup main suppress_prefixlength 0")
         gate.succeed("ip rule add priority 1000 iif lo table main")
-        # Beside the mark's: another mark, and the right one limited to lo.
+        # Beside the mark's: another mark, and near misses of the right one.
         gate.succeed("ip rule add priority 1200 fwmark ${toString (net.exitMark + 1)} table main")
         gate.succeed("ip rule add priority 1200 iif lo fwmark ${toString net.exitMark} table ${toString net.exitTable.id}")
+        gate.succeed("ip rule add priority 1200 not fwmark ${toString net.exitMark} table ${toString net.exitTable.id}")
+        gate.succeed("ip rule add priority 1200 fwmark ${toString net.exitMark}/0xff table ${toString net.exitTable.id}")
         gate.succeed("systemctl restart exit-routing.service")
         gate.succeed("systemctl restart exit-routing.service")
+        # Right as it stands, so a restart leaves it untouched.
+        rewrites = "journalctl -u exit-routing.service -o cat | grep -c 'rewriting the rules at 1200'"
+        n = gate.succeed(rewrites).strip()
+        gate.succeed("systemctl restart exit-routing.service")
+        assert gate.succeed(rewrites).strip() == n, "exit-routing rewrote a rule that was right"
         assert "lookup main suppress_prefixlength 0" in gate.succeed("ip rule show priority 1000")
         gate.succeed("ip rule del priority 1000 iif lo table main")
         assert gate.succeed("ip rule show priority 1000").count("\n") == 1

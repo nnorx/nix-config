@@ -39,7 +39,16 @@ let
   resolverIfaces = builtins.attrNames (
     lib.filterAttrs (_: s: builtins.elem s resolverSegments) segmentOn
   );
-  houseSet = "{ ${lib.concatStringsSep ", " (lib.mapAttrsToList (_: s: s.subnet) net.segments)} }";
+  houseSet = nftSet (lib.mapAttrsToList (_: s: s.subnet) net.segments);
+
+  # The rules wanted at the mark's priority, as `ip -j rule` prints them.
+  markRules = builtins.toJSON (
+    lib.optional net.exitResolvers {
+      src = "all";
+      fwmark = "0x${lib.toLower (lib.toHexString net.exitMark)}";
+      table = net.exitTable.name;
+    }
+  );
 
   # IPv4 and TCP headers. The route out a LAN interface says 1500, so the
   # clamp on what comes in from the provider names the tunnel's figure.
@@ -126,21 +135,14 @@ in
         [[ $have == *" $iface "* ]] || ip rule add priority ${ifacePriority} iif "$iface" table ${table}
       done
 
-      # The resolvers' mark into the exit table, while `exitResolvers` is on.
-      want_mark=${lib.boolToString net.exitResolvers}
-      kept=false
-      while IFS='|' read -r tbl fwmark iface; do
-        if $want_mark && ! $kept && [ "$tbl" = ${net.exitTable.name} ] && [ -n "$fwmark" ] && [ -z "$iface" ] && (( fwmark == ${mark} )); then
-          kept=true
-          continue
-        fi
-        sel=(priority ${markPriority} table "$tbl")
-        [ -z "$fwmark" ] || sel+=(fwmark "$fwmark")
-        [ -z "$iface" ] || sel+=(iif "$iface")
-        ip rule del "''${sel[@]}"
-      done < <(jq -r '.[] | select(.priority == ${markPriority}) | "\(.table)|\(.fwmark // "")|\(.iif // "")"' <<<"$rules")
-      if $want_mark && ! $kept; then
-        ip rule add priority ${markPriority} fwmark ${mark} table ${table}
+      # The resolvers' mark into the exit table while `exitResolvers` is on,
+      # and nothing else at its priority. Anything but exactly that is
+      # rewritten whole: a near miss, such as `not fwmark`, would send gate's
+      # own traffic into the tunnel.
+      if ! jq -e --argjson want '${markRules}' '[.[] | select(.priority == ${markPriority}) | del(.priority)] == $want' <<<"$rules" >/dev/null; then
+        echo "rewriting the rules at ${markPriority}"
+        while ip rule del priority ${markPriority} 2>/dev/null; do :; done
+        ${lib.optionalString net.exitResolvers "ip rule add priority ${markPriority} fwmark ${mark} table ${table}"}
       fi
     '';
   };
@@ -224,7 +226,7 @@ in
       family = "inet";
       content = ''
         counter exit-leak-dropped {
-          comment "tunneled segments routed out wan, dropped"
+          comment "tunneled segments${lib.optionalString net.exitResolvers " and the resolvers' mark"} routed out wan, dropped"
         }
 
         chain exit-mss {
