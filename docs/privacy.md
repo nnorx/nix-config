@@ -328,7 +328,7 @@ By segment, at the category level:
 
 ## Internet for iot
 
-iot's way out `wan` passes gate's `iot-egress` chain
+iot's way out passes gate's `iot-egress` chain
 (`hosts/gate/routing.nix`), which counts iot's attempts in `iot-wan` and
 drops those from addresses in the `iot-trial` set, counted in
 `iot-trial-dropped`. The set is declared empty and

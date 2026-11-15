@@ -282,18 +282,18 @@ in
   };
 
   # iot's way out: docs/privacy.md, "Internet for iot", has the commands.
-  # `iot-wan` counts every iot attempt to open a connection out `wan`, and one
-  # from `iot-trial` is dropped and counted. The set is filled by hand, so no
+  # `iot-wan` counts every iot attempt to open a connection out, by `wan` or
+  # the exit tunnel, and one from `iot-trial` is dropped and counted. The set is filled by hand, so no
   # device reaches this repo, and is runtime state: any reload of the ruleset
   # empties it and zeroes the counters.
   #
-  # The chain returns rather than accepts, so nat's accept stays the one way
-  # out `wan` and flushing the chain undoes it without a deploy. It drops
-  # rather than rejects, so firmware that retries on failure waits out its own
-  # timeout. DNS is unaffected: redirected queries are accepted before the
-  # jump, and queries to the Pis do not leave by `wan`.
+  # The chain returns rather than accepts, so nat's accept, or the exit
+  # tunnel's, stays the one way out; flushing the chain undoes it, no deploy.
+  # It drops rather than rejects, so firmware that retries on failure waits
+  # out its own timeout. DNS is unaffected: redirected queries are accepted
+  # before the jump, and queries to the Pis do not leave by `wan`.
   #
-  # servers-egress lets only the fleet's hosts out `wan`. The switch, the AP
+  # servers-egress lets only the fleet's hosts out. The switch, the AP
   # and the rest are dropped and counted, which does not touch managing them,
   # since the controller is on servers too. NTP is the exception, so their
   # clocks keep whatever time source the controller gives them. Firmware
@@ -311,11 +311,11 @@ in
       }
 
       counter iot-wan {
-        comment "iot attempts to open a connection out wan"
+        comment "iot attempts to open a connection to the internet"
       }
 
       counter iot-trial-dropped {
-        comment "attempts out wan from iot-trial, dropped"
+        comment "attempts out from iot-trial, dropped"
       }
 
       chain iot-egress {
@@ -324,7 +324,7 @@ in
       }
 
       counter servers-wan-dropped {
-        comment "attempts out wan from servers, not by the fleet's hosts, dropped"
+        comment "attempts out from servers, not by the fleet's hosts, dropped"
       }
 
       chain servers-egress {

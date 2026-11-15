@@ -3,8 +3,8 @@
 # from `wan`'s; with the provider down, the tunnel gone, or the routing rule
 # deleted, trusted reaches nothing and nothing of it leaves by `wan`; DoT is
 # refused in the tunnel as out `wan`; gate's own traffic and wg0 stay on
-# `wan`; and the rules unit reconciles what it finds. docs/router.md, "Exit
-# tunnel", has the design.
+# `wan`; the provider cannot send from a house address; and the rules unit
+# reconciles what it finds. docs/router.md, "Exit tunnel", has the design.
 #
 # `nix build .#checks.x86_64-linux.gate-exit`. It needs KVM, which forge's
 # daemon has; CI's vm-tests job runs it on pull requests.
@@ -31,6 +31,8 @@ let
     remote = "198.51.100.3";
   };
   site = "192.0.2.80";
+  house = seg.trusted.pool.first;
+  outside = "198.51.100.77";
   providerPort = 51820;
   inner = {
     provider = "10.64.0.1";
@@ -132,6 +134,7 @@ let
       imports = [ (topology.onSegment name seg.${name}.pool.first) ];
       environment.systemPackages = [
         pkgs.curl
+        pkgs.socat
         (topology.probe pkgs)
       ];
     };
@@ -174,6 +177,17 @@ in
           pkgs.wireguard-tools
           (topology.probe pkgs)
         ];
+        # After the firewall's rpfilter chain, at mangle + 10.
+        networking.nftables.tables.past-rpfilter = {
+          family = "inet";
+          content = ''
+            counter from-provider {}
+            chain prerouting {
+              type filter hook prerouting priority filter; policy accept;
+              iifname "${exit}" icmp type echo-request counter name "from-provider"
+            }
+          '';
+        };
       };
 
     # Says who connected: the body is the address it saw. Counts what arrives
@@ -205,6 +219,10 @@ in
         systemd.services.listen-80 = {
           wantedBy = [ "multi-user.target" ];
           script = "${pkgs.socat}/bin/socat TCP-LISTEN:80,fork,reuseaddr EXEC:${whoami}";
+        };
+        systemd.services.listen-9000 = {
+          wantedBy = [ "multi-user.target" ];
+          script = "${pkgs.socat}/bin/socat -u TCP-LISTEN:9000,fork,reuseaddr OPEN:/dev/null";
         };
         systemd.services.listen-853 = {
           wantedBy = [ "multi-user.target" ];
@@ -275,11 +293,13 @@ in
 
   testScript = ''
     import json
+    import time
 
     start_all()
 
     internet.wait_for_open_port(80)
     internet.wait_for_open_port(853)
+    internet.wait_for_open_port(9000)
     provider.wait_for_unit("wireguard-wg-provider.service")
     gate.wait_for_unit("nftables.service")
     gate.wait_for_unit("exit-tunnel.service")
@@ -323,6 +343,16 @@ in
     with subtest("gate reaches the internet through the exit when bound to it"):
         assert gate.succeed("curl -sS -m 5 --interface ${exit} http://${site}/").strip() == "${far.provider}"
 
+    with subtest("from the provider, a house source is dropped by reverse-path, another passes"):
+        provider.succeed("ip addr add ${house}/32 dev lo; ip addr add ${outside}/32 dev lo")
+        def from_provider():
+            return counter(gate, "inet past-rpfilter", "from-provider")
+        before = from_provider()
+        provider.execute("ping -c1 -W1 -I ${outside} ${inner.gate}")
+        assert from_provider() == before + 1, "the control ping never reached gate"
+        provider.execute("ping -c1 -W1 -I ${house} ${inner.gate}")
+        assert from_provider() == before + 1, "a house-sourced packet passed reverse-path filtering"
+
     with subtest("DoT is refused in the tunnel, as out wan"):
         assert trusted.succeed("probe ${site} 853").strip() == "refused"
         assert work.succeed("probe ${site} 853").strip() == "refused"
@@ -356,7 +386,22 @@ in
         trusted.wait_until_succeeds(f"{fetch} | grep -qx ${far.provider}", timeout=90)
 
     with subtest("the routing rule gone: the leak drop catches trusted, and counts it"):
+        # A flow held open too: netfilter ends a masqueraded flow whose way out
+        # changes, so its next packets reach forward-allow's leak drop as new.
+        trusted.succeed(
+            "systemd-run --unit=hold -p Environment=PATH=/run/current-system/sw/bin "
+            "sh -c 'while :; do echo x; sleep 0.2; done | socat -u STDIN TCP:${site}:9000'"
+        )
+        internet.wait_until_succeeds("ss -Htn state established '( sport = :9000 )' | grep -q .", timeout=30)
         gate.succeed("ip rule del priority 1100 iif br-trusted")
+        held = leaked()
+        for _ in range(30):
+            if leaked() > held:
+                break
+            time.sleep(0.5)
+        else:
+            raise AssertionError("the established flow was not counted by the leak drop")
+        trusted.succeed("systemctl stop hold")
         before, wan_before = leaked(), from_wan()
         trusted.fail(fetch)
         assert from_wan() == wan_before, "trusted left by wan"
@@ -364,8 +409,14 @@ in
 
     with subtest("the rules unit restores what is listed, drops the rest, and adds no duplicate"):
         gate.succeed("ip rule add priority 1100 iif ${gate.trunkIface}.${toString seg.work.id} table ${toString net.exitTable.id}")
+        # Strays into other tables, and the suppress rule gone beside one.
+        gate.succeed("ip rule add priority 1100 iif lo table main")
+        gate.succeed("ip rule del priority 1000 lookup main suppress_prefixlength 0")
+        gate.succeed("ip rule add priority 1000 iif lo table main")
         gate.succeed("systemctl restart exit-routing.service")
         gate.succeed("systemctl restart exit-routing.service")
+        assert "lookup main suppress_prefixlength 0" in gate.succeed("ip rule show priority 1000")
+        gate.succeed("ip rule del priority 1000 iif lo table main")
         assert gate.succeed("ip rule show priority 1000").count("\n") == 1
         rules = gate.succeed("ip rule show priority 1100")
         assert rules.strip() == "1100:\tfrom all iif br-trusted lookup ${net.exitTable.name}", rules

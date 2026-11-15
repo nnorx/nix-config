@@ -25,6 +25,7 @@ let
 
   tunneled = builtins.attrNames (lib.filterAttrs (_: s: builtins.elem s net.exitSegments) segmentOn);
   tunneledSet = "{ ${lib.concatMapStringsSep ", " (i: "\"${i}\"") tunneled} }";
+  houseSet = "{ ${lib.concatStringsSep ", " (lib.mapAttrsToList (_: s: s.subnet) net.segments)} }";
 
   # IPv4 and TCP headers. The route out a LAN interface says 1500, so the
   # clamp on what comes in from the provider names the tunnel's figure.
@@ -90,21 +91,25 @@ in
     script = ''
       ip route replace unreachable default metric 100 table ${table}
 
-      if ! ip rule show priority ${suppressPriority} | grep -q .; then
+      rules=$(ip -j rule show)
+      if ! jq -e 'any(.[]; .priority == ${suppressPriority} and .table == "main" and .suppress_prefixlen == 0)' <<<"$rules" >/dev/null; then
         ip rule add priority ${suppressPriority} lookup main suppress_prefixlength 0
       fi
 
+      # One rule per listed segment into the exit table; any other here goes.
       wanted=" ${toString tunneled} "
-      for iface in $(ip -j rule show priority ${ifacePriority} | jq -r '.[].iif // empty'); do
-        case $wanted in
-          *" $iface "*) ;;
-          *) ip rule del priority ${ifacePriority} iif "$iface" table ${table} ;;
-        esac
-      done
-      for iface in $wanted; do
-        if ! ip -j rule show priority ${ifacePriority} | jq -e --arg i "$iface" 'any(.[]; .iif == $i)' >/dev/null; then
-          ip rule add priority ${ifacePriority} iif "$iface" table ${table}
+      have=" "
+      while read -r tbl iface; do
+        if [ -n "$iface" ] && [ "$tbl" = ${net.exitTable.name} ] && [[ $wanted == *" $iface "* && $have != *" $iface "* ]]; then
+          have+="$iface "
+          continue
         fi
+        sel=(priority ${ifacePriority} table "$tbl")
+        [ -z "$iface" ] || sel+=(iif "$iface")
+        ip rule del "''${sel[@]}"
+      done < <(jq -r '.[] | select(.priority == ${ifacePriority}) | "\(.table) \(.iif // "")"' <<<"$rules")
+      for iface in $wanted; do
+        [[ $have == *" $iface "* ]] || ip rule add priority ${ifacePriority} iif "$iface" table ${table}
       done
     '';
   };
@@ -118,6 +123,7 @@ in
     # After the firewall too, which holds the leak drop.
     after = [
       "exit-routing.service"
+      "nftables.service"
       "network-pre.target"
     ];
     restartTriggers = [ conf.file ];
@@ -151,10 +157,11 @@ in
 
   networking.firewall = {
     # Strict, which 26.11 no longer makes the default, with the tunnel exempt
-    # for the same reason as its kernel setting above.
+    # for the same reason as its kernel setting above, but never for a house
+    # address, which only a LAN interface carries.
     checkReversePath = true;
     extraReversePathFilterRules = ''
-      iifname "${exit}" accept comment "exit tunnel: replies route back by main"
+      iifname "${exit}" ip saddr != ${houseSet} accept comment "exit tunnel: replies route back by main"
     '';
 
     # After every segment's deny (`mkBefore`), and ahead of nat's accept out

@@ -53,8 +53,8 @@ sitting:
 ```
 kdig +tls @1.1.1.1 example.com            # fails at once, connection refused
 dig @1.1.1.1 <a name the fleet filters>   # the fleet's blocked answer
-ssh gate 'sudo nft list chain ip nixos-nat dns-redirect'
-ssh gate 'sudo nft list chain inet nixos-fw forward-allow'
+ssh -t gate 'sudo nft list chain ip nixos-nat dns-redirect'
+ssh -t gate 'sudo nft list chain inet nixos-fw forward-allow'
 ```
 
 `kdig` failing after a pause rather than at once means the packets are
@@ -113,7 +113,7 @@ The provider's key, its endpoint and gate's inner address are in sops alone.
 | `ip rule` 1000 | `lookup main suppress_prefixlength 0`: the house's own routes win |
 | `ip rule` 1100 | `iif <segment's interface> lookup exit`, one per tunneled segment |
 | Table `exit` (100) | `default dev wg-exit`, then `unreachable default metric 100` |
-| `exit-routing.service` | Sets the three above before `network-pre.target`, and on every start removes the 1100 rules for segments no longer listed |
+| `exit-routing.service` | Sets the three above before `network-pre.target`, reconciling the 1100 rules on every start |
 | `exit-tunnel.service` | Makes `wg-exit` from the rendered `exit-tunnel.conf`, MTU 1420 |
 | `forward-allow` | Out `wg-exit` for tunneled segments; out `wan` dropped into `exit-leak-dropped` |
 | `exit-masquerade`, `exit-mss` | NAT to gate's inner address; MSS clamped to the tunnel's MTU |
@@ -122,11 +122,10 @@ gate's own traffic matches no `iif` rule, so wg0, NTP, DNS, DDNS and the
 tunnel's own packets stay on `wan`. A tunneled client's packet for an address
 on `wan`'s own subnet takes `main`'s connected route and is dropped and
 counted. Reverse-path filtering stays strict but for `wg-exit`, whose replies
-come from addresses `main` routes to `wan`.
+come from addresses `main` routes to `wan`, though never from a house address.
 
-**Keys and server.** In sops, from the repo, in your own terminal, inside
-`nix shell nixpkgs#sops nixpkgs#jq nixpkgs#wireguard-tools` if any is
-missing. The private key is made on gate, straight into sops; the
+**Keys and server.** From the repo, in your own terminal, inside
+`nix shell nixpkgs#sops nixpkgs#jq nixpkgs#wireguard-tools`. The private key is made on gate, straight into sops; the
 second line prints its public half. Register that as a device in the
 provider's account with DNS hijacking off, and note its inner address.
 Then paste the server's public key, its `address:port`, and the inner
@@ -147,8 +146,8 @@ Activation fails while any is missing. Deploy with `nrs` behind deploy-guard
 **Checks.** After a deploy, and when the tunnel is in doubt:
 
 ```bash
-ssh gate 'h=$(sudo wg show wg-exit latest-handshakes | cut -f2); echo "handshake $(( $(date +%s) - h ))s ago"'
-ssh gate 'sudo nft list counter inet nixos-fw exit-leak-dropped; ip rule; ip route show table exit'
+ssh -t gate 'h=$(sudo wg show wg-exit latest-handshakes | cut -f2); echo "handshake $(( $(date +%s) - h ))s ago"'
+ssh -t gate 'sudo nft list counter inet nixos-fw exit-leak-dropped; ip rule; ip route show table exit'
 ```
 
 The handshake should be under two minutes old, and the counter 0, though
@@ -159,8 +158,6 @@ gate`, bound to each way out in turn, printing only ping and speeds:
 NIXPKGS_ALLOW_UNFREE=1 nix shell --impure nixpkgs#ookla-speedtest nixpkgs#jq
 for i in wg-exit wan; do speedtest --accept-license --accept-gdpr -I $i -f json | jq -c --arg i $i '{via: $i, ping: .ping.latency, down: (.download.bandwidth * 8 / 1e6), up: (.upload.bandwidth * 8 / 1e6)}'; done
 ```
-
-`tests/gate-exit.nix` checks the design in VMs with trusted tunneled.
 
 ## An address on the wrong wire
 

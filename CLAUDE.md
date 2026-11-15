@@ -94,8 +94,9 @@ before changing it.
   about Nick's machines factual and neutral.
 - Keys are per machine. Each SSH and WireGuard private key is generated on its
   own machine and never leaves it. Only the public halves are in the repo, in
-  `lib/ssh-keys.nix` and `lib/wireguard-keys.nix`. gate's WireGuard key is the
-  exception, in sops, because gate is rebuilt from this repo.
+  `lib/ssh-keys.nix` and `lib/wireguard-keys.nix`. gate's WireGuard keys, wg0's
+  and the exit tunnel's, are the exception, in sops, because gate is rebuilt
+  from this repo.
 - The firewall is default-deny, and SSH is scoped per interface in
   `modules/firewall.nix`. Open a new port on a specific interface, never
   globally. What a WireGuard peer may reach is `segments.vpn.grants` in

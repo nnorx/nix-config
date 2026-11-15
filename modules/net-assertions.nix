@@ -404,10 +404,9 @@ let
   # managed VPN, and servers carries what recovery needs, which must never wait
   # on the provider. Provider inner addresses live in 10/8 and 100.64/10, where
   # a house subnet would be shadowed by, or shadow, the provider's network.
-  cidrStart = cidr: addressValue (builtins.elemAt (lib.splitString "/" cidr) 0);
-  cidrEnd =
-    cidr: cidrStart cidr + pow2 (32 - lib.toInt (builtins.elemAt (lib.splitString "/" cidr) 1));
-  overlaps = a: b: cidrStart a < cidrEnd b && cidrStart b < cidrEnd a;
+  # Two aligned blocks overlap exactly when one holds the other's base.
+  cidrBase = cidr: builtins.elemAt (lib.splitString "/" cidr) 0;
+  overlaps = a: b: inCidr a (cidrBase b) || inCidr b (cidrBase a);
   providerSpace = [
     "10.0.0.0/8"
     "100.64.0.0/10"
