@@ -186,6 +186,7 @@ let
       imports = [ (topology.onServers addresses) ];
       environment.systemPackages = [
         pkgs.curl
+        pkgs.socat
         (ask pkgs)
       ];
     };
