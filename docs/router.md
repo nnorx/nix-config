@@ -117,6 +117,7 @@ The provider's key, its endpoint and gate's inner address are in sops alone.
 | `exit-tunnel.service` | Makes `wg-exit` from the rendered `exit-tunnel.conf`, MTU 1420 |
 | `forward-allow` | Out `wg-exit` for tunneled segments; out `wan` dropped into `exit-leak-dropped` |
 | `exit-masquerade`, `exit-mss` | NAT to gate's inner address; MSS clamped to the tunnel's MTU |
+| `gate-metrics-facts` | `fleet_exit_*`: handshake, bytes, the server by role, leak drops, open bypasses; no endpoint or key |
 
 gate's own traffic matches no `iif` rule, so wg0, NTP, DNS, DDNS and the
 tunnel's own packets stay on `wan`. A tunneled client's packet for an address

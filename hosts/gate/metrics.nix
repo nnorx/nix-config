@@ -11,6 +11,8 @@
 #   interfaces            node_exporter's netdev, bytes, errors and drops
 #   Kea pools             Kea's own statistics, through the exporter below
 #   WireGuard             the textfile below, each peer's last handshake
+#   Exit tunnel           the textfile below: handshake, bytes, server role,
+#                         leak drops and bypasses
 #
 # Both exporters bind gate's gateway address on its metricsSegment and nothing
 # else, and their ports open on the interface carrying that segment, from the
@@ -52,15 +54,30 @@ let
     lib.mapAttrsToList (name: key: "'${key}') peer=${name} ;;") keys.peers
   );
 
-  # The lease and the WireGuard handshakes, as metrics. Neither has a
-  # collector in node_exporter. Nothing here prints the WAN address: jq reads
-  # it, and emits only counts and lifetimes.
+  # The exit tunnel's state that its failover watchdog and exit-bypass keep:
+  # the role of the server in use, and one file per bypassed segment. Roles
+  # are the sops entries' names; the resolvers' recursion bypasses as one.
+  exit = gate.exitIface;
+  exitServerFile = "/run/exit-tunnel/server";
+  bypassDir = "/run/exit-bypass";
+  exitRoles = [
+    "primary"
+    "failover1"
+    "failover2"
+  ];
+  bypassable = net.exitSegments ++ [ "resolvers" ];
+
+  # The lease, the WireGuard handshakes and the exit tunnel, as metrics. None
+  # has a collector in node_exporter. Nothing here prints the WAN address: jq
+  # reads it, and emits only counts and lifetimes.
   facts = pkgs.writeShellApplication {
     name = "gate-metrics-facts";
     runtimeInputs = with pkgs; [
       coreutils
+      gawk
       iproute2
       jq
+      nftables
       wireguard-tools
     ];
     text = ''
@@ -73,6 +90,19 @@ let
       remaining=$(printf %s "$addrs" | jq -s '[add // [] | .[].addr_info[].valid_life_time] | min // 0')
       routes=$(ip -j -4 route show default dev ${gate.wanIface} 2>/dev/null || true)
       routes=$(printf %s "$routes" | jq -s 'add // [] | length')
+
+      # The exit tunnel by what it does, never by whom it reaches: awk drops
+      # the provider's key, and the server is named by role. A tunnel that is
+      # gone reads as no handshake and nothing carried, not as missing.
+      read -r handshake < <(wg show ${exit} latest-handshakes 2>/dev/null | awk '$2 > m { m = $2 } END { printf "%d\n", m }')
+      read -r rx tx < <(wg show ${exit} transfer 2>/dev/null | awk '{ rx += $2; tx += $3 } END { printf "%d %d\n", rx, tx }')
+      # No file is primary. One that cannot be read names no role, so it shows.
+      server=primary
+      if [ -e ${exitServerFile} ]; then
+        server=$(tr -d '[:space:]' 2>/dev/null <${exitServerFile}) || server=""
+      fi
+      leak=$(nft -j list counter inet nixos-fw exit-leak-dropped 2>/dev/null |
+        jq -r '.nftables[].counter // empty | "\(.packets) \(.bytes)"') || leak=""
 
       tmp=$(mktemp -p ${textfileDir})
       {
@@ -97,6 +127,36 @@ let
           esac
           printf 'fleet_wireguard_last_handshake_timestamp_seconds{peer="%s"} %s\n' "$peer" "$stamp"
         done || true
+
+        echo '# HELP fleet_exit_last_handshake_timestamp_seconds When ${exit} last completed a handshake. 0 is not since it came up, or no ${exit}.'
+        echo '# TYPE fleet_exit_last_handshake_timestamp_seconds gauge'
+        echo "fleet_exit_last_handshake_timestamp_seconds $handshake"
+        echo '# HELP fleet_exit_receive_bytes_total Bytes received from the exit server.'
+        echo '# TYPE fleet_exit_receive_bytes_total counter'
+        echo "fleet_exit_receive_bytes_total $rx"
+        echo '# HELP fleet_exit_transmit_bytes_total Bytes sent to the exit server.'
+        echo '# TYPE fleet_exit_transmit_bytes_total counter'
+        echo "fleet_exit_transmit_bytes_total $tx"
+        echo '# HELP fleet_exit_server 1 for the role of the exit server in use, from ${exitServerFile}; primary without it.'
+        echo '# TYPE fleet_exit_server gauge'
+        for role in ${toString exitRoles}; do
+          printf 'fleet_exit_server{role="%s"} %d\n' "$role" "$([ "$server" = "$role" ] && echo 1 || echo 0)"
+        done
+        echo '# HELP fleet_exit_bypass_open 1 while exit-bypass is open for a segment, as ${bypassDir}/<segment> exists.'
+        echo '# TYPE fleet_exit_bypass_open gauge'
+        ${lib.concatMapStrings (segment: ''
+          printf 'fleet_exit_bypass_open{segment="${segment}"} %d\n' "$([ -e ${bypassDir}/${segment} ] && echo 1 || echo 0)"
+        '') bypassable}
+        # Left out only if the ruleset has no such counter.
+        if [ -n "$leak" ]; then
+          read -r packets bytes <<<"$leak"
+          echo '# HELP fleet_exit_leak_dropped_packets_total Packets from tunneled segments routed out wan and dropped. A ruleset reload zeroes it.'
+          echo '# TYPE fleet_exit_leak_dropped_packets_total counter'
+          echo "fleet_exit_leak_dropped_packets_total $packets"
+          echo '# HELP fleet_exit_leak_dropped_bytes_total Bytes from tunneled segments routed out wan and dropped. A ruleset reload zeroes it.'
+          echo '# TYPE fleet_exit_leak_dropped_bytes_total counter'
+          echo "fleet_exit_leak_dropped_bytes_total $bytes"
+        fi
       } >"$tmp"
       chmod 0644 "$tmp"
       mv "$tmp" ${textfileDir}/gate.prom
@@ -148,15 +208,15 @@ in
     iifname "${scrapeIface}" ip saddr ${collector.ip} tcp dport { ${toString net.ports.nodeExporter}, ${toString net.ports.keaExporter} } accept comment "metrics, to ${net.metricsCollector} alone"
   '';
 
-  # Every 30 seconds, the scrape interval. The lease and the handshakes change
-  # under a running system, so this is read rather than written at build time.
+  # Every 30 seconds, the scrape interval. All of it changes under a running
+  # system, so this is read rather than written at build time.
   systemd.services.gate-metrics-facts = {
-    description = "Write gate's WAN lease and WireGuard handshakes for node_exporter";
+    description = "Write gate's WAN lease, WireGuard handshakes and exit tunnel for node_exporter";
     serviceConfig = import ../../lib/hardening.nix // {
       Type = "oneshot";
       ExecStart = lib.getExe facts;
-      # node_exporter's user, as for host-status's facts. `wg show` needs
-      # CAP_NET_ADMIN to read the interface, and that is all this holds.
+      # node_exporter's user, as for host-status's facts. `wg show` and `nft`
+      # need CAP_NET_ADMIN to read, and that is all this holds.
       User = config.services.prometheus.exporters.node.user;
       AmbientCapabilities = [ "CAP_NET_ADMIN" ];
       CapabilityBoundingSet = [ "CAP_NET_ADMIN" ];

@@ -59,7 +59,7 @@ collector, from `/run/fleet-metrics`:
 | Metrics | Host | Written by | Every |
 |---|---|---|---|
 | `fleet_revision_info`, `fleet_root_device_info` | Every target | `fleet-metrics-facts` | 5 minutes |
-| `fleet_wan_addresses`, `fleet_wan_lease_remaining_seconds`, `fleet_wan_default_routes`, `fleet_wireguard_last_handshake_timestamp_seconds` | gate | `gate-metrics-facts` | 30 seconds |
+| `fleet_wan_*`, `fleet_wireguard_last_handshake_timestamp_seconds`, `fleet_exit_*` | gate | `gate-metrics-facts` | 30 seconds |
 | `fleet_adguard_*`, from AdGuard's statistics and query log | core4, lifeline | `adguard-metrics` | 30 seconds |
 | `fleet_main_revision_info`, `fleet_main_revision_checked_timestamp_seconds` | core5 | `fleet-main-revision`, `git ls-remote` against main | 30 minutes |
 
