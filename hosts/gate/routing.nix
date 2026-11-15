@@ -28,6 +28,7 @@ let
   trustedBr = "br-trusted"; # tagged trusted + `wired`, so they share a domain
   wan = net.hosts.gate.wanIface; # bound here too, since a forward rule names it
   tunnel = net.hosts.gate.vpnIface; # WireGuard, set up in ./wireguard.nix
+  exit = net.hosts.gate.exitIface; # the exit tunnel, ./exit.nix
 
   # 802.1q sub-interface for a tagged segment.
   tagged = name: "${trunk}.${toString seg.${name}.id}";
@@ -79,6 +80,13 @@ let
 
   nftSet = xs: "{ ${lib.concatStringsSep ", " xs} }";
   quoted = map (x: "\"${x}\"");
+
+  # The ways to the internet. A segment's denies hold on both, so moving it
+  # into the exit tunnel keeps them.
+  outward = nftSet (quoted [
+    wan
+    exit
+  ]);
 
   # Handed out directly rather than proxied by gate, so AdGuard sees each
   # client: nat masquerades only out `wan`. Named by host, so the redirect
@@ -235,6 +243,9 @@ in
     }
   ];
 
+  # ./exit.nix routes a segment by the interface carrying it.
+  _module.args.segmentOn = segmentOn;
+
   # NixOS offers a filtered forward chain (`filterForward`) only on nftables.
   networking.nftables.enable = true;
 
@@ -271,18 +282,18 @@ in
   };
 
   # iot's way out: docs/privacy.md, "Internet for iot", has the commands.
-  # `iot-wan` counts every iot attempt to open a connection out `wan`, and one
-  # from `iot-trial` is dropped and counted. The set is filled by hand, so no
+  # `iot-wan` counts every iot attempt to open a connection out, by `wan` or
+  # the exit tunnel, and one from `iot-trial` is dropped and counted. The set is filled by hand, so no
   # device reaches this repo, and is runtime state: any reload of the ruleset
   # empties it and zeroes the counters.
   #
-  # The chain returns rather than accepts, so nat's accept stays the one way
-  # out `wan` and flushing the chain undoes it without a deploy. It drops
-  # rather than rejects, so firmware that retries on failure waits out its own
-  # timeout. DNS is unaffected: redirected queries are accepted before the
-  # jump, and queries to the Pis do not leave by `wan`.
+  # The chain returns rather than accepts, so nat's accept, or the exit
+  # tunnel's, stays the one way out; flushing the chain undoes it, no deploy.
+  # It drops rather than rejects, so firmware that retries on failure waits
+  # out its own timeout. DNS is unaffected: redirected queries are accepted
+  # before the jump, and queries to the Pis do not leave by `wan`.
   #
-  # servers-egress lets only the fleet's hosts out `wan`. The switch, the AP
+  # servers-egress lets only the fleet's hosts out. The switch, the AP
   # and the rest are dropped and counted, which does not touch managing them,
   # since the controller is on servers too. NTP is the exception, so their
   # clocks keep whatever time source the controller gives them. Firmware
@@ -300,11 +311,11 @@ in
       }
 
       counter iot-wan {
-        comment "iot attempts to open a connection out wan"
+        comment "iot attempts to open a connection to the internet"
       }
 
       counter iot-trial-dropped {
-        comment "attempts out wan from iot-trial, dropped"
+        comment "attempts out from iot-trial, dropped"
       }
 
       chain iot-egress {
@@ -313,7 +324,7 @@ in
       }
 
       counter servers-wan-dropped {
-        comment "attempts out wan from servers, not by the fleet's hosts, dropped"
+        comment "attempts out from servers, not by the fleet's hosts, dropped"
       }
 
       chain servers-egress {
@@ -370,13 +381,13 @@ in
       # The egress jumps come after both, so they count only what would
       # otherwise reach nat's accept.
       extraForwardRules = lib.mkBefore ''
-        iifname ${nftSet (quoted deniedUpstream)} oifname "${wan}" ip daddr ${nftSet upstreamPrivate} drop comment "only trusted reaches upstream management"
+        iifname ${nftSet (quoted deniedUpstream)} oifname ${outward} ip daddr ${nftSet upstreamPrivate} drop comment "only trusted reaches upstream management"
         ${lib.optionalString (refuseDotIfaces != [ ]) ''
-          iifname ${nftSet (quoted refuseDotIfaces)} oifname "${wan}" tcp dport 853 counter reject with tcp reset comment "refuse DoT, so clients fall back to port 53"
-          iifname ${nftSet (quoted refuseDotIfaces)} oifname "${wan}" udp dport 853 counter reject comment "refuse DoQ, so clients fall back to port 53"
+          iifname ${nftSet (quoted refuseDotIfaces)} oifname ${outward} tcp dport 853 counter reject with tcp reset comment "refuse DoT, so clients fall back to port 53"
+          iifname ${nftSet (quoted refuseDotIfaces)} oifname ${outward} udp dport 853 counter reject comment "refuse DoQ, so clients fall back to port 53"
         ''}
-        iifname "${tagged "iot"}" oifname "${wan}" jump iot-egress comment "iot's way out, counted, and refused for iot-trial"
-        iifname "${trunk}" oifname "${wan}" jump servers-egress comment "servers' way out, for the fleet's hosts only"
+        iifname "${tagged "iot"}" oifname ${outward} jump iot-egress comment "iot's way out, counted, and refused for iot-trial"
+        iifname "${trunk}" oifname ${outward} jump servers-egress comment "servers' way out, for the fleet's hosts only"
         iifname "${trustedBr}" oifname "${trunk}" accept comment "trusted reaches servers"
         iifname "${tagged "iot"}" oifname "${trunk}" meta l4proto { tcp, udp } th dport 53 accept comment "iot resolves via the Pis, nothing else"
         iifname "${tagged "work"}" oifname "${trunk}" meta l4proto { tcp, udp } th dport 53 accept comment "work resolves via the Pis, nothing else"

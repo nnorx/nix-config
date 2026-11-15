@@ -21,6 +21,7 @@ let
   vpn = net.segments.vpn;
   tunnel = net.hosts.gate.vpnIface;
   wan = net.hosts.gate.wanIface;
+  exit = net.hosts.gate.exitIface;
 
   # What each peer may reach beyond DNS is `segments.vpn.grants` in
   # lib/net.nix, which says what each grant is and why DNS is not one. It
@@ -179,10 +180,12 @@ in
 
     extraForwardRules = lib.mkMerge [
       # Ahead of the nat module's blanket `iifname { segments } oifname wan
-      # accept`, which would otherwise let any peer use the house as an exit by
-      # editing its own config. A lost phone is the case in mind.
+      # accept`, and ./exit.nix's into the exit tunnel, either of which would
+      # otherwise let any peer use the house as an exit by editing its own
+      # config. A lost phone is the case in mind.
       (lib.mkBefore (
-        rulesFor withoutInternet ''oifname "${wan}" counter drop'' "tunnel: no exit for this peer"
+        rulesFor withoutInternet ''oifname { "${wan}", "${exit}" } counter drop''
+          "tunnel: no exit for this peer"
       ))
 
       # Queries addressed to a resolver directly. Those addressed anywhere else

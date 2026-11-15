@@ -17,6 +17,7 @@ pkgs.lib.genAttrs
     "gate-iot-egress"
     "gate-servers-egress"
     "gate-tunnel"
+    "gate-exit"
     "deploy-agent"
     "deploy-guard"
     "diag-login"
