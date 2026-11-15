@@ -346,6 +346,8 @@
     # On the collector's loopback (modules/alerting.nix). vmalert's default,
     # 8880, is the UniFi guest portal on the same host.
     vmalert = 8881;
+    # The second vmalert, over VictoriaLogs.
+    vmalertLogs = 8882;
     alertmanager = 9093;
 
     # Kea's pool usage, from its control socket, on gate's metricsSegment.

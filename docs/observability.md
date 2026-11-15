@@ -16,6 +16,7 @@ Failed and missed jobs are a separate, hosted path, `modules/alerts.nix`
 | vmauth, reads alone, in front of the store | core5 loopback | `victoriaMetrics` | `modules/metrics.nix` |
 | Grafana | core5's address | `grafana` | `modules/metrics.nix`, `modules/dashboards.nix` |
 | vmalert | core5 loopback | `vmalert` | `modules/alerting.nix` |
+| vmalert-logs | core5 loopback | `vmalertLogs` | `modules/alerting.nix` |
 | Alertmanager | core5 loopback | `alertmanager` | `modules/alerting.nix` |
 | blackbox exporter | core5 loopback | `blackboxExporter` | `modules/blackbox.nix` |
 | smartctl_exporter | core5 loopback | `smartctlExporter` | `modules/smartctl.nix` |
@@ -124,18 +125,21 @@ curl -s http://127.0.0.1:<victoriaLogs>/select/logsql/query --data-urlencode 'qu
 ## Alerts
 
 ```
-exporters ──scrape──► VictoriaMetrics ◄──query── vmalert ──► Alertmanager
-                                                                  │
-            ntfy.sh topic ◄── webhook, ?template=alertmanager ────┤
-            hc-ping.com   ◄── Watchdog, every 5 minutes ──────────┘
+exporters ──scrape──► VictoriaMetrics ◄──query── vmalert ──────┐
+journals ───upload──► VictoriaLogs ◄─────query── vmalert-logs ─┴──► Alertmanager
+                                                                          │
+            ntfy.sh topic ◄── webhook, ?template=alertmanager ────────────┤
+            hc-ping.com   ◄── Watchdog, every 5 minutes ──────────────────┘
 ```
 
 Rules are in `modules/alert-rules.nix`, each with its reasons in the comment
 beside it, and `tests/alert-rules.nix` checks each against series of its own.
-Every label and annotation leaves the house in the push, so a rule names things
-and never quotes an address, a serial number or a value.
+The journals' are in `modules/log-alert-rules.nix`, raised by
+`tests/log-alerts.nix`. Every label and annotation leaves the house in the push,
+so a rule names things and never quotes an address, a serial number or a value.
 
-- **Priority.** `critical` is high in ntfy, `warning` the default, `info` low.
+- **Priority.** `critical` is high in ntfy, `warning` the default, `info` low. `HostUserLogin`
+  pushes once an hour at most.
 - **One push per incident.** Alertmanager groups by alert name and waits 30
   seconds, so one fault on several hosts is one push. A host joining later is a
   new push, at the next 5-minute flush. There is no resolved message, and no
@@ -144,8 +148,8 @@ and never quotes an address, a serial number or a value.
 - **Held back.** `HostDown` holds every other alert about the same host, and
   `WanDown` holds `ResolverFailing`.
 - **The stack failing to start** (`victoriametrics`, `vmauth`, `vmalert`,
-  `alertmanager`, `grafana`) pushes through `fleetAlerts.failure`, which does not
-  depend on any of it.
+  `vmalert-logs`, `alertmanager`, `grafana`) pushes through
+  `fleetAlerts.failure`, which does not depend on any of it.
 
 ### When one fires
 
@@ -171,6 +175,9 @@ revision, root device, last upgrade and failed units.
 | `RevisionBehind` | A Pi differs from main's head for 36 hours, gate for 7 days | warning | `host-status`, for the last upgrade. On a Pi, `journalctl -u nixos-upgrade`. On gate, deploy it |
 | `RevisionCheckStale` | main's head unread for 6 hours | warning | `journalctl -u fleet-main-revision` on core5. `RevisionBehind` judges no host until it clears |
 | `WireGuardPeerSilent` | A peer has not connected in 90 days | info | Review it, or revoke it in `lib/wireguard-keys.nix` |
+| `SudoFailed` | sudo refused a password in 15 minutes | critical | Its `sudo` lines, as in Logs |
+| `Fail2banBan` | fail2ban banned an address in 15 minutes | warning | Its `fail2ban` lines |
+| `HostUserLogin` | An SSH login as the host's user in the hour | info | Its `sshd-session` lines |
 | `Watchdog` | Always | none | Routed to healthchecks.io alone, below |
 
 `Watchdog` pings healthchecks.io every 5 minutes as `core5-metrics-watchdog`. When
