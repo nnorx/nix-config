@@ -49,7 +49,7 @@ let
   # managed settings on forge so the two cannot drift apart.
   policy = import ../lib/claude-sandbox.nix {
     inherit lib;
-    isDarwin = pkgs.stdenv.isDarwin;
+    isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
   };
 
   managed = {
@@ -77,7 +77,7 @@ let
     # sandbox to match. A path may be a file, so each gets both rules.
     permissions.deny =
       map (dir: "Read(${dir}/**)") policy.keyDirs
-      ++ lib.optionals pkgs.stdenv.isLinux (
+      ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux (
         lib.concatMap (p: [
           "Read(${p})"
           "Read(${p}/**)"
@@ -95,7 +95,7 @@ let
       DISABLE_TELEMETRY = "1";
       DISABLE_ERROR_REPORTING = "1";
     }
-    // lib.optionalAttrs pkgs.stdenv.isLinux {
+    // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
       # Points nix in Claude Code's commands at the sandbox's cache.
       NIX_CACHE_HOME = sandboxNixCache;
     };
@@ -104,7 +104,7 @@ let
   # the Mac does not hold it, so there it would only break work repos'
   # tooling and the hooks they run inside it. del(.sandbox) in the merge below
   # clears what an earlier generation left.
-  // lib.optionalAttrs pkgs.stdenv.isLinux {
+  // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
     # lib/claude-sandbox.nix says what the sandbox denies. This adds how
     # commands are approved and what they may reach. Both set `filesystem`,
     # so the merge is recursive.
@@ -204,7 +204,7 @@ in
     # `claude plugin eval` refuses to grant a shell tool without it, and its child
     # agents run commands through the login shell, so an ad-hoc `nix shell` is
     # not enough: they have to be on the profile's PATH.
-    home.packages = lib.optionals pkgs.stdenv.isLinux [
+    home.packages = lib.optionals pkgs.stdenv.hostPlatform.isLinux [
       pkgs.bubblewrap
       pkgs.socat
     ];
@@ -215,7 +215,8 @@ in
     # git.nix, which the fleet imports too, and Linux only, like the sandbox:
     # work repos on the Mac use hooks. A repo that needs them can set its own
     # core.hooksPath, since .git/config is out of a command's reach.
-    programs.git.settings.core.hooksPath = lib.mkIf pkgs.stdenv.isLinux "${pkgs.emptyDirectory}";
+    programs.git.settings.core.hooksPath =
+      lib.mkIf pkgs.stdenv.hostPlatform.isLinux "${pkgs.emptyDirectory}";
 
     # `claude --worktree` checks each background agent out under
     # .claude/worktrees/ in the repo it was started from, which would
@@ -226,7 +227,7 @@ in
     home.activation.claudeSettings = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
       settings="$HOME/.claude/settings.json"
       mkdir -p "$HOME/.claude"
-      ${lib.optionalString pkgs.stdenv.isLinux "mkdir -p ${lib.escapeShellArg sandboxNixCache}"}
+      ${lib.optionalString pkgs.stdenv.hostPlatform.isLinux "mkdir -p ${lib.escapeShellArg sandboxNixCache}"}
 
       # Earlier generations linked this path into the store. linkGeneration drops
       # that symlink when it is the one Home Manager wrote, but clear it here too
