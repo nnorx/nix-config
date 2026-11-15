@@ -115,6 +115,25 @@ rec {
     boot.kernelPackages = nixos-raspberrypi.packages.aarch64-linux.linuxPackages_rpi4;
   };
 
+  # The Pi 4 resolvers are on Ethernet and have no use for a radio. Without
+  # nixos-hardware's opt-in UART setup the Bluetooth chip never answers, and
+  # its failed reset is logged every boot. A blacklist stops loading by alias
+  # alone, so it names each module a device or socket would load: hci_uart and
+  # btsdio for Bluetooth, brcmfmac for Wi-Fi.
+  pi4NoRadios = {
+    boot.blacklistedKernelModules = [
+      "hci_uart"
+      "btsdio"
+      "btbcm"
+      "btqca"
+      "bluetooth"
+      "brcmfmac"
+      "brcmfmac_cyw"
+      "brcmutil"
+      "cfg80211"
+    ];
+  };
+
   # Claude Code plugin marketplaces, keyed by the `name` field in each
   # marketplace's .claude-plugin/marketplace.json. Shared by the standalone
   # Home Manager configs and forge's embedded one.

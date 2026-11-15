@@ -166,6 +166,7 @@
         mkPi
         mkHome
         pi4CachedKernel
+        pi4NoRadios
         claudeMarketplaces
         ;
     in
@@ -251,6 +252,7 @@
           hardwareModules = [
             nixos-hardware.nixosModules.raspberry-pi-4
             pi4CachedKernel
+            pi4NoRadios
           ];
         };
         lifeline = mkPi {
@@ -258,6 +260,7 @@
           hardwareModules = [
             nixos-hardware.nixosModules.raspberry-pi-4
             pi4CachedKernel
+            pi4NoRadios
           ];
         };
 
