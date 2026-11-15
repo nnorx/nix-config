@@ -161,6 +161,9 @@ revision, root device, last upgrade and failed units.
 | `HostDown` | A host's node_exporter scrape is 0 for 5 minutes | critical | `host-status`. No answer: power and link, then [recovery.md](recovery.md). Answering with no exporter: a generation older than node_exporter, so check its root device |
 | `ScrapeDown` | Any other scrape but the stack's own is 0 for 10 minutes, or every target of a probe job | warning | `systemctl status prometheus-<job>-exporter` on that host; the blackbox exporter for a probe job, on core5 |
 | `WanDown` | gate's `wan` has no carrier, no lease or no default route, or both public resolvers fail pings, for 2 minutes | critical | The queries above show which. It arrives once the WAN is back, so it is often history, and the Watchdog's silence is what reaches the phone on time |
+| `ExitTunnelDown` | No exit tunnel handshake for 5 minutes, for 3 | critical | `journalctl -u exit-tunnel` on gate |
+| `ExitBypassOpen` | An exit bypass is open | warning | Close it once the tunnel is back |
+| `ExitLeakWhileUp` | Leak drops in every 2 minutes for 5, tunnel up | critical | `ip rule` and table `exit` on gate |
 | `ResolverFailing` | A resolver fails its probe, or over 5% of at least 100 answers in 15 minutes are SERVFAIL, for 5 minutes | critical | DNS dashboard: answering, then SERVFAIL. `systemctl status adguardhome unbound` on the host |
 | `AdGuardStatsMissing` | `fleet_adguard_up` is 0 for 30 minutes | warning | `journalctl -u adguard-metrics` on the host. DNS works; `SecurityListBlocked` is blind |
 | `SecurityListBlocked` | A security list blocked a lookup within 15 minutes | warning | Its query log |

@@ -112,6 +112,12 @@ let
       inherit instance;
     } "1x40";
 
+  exitDown = {
+    instance = "gate";
+    severity = "critical";
+    summary = "gate's exit tunnel has not handshaken for 5 minutes, so the segments it carries are offline.";
+  };
+
   # Minutes, evaluated every minute.
   short = [
     {
@@ -224,6 +230,84 @@ let
             instance = "gate";
             severity = "critical";
             summary = "gate's WAN is down: no link, no lease or no default route, or neither public resolver answers a ping.";
+          }
+        ])
+      ];
+    }
+
+    # ExitTunnelDown: a handshake 90 seconds old throughout is a live tunnel.
+    {
+      interval = "1m";
+      input_series = [
+        (series "fleet_exit_last_handshake_timestamp_seconds" (node "gate") "${atS (-90)}+60x20")
+      ];
+      alert_rule_test = [
+        (expect "20m" "ExitTunnelDown" "fleet" [ ])
+      ];
+    }
+    # The last handshake 5 minutes in, and none after: 5 minutes old at 10,
+    # firing 3 later. The leak counter rises from 12, with the handshake
+    # stale, which is the fail-closed drop.
+    {
+      interval = "1m";
+      input_series = [
+        (series "fleet_exit_last_handshake_timestamp_seconds" (node "gate") "${atS 0}+60x5 ${atS 300}x20")
+        (series "fleet_exit_leak_dropped_packets_total" (node "gate") "0x11 1+1x14")
+      ];
+      alert_rule_test = [
+        (expect "12m" "ExitTunnelDown" "fleet" [ ])
+        (expect "15m" "ExitTunnelDown" "fleet" [ exitDown ])
+        (expect "25m" "ExitLeakWhileUp" "fleet" [ ])
+      ];
+    }
+    # gate reboots 5 minutes in and the tunnel never handshakes again, so it
+    # reads 0 from 6. Quiet while the 0 is younger than 5 minutes, then the
+    # same as a stale handshake.
+    {
+      interval = "1m";
+      input_series = [
+        (series "fleet_exit_last_handshake_timestamp_seconds" (node "gate") "${atS 0}+60x5 0x20")
+      ];
+      alert_rule_test = [
+        (expect "10m" "ExitTunnelDown" "fleet" [ ])
+        (expect "16m" "ExitTunnelDown" "fleet" [ exitDown ])
+      ];
+    }
+
+    # ExitBypassOpen, for one segment, at once.
+    {
+      interval = "1m";
+      input_series = [
+        (series "fleet_exit_bypass_open" (node "gate" // { segment = "trusted"; }) "0x10")
+        (series "fleet_exit_bypass_open" (node "gate" // { segment = "resolvers"; }) "0x2 1x8")
+      ];
+      alert_rule_test = [
+        (expect "2m" "ExitBypassOpen" "fleet" [ ])
+        (expect "3m" "ExitBypassOpen" "fleet" [
+          {
+            instance = "gate";
+            segment = "resolvers";
+            severity = "warning";
+            summary = "resolvers is bypassing gate's exit tunnel and leaves by the WAN until exit-bypass closes.";
+          }
+        ])
+      ];
+    }
+
+    # ExitLeakWhileUp: drops from 5 minutes in, with the handshake fresh.
+    {
+      interval = "1m";
+      input_series = [
+        (series "fleet_exit_last_handshake_timestamp_seconds" (node "gate") "${atS 0}+60x20")
+        (series "fleet_exit_leak_dropped_packets_total" (node "gate") "0x5 3+3x15")
+      ];
+      alert_rule_test = [
+        (expect "8m" "ExitLeakWhileUp" "fleet" [ ])
+        (expect "12m" "ExitLeakWhileUp" "fleet" [
+          {
+            instance = "gate";
+            severity = "critical";
+            summary = "gate dropped traffic from a tunneled segment headed for the WAN while the exit tunnel was up.";
           }
         ])
       ];
@@ -595,6 +679,7 @@ let
   # 2000-01-01, so `at h` is a timestamp h hours in.
   start = 946684800;
   at = h: toString (start + h * 3600);
+  atS = s: toString (start + s);
   long = [
     # core4 runs an old revision throughout, core5 main's head, and gate the
     # same old one, which it may do for a week.
