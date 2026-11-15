@@ -112,7 +112,7 @@ rec {
   # nixos-hardware's, and the dtbs come from this kernel. Its kernelPackages
   # default is mkDefault, so a plain value wins.
   pi4CachedKernel = {
-    boot.kernelPackages = nixos-raspberrypi.packages.aarch64-linux.linuxPackages_rpi4;
+    boot.kernelPackages = withKernelAttrs nixos-raspberrypi.packages.aarch64-linux.linuxPackages_rpi4;
   };
 
   # The Pi 4 resolvers are on Ethernet and have no use for a radio. Without
@@ -133,6 +133,32 @@ rec {
       "cfg80211"
     ];
   };
+
+  # core5's kernel, the one nixos-raspberrypi's Pi 5 module sets at
+  # mkDefault, restated to pass it through withKernelAttrs.
+  pi5CachedKernel = {
+    boot.kernelPackages = withKernelAttrs nixos-raspberrypi.packages.aarch64-linux.linuxPackages_rpi5;
+  };
+
+  # NixOS 26.11 reads `target` and `buildDTBs` from the kernel package, and
+  # nixos-raspberrypi's kernels, built from its 26.05 pin, carry neither. This
+  # adds both without changing the derivation, through `.override` as well,
+  # since NixOS re-overrides the kernel for kernelPatches. Setting the options
+  # instead fails on core5, even with mkForce. It goes once
+  # nixos-raspberrypi's develop builds from 26.11, whose kernels carry both.
+  withKernelAttrs =
+    kernelPackages:
+    let
+      add =
+        kernel:
+        kernel
+        // {
+          target = "Image";
+          buildDTBs = true;
+          override = args: add (kernel.override args);
+        };
+    in
+    kernelPackages.extend (_: super: { kernel = add super.kernel; });
 
   # Claude Code plugin marketplaces, keyed by the `name` field in each
   # marketplace's .claude-plugin/marketplace.json. Shared by the standalone
