@@ -335,7 +335,8 @@ in
         return client.succeed(fetch).strip()
 
     def metrics():
-        gate.succeed("systemctl start gate-metrics-facts.service")
+        # Called many times in a row, past the unit's start limit otherwise.
+        gate.succeed("systemctl reset-failed gate-metrics-facts.service; systemctl start gate-metrics-facts.service")
         return gate.succeed("cat /run/fleet-metrics/gate.prom")
 
     def one(text, name, **want):
