@@ -167,6 +167,7 @@
         mkHome
         pi4CachedKernel
         pi4NoRadios
+        pi5CachedKernel
         claudeMarketplaces
         ;
     in
@@ -241,6 +242,7 @@
                   ];
                 }
               )
+              pi5CachedKernel
             ]
             ++ fleetModules { inherit hostname system; }
             ++ [ ./hosts/common/pi.nix ];
