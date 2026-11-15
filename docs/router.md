@@ -112,16 +112,18 @@ are in sops alone.
 | Piece | What it does |
 |---|---|
 | `ip rule` 1000 | `lookup main suppress_prefixlength 0`: the house's own routes win |
+| `ip rule` 1050 | `iif <interface>` or `fwmark <exitMark>` `lookup main`, while `exit-bypass` is open for it |
 | `ip rule` 1100 | `iif <segment's interface> lookup exit`, one per tunneled segment |
 | `ip rule` 1200 | `fwmark <exitMark> lookup exit`, with `exitResolvers` on |
 | Table `exit` (100) | `default dev wg-exit`, then `unreachable default metric 100` |
 | `exit-mark` | Marks the resolvers' port 53 in prerouting, with `exitResolvers` on |
-| `exit-routing.service` | Sets the rules and table above before `network-pre.target`, reconciling 1100 and 1200 on every start |
+| `exit-routing.service` | Sets rules 1000, 1100 and 1200 and the table before `network-pre.target`, reconciling 1100 and 1200 on every start |
 | `exit-tunnel.service` | Makes `wg-exit` from the rendered `exit-tunnel.conf`, MTU 1420, on the primary |
 | `exit-watchdog.service` | Moves `wg-exit` to the next server when one stops answering; writes the role to `/run/exit-tunnel/server` |
-| `forward-allow` | Out `wg-exit` for tunneled segments and the mark; out `wan` dropped into `exit-leak-dropped` |
+| `forward-allow` | Out `wg-exit` for tunneled segments and the mark; out `wan` dropped into `exit-leak-dropped`, unless in `exit-bypass-iif` or `exit-bypass-fwmark` |
 | `exit-masquerade`, `exit-mss` | NAT to gate's inner address; MSS clamped to the tunnel's MTU |
 | `gate-metrics-facts` | `fleet_exit_*`: handshake, bytes, the server by role, leak drops, open bypasses; no endpoint or key |
+| `exit-bypass` | Break-glass for a long outage: one name out `wan`, for a while (below) |
 
 gate's own traffic matches no `iif` rule and carries no mark, so wg0, NTP,
 DNS, DDNS and the tunnel's own packets stay on `wan`. A tunneled packet for an
@@ -188,6 +190,31 @@ sudo systemctl stop exit-watchdog
 sudo exit-watchdog failover1
 # the speed test, then the next role; after the last:
 sudo systemctl restart exit-tunnel
+```
+
+**Break-glass.** For an outage too long to wait out, `sudo exit-bypass <name>
+[duration]` on gate sends one name out `wan` for a systemd time span up to
+24h, `4h` by default: a name in `exitSegments`, or `resolvers` while
+`exitResolvers` is on. While it is open the ISP sees that name's traffic,
+which the tunnel is there to hide, so open one and close it once the
+handshake is fresh. Nothing else opens one.
+
+| Command | What it does |
+|---|---|
+| `sudo exit-bypass trusted 2h` | Adds the interface to `exit-bypass-iif` (the mark to `exit-bypass-fwmark`), rule 1050, `/run/exit-bypass/<name>` and the timer `exit-bypass-expire-<name>`; pushes |
+| `sudo exit-bypass close trusted` | Undoes them in reverse and pushes, as the timer does |
+| `sudo exit-bypass status` | Each name, open until when or closed, and any piece missing |
+
+A reboot closes it, with no push. A deploy keeps it: each load of the
+ruleset empties the sets, so nftables.service then runs `exit-bypass
+restore`, which puts each open name back or closes it. While one is open,
+`fleet_exit_bypass_open` is 1 for it and core5 raises `ExitBypassOpen`. The
+pushes go out `wan` to the fleet's topic, copied from core5's file, in your
+own terminal inside `nix shell nixpkgs#sops nixpkgs#jq`:
+
+```bash
+sops decrypt --extract '["ntfy-url"]' secrets/core5.yaml | jq -R . | sops set --value-stdin secrets/gate.yaml '["ntfy-url"]'
+[[ $(sops decrypt --extract '["ntfy-url"]' secrets/gate.yaml) == $(sops decrypt --extract '["ntfy-url"]' secrets/core5.yaml) ]] && echo "ntfy-url matches"
 ```
 
 ## An address on the wrong wire

@@ -162,6 +162,8 @@ let
   };
 in
 {
+  imports = [ ./exit-bypass.nix ];
+
   sops.secrets = {
     exit-private-key = { };
     exit-address.restartUnits = [ "exit-tunnel.service" ];
@@ -333,14 +335,15 @@ in
 
     # After every segment's deny (`mkBefore`), and ahead of nat's accept out
     # `wan`. Left out while no segment is tunneled, since `iifname { }` does
-    # not parse.
+    # not parse. exit-bypass lets a name out `wan` by adding it to a set
+    # the drop skips.
     extraForwardRules = lib.mkOrder 600 (
       lib.optionalString (tunneled != [ ]) ''
-        iifname ${tunneledSet} oifname "${wan}" counter name "exit-leak-dropped" drop comment "a tunneled segment never leaves by wan"
+        iifname ${tunneledSet} iifname != @exit-bypass-iif oifname "${wan}" counter name "exit-leak-dropped" drop comment "a tunneled segment leaves by wan only through exit-bypass"
         iifname ${tunneledSet} oifname "${exit}" accept comment "tunneled segments, out the exit tunnel"
       ''
       + lib.optionalString net.exitResolvers ''
-        meta mark ${mark} oifname "${wan}" counter name "exit-leak-dropped" drop comment "the resolvers' recursion never leaves by wan"
+        meta mark ${mark} meta mark != @exit-bypass-fwmark oifname "${wan}" counter name "exit-leak-dropped" drop comment "the resolvers' recursion leaves by wan only through exit-bypass"
         meta mark ${mark} iifname ${nftSet (quoted resolverIfaces)} oifname "${exit}" accept comment "the resolvers' recursion, out the exit tunnel"
       ''
     );
@@ -362,6 +365,16 @@ in
       content = ''
         counter exit-leak-dropped {
           comment "tunneled segments${lib.optionalString net.exitResolvers " and the resolvers' mark"} routed out wan, dropped"
+        }
+
+        set exit-bypass-iif {
+          type ifname
+          comment "tunneled segments exit-bypass lets out wan"
+        }
+
+        set exit-bypass-fwmark {
+          type mark
+          comment "the resolvers' mark, while exit-bypass lets it out wan"
         }
 
         chain exit-mss {

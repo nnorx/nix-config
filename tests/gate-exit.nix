@@ -5,10 +5,12 @@
 # the tunnel gone, or a routing rule deleted, the tunneled reach nothing and
 # nothing of theirs leaves by `wan`; DoT is refused in the tunnel as out
 # `wan`; gate's own traffic and wg0 stay on `wan`; the provider cannot send
-# from a house address; and the rules unit reconciles what it finds. With
-# the provider's server gone, the watchdog moves gate to a second, and with
-# every one gone it stays closed. gate's metrics textfile reports all of it
-# by role, never by address. docs/router.md, "Exit tunnel", has the design.
+# from a house address; the rules unit reconciles what it finds; with the
+# provider's server gone, the watchdog moves gate to a second, and with every
+# one gone it stays closed; and exit-bypass lets trusted, or the resolvers,
+# out `wan` while the provider is down, until it expires or is closed, with a
+# push each way. gate's metrics textfile reports all of it by role, never by
+# address. docs/router.md, "Exit tunnel", has the design.
 #
 # `nix build .#checks.x86_64-linux.gate-exit`. It needs KVM, which forge's
 # daemon has; CI's vm-tests job runs it on pull requests.
@@ -42,6 +44,7 @@ let
   house = seg.trusted.pool.first;
   outside = "198.51.100.77";
   providerPort = 51820;
+  ntfyPort = 8080;
   inner = {
     provider = "10.64.0.1";
     gate = "10.64.12.34";
@@ -84,6 +87,7 @@ let
     wireguard-private-key = keys.gateWg0.private;
     wireguard-psk-forge = keys.psk;
     wireguard-psk-phone = keys.psk;
+    ntfy-url = "http://${site}:${toString ntfyPort}/exit-bypass";
   };
 
   # sops-nix, as far as gate's modules use it, with every value known.
@@ -310,6 +314,22 @@ in
         answers = pkgs.writeShellScript "answers" ''
           while read -r _; do printf '%s\n' "$SOCAT_PEERADDR"; done
         '';
+        # ntfy, as far as exit-bypass uses it: a line per push, saying where
+        # it came from. Reads the body, for the reason given at `peer`.
+        ntfy = pkgs.writeShellScript "ntfy" ''
+          len=0
+          while IFS= read -r line; do
+            line=''${line%$'\r'}
+            [ -z "$line" ] && break
+            case $line in
+              Title:*) title=''${line#Title: } ;;
+              Content-Length:*) len=''${line#Content-Length: } ;;
+            esac
+          done
+          body=$(head -c "$len")
+          printf '%s|%s|%s\n' "$SOCAT_PEERADDR" "$title" "$body" >>/run/pushes
+          printf 'HTTP/1.0 200 OK\r\nContent-Length: 0\r\n\r\n'
+        '';
       in
       {
         imports = [
@@ -331,6 +351,10 @@ in
         systemd.services.listen-9000 = {
           wantedBy = [ "multi-user.target" ];
           script = "${pkgs.socat}/bin/socat -u TCP-LISTEN:9000,fork,reuseaddr OPEN:/dev/null";
+        };
+        systemd.services.listen-ntfy = {
+          wantedBy = [ "multi-user.target" ];
+          script = "${pkgs.socat}/bin/socat TCP-LISTEN:${toString ntfyPort},fork,reuseaddr EXEC:${ntfy}";
         };
         systemd.services.listen-853 = {
           wantedBy = [ "multi-user.target" ];
@@ -577,6 +601,76 @@ in
         assert dns_from_wan() == dns_before, "a resolver's port 53 left by wan"
         assert seen(work) == "${isp.gate}"
         assert ask(server, "udp") == "${isp.gate}"
+        provider.succeed("systemctl start wireguard-wg-provider.service")
+        trusted.wait_until_succeeds(f"{fetch} | grep -qx ${far.provider}", timeout=90)
+        resolver.wait_until_succeeds(f"ask udp ${site} 53 {resolvers[0]} | grep -qx ${far.provider}", timeout=90)
+
+    def pushes():
+        # Where each came from, its title and its body.
+        return [p.split("|") for p in internet.succeed("cat /run/pushes 2>/dev/null || true").splitlines()]
+
+    def bypass_rules():
+        return gate.succeed("ip rule show priority 1050").strip()
+
+    with subtest("exit-bypass refuses a name outside the list, and a duration that is not one"):
+        for args in ["work", "servers", "vpn", "close work", "trusted forever", "trusted 0", "trusted infinity", "trusted 25h"]:
+            gate.fail(f"exit-bypass {args}")
+        assert "not one of" in gate.fail("exit-bypass work 2>&1")
+        assert bypass_rules() == ""
+        assert pushes() == []
+        assert gate.succeed("exit-bypass status") == "resolvers: closed\ntrusted: closed\n"
+
+    with subtest("exit-bypass, the provider down: trusted leaves by wan, through a ruleset reload, until it expires"):
+        provider.succeed("systemctl stop wireguard-wg-provider.service")
+        trusted.fail(fetch)
+        print(gate.succeed("exit-bypass trusted 2min"))
+        before = leaked()
+        assert seen(trusted) == "${isp.gate}"
+        assert leaked() == before, "the leak drop counted a bypassed segment"
+        assert bypass_rules() == "1050:\tfrom all iif br-trusted lookup main", bypass_rules()
+        status = gate.succeed("exit-bypass status")
+        assert re.search(r"^trusted: open until .*, [12] min left$", status, re.M), status
+        assert bypasses(metrics()) == {"trusted": 1, "resolvers": 0}
+        assert [p[:2] for p in pushes()] == [["${isp.gate}", "gate: exit bypass open for trusted"]], pushes()
+        assert "already open" in gate.fail("exit-bypass trusted 2>&1")
+        # A reload empties the set while the rule stays; the bypass comes back whole.
+        gate.succeed("systemctl reload nftables.service")
+        assert "trusted kept open" in gate.succeed("journalctl -u nftables.service -o cat")
+        assert seen(trusted) == "${isp.gate}"
+        assert "missing" not in gate.succeed("exit-bypass status")
+        gate.wait_until_fails("test -e /run/exit-bypass/trusted", timeout=180)
+        wan_before = from_wan()
+        trusted.fail(fetch)
+        assert from_wan() == wan_before, "trusted left by wan after its bypass expired"
+        assert bypass_rules() == ""
+        assert "trusted: closed" in gate.succeed("exit-bypass status")
+        assert bypasses(metrics()) == {"trusted": 0, "resolvers": 0}
+        p = pushes()
+        assert len(p) == 2 and p[1][:2] == ["${isp.gate}", "gate: exit bypass closed for trusted"], p
+        assert "time ran out" in p[1][2], p
+
+    with subtest("exit-bypass resolvers, the provider down: their port 53 leaves by wan until it is closed"):
+        assert ask(resolver, "udp", resolvers[0]) == "timeout"
+        gate.succeed("exit-bypass resolvers 10min")
+        before, dns_before = leaked(), dns_from_wan()
+        for ip in resolvers:
+            assert ask(resolver, "udp", ip) == "${isp.gate}"
+        assert ask(resolver, "tcp", resolvers[0]) == "${isp.gate}"
+        assert dns_from_wan() > dns_before
+        assert leaked() == before, "the leak drop counted the bypassed resolvers"
+        assert bypasses(metrics()) == {"trusted": 0, "resolvers": 1}
+        trusted.fail(fetch)
+        gate.succeed("exit-bypass close resolvers")
+        dns_before = dns_from_wan()
+        assert ask(resolver, "udp", resolvers[0]) == "timeout"
+        assert ask(resolver, "tcp", resolvers[0]) == "timeout"
+        assert dns_from_wan() == dns_before, "a resolver's port 53 left by wan after its bypass closed"
+        assert bypass_rules() == ""
+        gate.fail("systemctl is-active exit-bypass-expire-resolvers.timer")
+        assert bypasses(metrics()) == {"trusted": 0, "resolvers": 0}
+        p = pushes()[2:]
+        assert [x[:2] for x in p] == [["${isp.gate}", "gate: exit bypass open for resolvers"], ["${isp.gate}", "gate: exit bypass closed for resolvers"]], p
+        assert "closed by hand" in p[1][2], p
         provider.succeed("systemctl start wireguard-wg-provider.service")
         trusted.wait_until_succeeds(f"{fetch} | grep -qx ${far.provider}", timeout=90)
         resolver.wait_until_succeeds(f"ask udp ${site} 53 {resolvers[0]} | grep -qx ${far.provider}", timeout=90)
