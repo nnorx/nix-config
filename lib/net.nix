@@ -200,6 +200,9 @@
       # Not in `sshInterfaces`, which would open SSH to every peer;
       # hosts/gate/wireguard.nix opens it per peer.
       vpnIface = "wg0";
+
+      # gate's client tunnel to the VPN provider, hosts/gate/exit.nix.
+      exitIface = "wg-exit";
     };
   };
 
@@ -236,6 +239,19 @@
   # inside the tunnel refuses anything smaller: 1340 on the wire. Peers set by
   # hand, like the phone, need it in their app.
   vpnMtu = 1280;
+
+  # Segments whose internet traffic leaves through the exit tunnel rather than
+  # `wan`, failing closed (docs/router.md, "Exit tunnel"). Each is turned on
+  # in a deploy of its own. Never work or servers.
+  exitSegments = [ ];
+
+  # The exit tunnel's routing table, and its MTU: don't-fragment pings of 1392
+  # bytes crossed the provider with `wan` at 1500, and nothing larger did.
+  exitTable = {
+    id = 100;
+    name = "exit";
+  };
+  exitMtu = 1420;
 
   # AdGuard over Unbound, handed out by DHCP and the target of gate's port-53
   # redirect. Named by host, so consumers read both address and segment.

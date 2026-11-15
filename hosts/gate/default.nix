@@ -23,6 +23,7 @@ in
     ../../modules/deploy-guard.nix
     ./routing.nix
     ./wireguard.nix
+    ./exit.nix
     ./govee.nix
     ./ddns.nix
     ./metrics.nix

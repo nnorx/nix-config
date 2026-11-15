@@ -100,6 +100,68 @@ access", has the setup.
 
 gate's firewall changes go behind `deploy-guard`.
 
+## Exit tunnel
+
+`wg-exit` is gate's WireGuard client to one VPN provider server
+(`hosts/gate/exit.nix`). A segment in `exitSegments` (`lib/net.nix`) leaves
+through it instead of `wan`, and through nothing while it is down. Each
+segment is turned on in a deploy of its own; work and servers never are.
+The provider's key, its endpoint and gate's inner address are in sops alone.
+
+| Piece | What it does |
+|---|---|
+| `ip rule` 1000 | `lookup main suppress_prefixlength 0`: the house's own routes win |
+| `ip rule` 1100 | `iif <segment's interface> lookup exit`, one per tunneled segment |
+| Table `exit` (100) | `default dev wg-exit`, then `unreachable default metric 100` |
+| `exit-routing.service` | Sets the three above before `network-pre.target`, and on every start removes the 1100 rules for segments no longer listed |
+| `exit-tunnel.service` | Makes `wg-exit` from the rendered `exit-tunnel.conf`, MTU 1420 |
+| `forward-allow` | Out `wg-exit` for tunneled segments; out `wan` dropped into `exit-leak-dropped` |
+| `exit-masquerade`, `exit-mss` | NAT to gate's inner address; MSS clamped to the tunnel's MTU |
+
+gate's own traffic matches no `iif` rule, so wg0, NTP, DNS, DDNS and the
+tunnel's own packets stay on `wan`. A tunneled client's packet for an address
+on `wan`'s own subnet takes `main`'s connected route and is dropped and
+counted. Reverse-path filtering stays strict but for `wg-exit`, whose replies
+come from addresses `main` routes to `wan`.
+
+**Keys and server.** In sops, from the repo, in your own terminal, inside
+`nix shell nixpkgs#sops nixpkgs#jq nixpkgs#wireguard-tools` if any is
+missing. The private key is made on gate, straight into sops; the
+second line prints its public half. Register that as a device in the
+provider's account with DNS hijacking off, and note its inner address.
+Then paste the server's public key, its `address:port`, and the inner
+address with `/32` at each silent prompt:
+
+```bash
+ssh gate wg genkey | jq -R . | sops set --value-stdin secrets/gate.yaml '["exit-private-key"]'
+sops decrypt --extract '["exit-private-key"]' secrets/gate.yaml | wg pubkey
+for k in exit-primary-public-key exit-primary-endpoint exit-address; do printf '%s: ' "$k"; read -rs v && echo && printf '"%s"' "$v" | sops set --value-stdin secrets/gate.yaml "[\"$k\"]"; done; unset v k
+for k in exit-private-key exit-primary-public-key; do sops decrypt --extract "[\"$k\"]" secrets/gate.yaml | grep -qE '^[A-Za-z0-9+/]{43}=$' && echo "$k ok"; done
+sops decrypt --extract '["exit-primary-endpoint"]' secrets/gate.yaml | grep -qE '^[0-9.]+:[0-9]+$' && echo "endpoint ok"
+sops decrypt --extract '["exit-address"]' secrets/gate.yaml | grep -qE '^[0-9.]+/32$' && echo "address ok"
+```
+
+Activation fails while any is missing. Deploy with `nrs` behind deploy-guard
+(recovery.md), and confirm only once `fleet-ssh` answers from every host.
+
+**Checks.** After a deploy, and when the tunnel is in doubt:
+
+```bash
+ssh gate 'h=$(sudo wg show wg-exit latest-handshakes | cut -f2); echo "handshake $(( $(date +%s) - h ))s ago"'
+ssh gate 'sudo nft list counter inet nixos-fw exit-leak-dropped; ip rule; ip route show table exit'
+```
+
+The handshake should be under two minutes old, and the counter 0, though
+any ruleset reload zeroes it. For throughput, run Ookla's CLI from `ssh -t
+gate`, bound to each way out in turn, printing only ping and speeds:
+
+```bash
+NIXPKGS_ALLOW_UNFREE=1 nix shell --impure nixpkgs#ookla-speedtest nixpkgs#jq
+for i in wg-exit wan; do speedtest --accept-license --accept-gdpr -I $i -f json | jq -c --arg i $i '{via: $i, ping: .ping.latency, down: (.download.bandwidth * 8 / 1e6), up: (.upload.bandwidth * 8 / 1e6)}'; done
+```
+
+`tests/gate-exit.nix` checks the design in VMs with trusted tunneled.
+
 ## An address on the wrong wire
 
 An address on the wrong wire fails silently, and in one direction. During

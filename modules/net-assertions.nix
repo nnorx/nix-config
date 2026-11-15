@@ -400,6 +400,41 @@ let
     '';
   }) net.rootZoneSources;
 
+  # The exit tunnel's segments (hosts/gate/exit.nix). work keeps its own
+  # managed VPN, and servers carries what recovery needs, which must never wait
+  # on the provider. Provider inner addresses live in 10/8 and 100.64/10, where
+  # a house subnet would be shadowed by, or shadow, the provider's network.
+  cidrStart = cidr: addressValue (builtins.elemAt (lib.splitString "/" cidr) 0);
+  cidrEnd =
+    cidr: cidrStart cidr + pow2 (32 - lib.toInt (builtins.elemAt (lib.splitString "/" cidr) 1));
+  overlaps = a: b: cidrStart a < cidrEnd b && cidrStart b < cidrEnd a;
+  providerSpace = [
+    "10.0.0.0/8"
+    "100.64.0.0/10"
+  ];
+  exitChecks =
+    map (name: {
+      assertion =
+        segments ? ${name}
+        && !(lib.elem name [
+          "work"
+          "servers"
+        ]);
+      message = ''
+        net.exitSegments lists "${name}", which is not a declared segment, or is
+        work or servers, which never leave through the exit tunnel: work has
+        its own managed VPN, and servers carries what recovery needs.
+      '';
+    }) net.exitSegments
+    ++ lib.mapAttrsToList (name: seg: {
+      assertion = !(lib.any (overlaps seg.subnet) providerSpace);
+      message = ''
+        net.segments.${name} is ${seg.subnet}, which overlaps
+        ${lib.concatStringsSep " or " providerSpace}, where the exit tunnel's
+        provider numbers its inner network. Renumber it.
+      '';
+    }) segments;
+
   # One number, one name. Two names for a port read as two services, and a
   # firewall rule written for one opens the other: gate's tunnel grants and the
   # hosts' interface rules match on the number alone. Across TCP and UDP too,
@@ -573,6 +608,7 @@ in
     ++ goveeChecks
     ++ metricsChecks
     ++ rootZoneChecks
+    ++ exitChecks
     ++ portChecks
     ++ serviceChecks
     ++ servicePortChecks;
