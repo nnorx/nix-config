@@ -620,8 +620,10 @@ in
         assert pushes() == []
         assert gate.succeed("exit-bypass status") == "resolvers: closed\ntrusted: closed\n"
 
-    with subtest("exit-bypass, the provider down: trusted leaves by wan, through a ruleset reload, until it expires"):
-        provider.succeed("systemctl stop wireguard-wg-provider.service")
+    with subtest("exit-bypass, every server down: trusted leaves by wan, through a ruleset reload and restart, until it expires"):
+        # An outage is every server down, or the watchdog would move to one up.
+        for m in [provider, failover]:
+            m.succeed("systemctl stop wireguard-wg-provider.service")
         trusted.fail(fetch)
         print(gate.succeed("exit-bypass trusted 2min"))
         before = leaked()
@@ -633,10 +635,16 @@ in
         assert bypasses(metrics()) == {"trusted": 1, "resolvers": 0}
         assert [p[:2] for p in pushes()] == [["${isp.gate}", "gate: exit bypass open for trusted"]], pushes()
         assert "already open" in gate.fail("exit-bypass trusted 2>&1")
-        # A reload empties the set while the rule stays; the bypass comes back whole.
+        # Trusted's bypass lets out trusted alone.
+        assert ask(resolver, "udp", resolvers[0]) == "timeout"
+        assert "not one of" in gate.fail("exit-bypass close ../exit-tunnel 2>&1")
+        # A reload, or a restart, empties the set while the rule stays; the
+        # bypass comes back whole after each.
         gate.succeed("systemctl reload nftables.service")
-        assert "trusted kept open" in gate.succeed("journalctl -u nftables.service -o cat")
+        gate.succeed("systemctl restart nftables.service")
+        assert gate.succeed("journalctl -u nftables.service -o cat").count("trusted kept open") == 2
         assert seen(trusted) == "${isp.gate}"
+        assert ask(resolver, "udp", resolvers[0]) == "timeout"
         assert "missing" not in gate.succeed("exit-bypass status")
         gate.wait_until_fails("test -e /run/exit-bypass/trusted", timeout=180)
         wan_before = from_wan()
@@ -649,7 +657,7 @@ in
         assert len(p) == 2 and p[1][:2] == ["${isp.gate}", "gate: exit bypass closed for trusted"], p
         assert "time ran out" in p[1][2], p
 
-    with subtest("exit-bypass resolvers, the provider down: their port 53 leaves by wan until it is closed"):
+    with subtest("exit-bypass resolvers, every server down: their port 53 leaves by wan until it is closed"):
         assert ask(resolver, "udp", resolvers[0]) == "timeout"
         gate.succeed("exit-bypass resolvers 10min")
         before, dns_before = leaked(), dns_from_wan()
@@ -671,7 +679,11 @@ in
         p = pushes()[2:]
         assert [x[:2] for x in p] == [["${isp.gate}", "gate: exit bypass open for resolvers"], ["${isp.gate}", "gate: exit bypass closed for resolvers"]], p
         assert "closed by hand" in p[1][2], p
-        provider.succeed("systemctl start wireguard-wg-provider.service")
+        for m in [provider, failover]:
+            m.succeed("systemctl start wireguard-wg-provider.service")
+        # Back to the primary, wherever the watchdog went meanwhile.
+        gate.succeed("systemctl restart exit-tunnel.service")
+        gate.wait_until_succeeds("grep -qx primary /run/exit-tunnel/server", timeout=30)
         trusted.wait_until_succeeds(f"{fetch} | grep -qx ${far.provider}", timeout=90)
         resolver.wait_until_succeeds(f"ask udp ${site} 53 {resolvers[0]} | grep -qx ${far.provider}", timeout=90)
 

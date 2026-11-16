@@ -41,7 +41,9 @@ let
     ''
     + builtins.readFile ./exit-bypass.sh;
   };
-  restore = "${lib.getExe exit-bypass} restore";
+  # Ignored if it fails: the ruleset stays, and a bypass not put back fails
+  # closed, as `exit-bypass status` then shows.
+  restore = "-${lib.getExe exit-bypass} restore";
 in
 {
   sops.secrets.ntfy-url = { };

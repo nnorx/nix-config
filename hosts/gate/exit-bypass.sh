@@ -102,6 +102,8 @@ open() {
 
 close() {
   local name=$1 why=$2 sel
+  # A name, never a path under $state.
+  [[ $name =~ ^[a-z0-9-]+$ ]] || die "'$name' is not one of: ${!target[*]}"
   sel=$(selector "$name")
   [ -n "$sel" ] || die "'$name' is not one of: ${!target[*]}"
   # shellcheck disable=SC2086 # the selector is two words
