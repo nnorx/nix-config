@@ -40,8 +40,9 @@ project in Linear plans it.
 core5 scrapes gate ([observability.md](observability.md),
 `hosts/gate/metrics.nix`) for the questions a router fault raises before
 anyone notices the internet is broken: WAN link and lease, conntrack
-pressure, per-interface throughput, Kea's pools, and each tunnel peer's last
-handshake. The resolvers' DNS failures come from core4 and lifeline.
+pressure, per-interface throughput, Kea's pools, devices new to trusted,
+and each tunnel peer's last handshake. The resolvers' DNS failures come from
+core4 and lifeline.
 `tests/gate-metrics.nix` checks the answers carry no WAN address.
 
 ## Checking the DNS rules

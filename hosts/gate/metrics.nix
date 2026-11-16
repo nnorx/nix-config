@@ -13,6 +13,7 @@
 #   WireGuard             the textfile below, each peer's last handshake
 #   Exit tunnel           the textfile below: handshake, bytes, server role,
 #                         leak drops and bypasses
+#   New trusted devices   the textfile below, from ./trusted-clients.nix
 #
 # Both exporters bind gate's gateway address on its metricsSegment and nothing
 # else, and their ports open on the interface carrying that segment, from the
@@ -67,6 +68,9 @@ let
   ];
   bypassable = net.exitSegments ++ [ "resolvers" ];
 
+  # ./trusted-clients.nix's count, which it publishes for this alone.
+  newClientsFile = "/run/gate-trusted-clients/count";
+
   # The lease, the WireGuard handshakes and the exit tunnel, as metrics. None
   # has a collector in node_exporter. Nothing here prints the WAN address: jq
   # reads it, and emits only counts and lifetimes.
@@ -103,6 +107,10 @@ let
       fi
       leak=$(nft -j list counter inet nixos-fw exit-leak-dropped 2>/dev/null |
         jq -r '.nftables[].counter // empty | "\(.packets) \(.bytes)"') || leak=""
+      newClients=""
+      if [ -e ${newClientsFile} ]; then
+        newClients=$(tr -dc 0-9 2>/dev/null <${newClientsFile}) || newClients=""
+      fi
 
       tmp=$(mktemp -p ${textfileDir})
       {
@@ -156,6 +164,12 @@ let
           echo '# HELP fleet_exit_leak_dropped_bytes_total Bytes from tunneled segments routed out wan and dropped. A ruleset reload zeroes it.'
           echo '# TYPE fleet_exit_leak_dropped_bytes_total counter'
           echo "fleet_exit_leak_dropped_bytes_total $bytes"
+        fi
+        # Left out until ./trusted-clients.nix has first run.
+        if [ -n "$newClients" ]; then
+          echo '# HELP fleet_kea_new_trusted_clients_total Devices Kea leased to on trusted for the first time.'
+          echo '# TYPE fleet_kea_new_trusted_clients_total counter'
+          echo "fleet_kea_new_trusted_clients_total $newClients"
         fi
       } >"$tmp"
       chmod 0644 "$tmp"
@@ -211,7 +225,7 @@ in
   # Every 30 seconds, the scrape interval. All of it changes under a running
   # system, so this is read rather than written at build time.
   systemd.services.gate-metrics-facts = {
-    description = "Write gate's WAN lease, WireGuard handshakes and exit tunnel for node_exporter";
+    description = "Write gate's WAN lease, WireGuard handshakes and exit tunnel and new trusted devices for node_exporter";
     serviceConfig = import ../../lib/hardening.nix // {
       Type = "oneshot";
       ExecStart = lib.getExe facts;

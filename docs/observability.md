@@ -1,8 +1,7 @@
 # Observability
 
-What watches the fleet, on core5, and how to operate it. The reasoning behind
-it, from the choice of store to the sizing and each threshold's measurements,
-is in [the design record as it last
+What watches the fleet, on core5, and how to operate it. Its reasoning,
+to each threshold's measurements, is in [the design record as it last
 stood](https://github.com/nnorx/nix-config/blob/cf3fa4a/docs/observability.md).
 
 Failed and missed jobs are a separate, hosted path, `modules/alerts.nix`
@@ -29,10 +28,10 @@ Failed and missed jobs are a separate, hosted path, `modules/alerts.nix`
 
 Exporters on other hosts accept connections from core5's address alone.
 
-The store keeps 12 months, and stops accepting samples when free space falls
-under 50 GiB. Its data and Grafana's database are under `/var/lib` and are not
-backed up: the dashboards and datasource are provisioned from this repo, so
-losing either costs history, not configuration.
+The store keeps 12 months, and stops taking samples under 50 GiB free. Its
+data and Grafana's database are under `/var/lib` and are not backed up: the
+dashboards and datasource are provisioned from this repo, so losing either
+costs history, not configuration.
 
 Grafana comes from `unstable`, and its migrations are one-way. Before rolling
 core5 back past a Grafana upgrade, delete `/var/lib/grafana/data/grafana.db`.
@@ -60,7 +59,7 @@ collector, from `/run/fleet-metrics`:
 | Metrics | Host | Written by | Every |
 |---|---|---|---|
 | `fleet_revision_info`, `fleet_root_device_info` | Every target | `fleet-metrics-facts` | 5 minutes |
-| `fleet_wan_*`, `fleet_wireguard_last_handshake_timestamp_seconds`, `fleet_exit_*` | gate | `gate-metrics-facts` | 30 seconds |
+| `fleet_wan_*`, `fleet_wireguard_last_handshake_timestamp_seconds`, `fleet_exit_*`, `fleet_kea_new_trusted_clients_total` | gate | `gate-metrics-facts`, the last from `gate-trusted-clients` | 30 seconds |
 | `fleet_adguard_*`, from AdGuard's statistics and query log | core4, lifeline | `adguard-metrics` | 30 seconds |
 | `fleet_main_revision_info`, `fleet_main_revision_checked_timestamp_seconds` | core5 | `fleet-main-revision`, `git ls-remote` against main | 30 minutes |
 
@@ -106,8 +105,7 @@ fleet_wan_addresses                                         # 1 while wan holds 
 time() - fleet_wireguard_last_handshake_timestamp_seconds   # seconds since each handshake
 ```
 
-A handshake timestamp of 0 means none since `wg0` came up, so its age reads as
-decades.
+A handshake timestamp of 0 means none since `wg0` came up.
 
 ## Logs
 
@@ -133,11 +131,11 @@ journals ───upload──► VictoriaLogs ◄─────query── vma
             hc-ping.com   ◄── Watchdog, every 5 minutes ──────────────────┘
 ```
 
-Rules are in `modules/alert-rules.nix`, each with its reasons in the comment
-beside it, and `tests/alert-rules.nix` checks each against series of its own.
-The journals' are in `modules/log-alert-rules.nix`, raised by
-`tests/log-alerts.nix`. Every label and annotation leaves the house in the push,
-so a rule names things and never quotes an address, a serial number or a value.
+Rules are in `modules/alert-rules.nix`, each with its reasons beside it, and
+`tests/alert-rules.nix` checks each. The journals' are in
+`modules/log-alert-rules.nix`, raised by `tests/log-alerts.nix`. Every label
+and annotation leaves the house in the push, so a rule names things and never
+quotes an address, a serial number or a value.
 
 - **Priority.** `critical` is high in ntfy, `warning` the default, `info` low. `HostUserLogin`
   pushes once an hour at most.
@@ -170,6 +168,7 @@ revision, root device, last upgrade and failed units.
 | `SecurityListBlocked` | A security list blocked a lookup within 15 minutes | warning | Its query log |
 | `ConntrackPressure` | gate's table is over 80% of its limit for 10 minutes | warning | Fleet dashboard, Network: what is suddenly busy |
 | `DhcpPoolLow` | A segment's pool is over 90% leased for 15 minutes | warning | DHCP dashboard. Widen the pool in `lib/net.nix`, or find what is taking leases |
+| `NewTrustedClient` | A device new to trusted leased in 15 minutes | warning | `journalctl --namespace=kea` on gate, as root |
 | `DiskFilling` | A filesystem is over 85% full, or over half full and predicted full in 3 days, for an hour | warning | `df -h` on the host |
 | `HostHot` | A thermal zone is above 75°C for 15 minutes | warning | Fleet dashboard. Airflow and load |
 | `DriveFailing` | A critical warning, a failed SMART verdict, spare under the drive's threshold, or a new media error, for 5 minutes | critical | Fleet dashboard, drive panels. Treat it as failing: check the off-box backups, then replace it |
@@ -185,12 +184,12 @@ revision, root device, last upgrade and failed units.
 | `Watchdog` | Always | none | Routed to healthchecks.io alone, below |
 
 `Watchdog` pings healthchecks.io every 5 minutes as `core5-metrics-watchdog`. When
-the pings stop, healthchecks.io pushes through the same topic from outside the
-house, without a reason: core5 is off or out of disk, or the path from scrape to
-delivery is broken somewhere. With core5 down this is the one signal. Start with
-`fleet-ssh core5 host-status`, then the Alerting dashboard. The check appears at
-its first ping with the one-day default; set its period to 15 minutes and its
-grace to 5, which a ping cannot do.
+they stop, healthchecks.io pushes through the same topic from outside the house,
+without a reason: core5 is off or out of disk, or the path to delivery is
+broken. With core5 down this is the one signal. Start with `fleet-ssh core5
+host-status`, then the Alerting dashboard. The check appears at its first ping
+with the one-day default; set its period to 15 minutes and its grace to 5,
+which a ping cannot do.
 
 ## CVE scan
 

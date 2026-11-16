@@ -487,6 +487,37 @@ let
       ];
     }
 
+    # NewTrustedClient: one device at 5 minutes, held for 15.
+    {
+      interval = "1m";
+      input_series = [
+        (series "fleet_kea_new_trusted_clients_total" (node "gate") "0x5 1x30")
+      ];
+      alert_rule_test = [
+        (expect "4m" "NewTrustedClient" "fleet" [ ])
+        (expect "6m" "NewTrustedClient" "fleet" [
+          {
+            instance = "gate";
+            severity = "warning";
+            summary = "A device new to gate joined the trusted segment. gate's DHCP leases say which.";
+          }
+        ])
+        (expect "22m" "NewTrustedClient" "fleet" [ ])
+      ];
+    }
+
+    # A series the store first sees at 2, then a reset to 0: no device joined.
+    {
+      interval = "1m";
+      input_series = [
+        (series "fleet_kea_new_trusted_clients_total" (node "gate") "_x3 2x5 0x10")
+      ];
+      alert_rule_test = [
+        (expect "4m" "NewTrustedClient" "fleet" [ ])
+        (expect "10m" "NewTrustedClient" "fleet" [ ])
+      ];
+    }
+
     {
       interval = "1m";
       input_series = [

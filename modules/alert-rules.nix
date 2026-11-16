@@ -213,6 +213,18 @@ in
           annotations.summary = "The {{ $labels.segment }} segment's DHCP pool on {{ $labels.instance }} is over ${toString kea.poolLowPercent}% leased.";
         }
         {
+          # The count risen above its lowest in 15 minutes, which holds that
+          # long, so a device's arrival is one push. Not increase(), for the
+          # reason DriveFailing gives. Which device stays in gate's leases.
+          alert = "NewTrustedClient";
+          expr = ''
+            max by (instance) (fleet_kea_new_trusted_clients_total{instance="${router}"})
+              > max by (instance) (min_over_time(fleet_kea_new_trusted_clients_total{instance="${router}"}[15m]))
+          '';
+          labels.severity = "warning";
+          annotations.summary = "A device new to ${router} joined the trusted segment. ${router}'s DHCP leases say which.";
+        }
+        {
           # /nix/store is a second mount of the root, and ramfs reports no size
           # and drops out. tmpfs counts for fullness but not for the trend: a
           # few megabytes written to /run read as a steep rate, and on core5

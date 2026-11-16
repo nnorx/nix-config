@@ -27,6 +27,7 @@ in
     ./govee.nix
     ./ddns.nix
     ./metrics.nix
+    ./trusted-clients.nix
 
     # gate's own resolver, on loopback only.
     #
