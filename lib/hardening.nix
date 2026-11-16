@@ -8,6 +8,7 @@
 #   modules/metrics.nix        VictoriaMetrics, vmauth and Grafana
 #   modules/node-exporter.nix  the host-status facts for node_exporter
 #   modules/offbox-push.nix    each backup push
+#   hosts/gate/exit.nix        the exit tunnel's failover watchdog
 #   hosts/gate/govee.nix       smcroute
 #   hosts/gate/metrics.nix     gate's WAN lease, WireGuard and exit tunnel
 #

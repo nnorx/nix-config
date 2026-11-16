@@ -5,17 +5,18 @@
 # the tunnel gone, or a routing rule deleted, the tunneled reach nothing and
 # nothing of theirs leaves by `wan`; DoT is refused in the tunnel as out
 # `wan`; gate's own traffic and wg0 stay on `wan`; the provider cannot send
-# from a house address; and the rules unit reconciles what it finds. gate's
-# metrics textfile reports all of it by role, never by address.
-# docs/router.md, "Exit tunnel", has the design.
+# from a house address; and the rules unit reconciles what it finds. With
+# the provider's server gone, the watchdog moves gate to a second, and with
+# every one gone it stays closed. gate's metrics textfile reports all of it
+# by role, never by address. docs/router.md, "Exit tunnel", has the design.
 #
 # `nix build .#checks.x86_64-linux.gate-exit`. It needs KVM, which forge's
 # daemon has; CI's vm-tests job runs it on pull requests.
 #
-# The provider and a remote wg0 peer sit beyond "the internet", on a wire of
-# their own, so gate reaches them by its default route, as it reaches real
-# ones. Every key, address and endpoint here is a stand-in, rendered by a
-# sops stand-in.
+# Two provider servers and a remote wg0 peer sit beyond "the internet", on
+# a wire of their own, so gate reaches them by its default route, as it
+# reaches real ones. Every key, address and endpoint here is a stand-in,
+# rendered by a sops stand-in.
 { net }:
 let
   testNet = net // {
@@ -33,6 +34,9 @@ let
     internet = "198.51.100.1";
     provider = "198.51.100.2";
     remote = "198.51.100.3";
+    failover = "198.51.100.4";
+    # failover2's endpoint, where nothing answers.
+    nobody = "198.51.100.5";
   };
   site = "192.0.2.80";
   house = seg.trusted.pool.first;
@@ -52,6 +56,11 @@ let
       private = "SDk9q6wLR8AKasf0nXrECasHV7BhlTUIG5QIM6rolE8=";
       public = "EnHW92gK7+hwEeezHtstAEAqRZ4vIxMgfzOVqWlxL3g=";
     };
+    failover = {
+      private = "wLT+tdAwTBC0eWeCNsdD1LKLnhlMZdhCbefq7V5EQ3g=";
+      public = "V2YXIV3LigLMZwl4waOCcJjbbPYZGEl7ec59o9PmoFg=";
+    };
+    nobody.public = "+/o1u/fP9mttAVL7EEswwjwDtvmEkvHPbhysPDa0riI=";
     gateWg0 = {
       private = "eOMLIvUgSTsEWIdQiYh0cw8S9/8UDS1AUNs46e0ZdWM=";
       public = "VswbfvZLRoggMZnSY/sM9GRnd3VeR/lbbbiuYxkzMCg=";
@@ -67,6 +76,10 @@ let
     exit-private-key = keys.gateExit.private;
     exit-primary-public-key = keys.provider.public;
     exit-primary-endpoint = "${far.provider}:${toString providerPort}";
+    exit-failover1-public-key = keys.failover.public;
+    exit-failover1-endpoint = "${far.failover}:${toString providerPort}";
+    exit-failover2-public-key = keys.nobody.public;
+    exit-failover2-endpoint = "${far.nobody}:${toString providerPort}";
     exit-address = "${inner.gate}/32";
     wireguard-private-key = keys.gateWg0.private;
     wireguard-psk-forge = keys.psk;
@@ -130,6 +143,31 @@ let
       };
     };
   };
+
+  # A provider server. Both take gate's one key and inner address, as a real
+  # provider's servers take the account's.
+  server =
+    address: key:
+    { pkgs, ... }:
+    {
+      imports = [ (onFar address) ];
+      networking.wireguard.interfaces.wg-provider = {
+        ips = [ "${inner.provider}/32" ];
+        listenPort = providerPort;
+        privateKeyFile = toString (pkgs.writeText "provider-key" key);
+        peers = [
+          {
+            publicKey = keys.gateExit.public;
+            allowedIPs = [ "${inner.gate}/32" ];
+          }
+        ];
+      };
+      networking.nat = {
+        enable = true;
+        externalInterface = "far";
+        internalInterfaces = [ "wg-provider" ];
+      };
+    };
 
   client =
     name:
@@ -328,27 +366,8 @@ in
         };
       };
 
-    provider =
-      { pkgs, ... }:
-      {
-        imports = [ (onFar far.provider) ];
-        networking.wireguard.interfaces.wg-provider = {
-          ips = [ "${inner.provider}/32" ];
-          listenPort = providerPort;
-          privateKeyFile = toString (pkgs.writeText "provider-key" keys.provider.private);
-          peers = [
-            {
-              publicKey = keys.gateExit.public;
-              allowedIPs = [ "${inner.gate}/32" ];
-            }
-          ];
-        };
-        networking.nat = {
-          enable = true;
-          externalInterface = "far";
-          internalInterfaces = [ "wg-provider" ];
-        };
-      };
+    provider = server far.provider keys.provider.private;
+    failover = server far.failover keys.failover.private;
 
     # A tunnel peer away from home, holding forge's address and so its grants.
     remote =
@@ -388,10 +407,11 @@ in
     internet.wait_for_open_port(9000)
     internet.wait_for_open_port(53)
     internet.wait_until_succeeds("ss -Hlun '( sport = :53 )' | grep -q .", timeout=30)
-    provider.wait_for_unit("wireguard-wg-provider.service")
+    for p in [provider, failover]:
+        p.wait_for_unit("wireguard-wg-provider.service")
     gate.wait_for_unit("nftables.service")
     gate.wait_for_unit("exit-tunnel.service")
-    for m in [gate, internet, provider, remote, trusted, work, resolver, server]:
+    for m in [gate, internet, provider, failover, remote, trusted, work, resolver, server]:
         m.wait_for_unit("network.target")
     trusted.wait_until_succeeds("ping -c1 -W1 ${seg.trusted.gateway}", timeout=60)
     work.wait_until_succeeds("ping -c1 -W1 ${seg.work.gateway}", timeout=60)
@@ -445,7 +465,7 @@ in
         return {s: one(text, "fleet_exit_bypass_open", segment=s) for s in ("trusted", "resolvers")}
 
     # Every stand-in that would say whom gate reaches, and which account.
-    identifying = ["${far.provider}", "${inner.gate}", "${inner.provider}", "${keys.provider.public}", "${keys.gateExit.public}"]
+    identifying = ["${far.provider}", "${far.failover}", "${far.nobody}", "${keys.failover.public}", "${keys.nobody.public}", "${inner.gate}", "${inner.provider}", "${keys.provider.public}", "${keys.gateExit.public}"]
 
     def anonymous(text):
         for s in identifying:
@@ -478,8 +498,15 @@ in
         one(text, "fleet_exit_leak_dropped_bytes_total")
         anonymous(text)
 
+    def exit_role():
+        return gate.succeed("cat /run/exit-tunnel/server").strip()
+
+    with subtest("the watchdog names the primary, in a file node_exporter's user can read"):
+        assert exit_role() == "primary"
+        assert gate.succeed("stat -c %a /run/exit-tunnel /run/exit-tunnel/server").split() == ["755", "644"]
+
     with subtest("the textfile follows the watchdog's and exit-bypass's state, and echoes neither"):
-        gate.succeed("mkdir -p /run/exit-tunnel /run/exit-bypass")
+        gate.succeed("mkdir -p /run/exit-bypass")
         gate.succeed("echo failover1 > /run/exit-tunnel/server; touch /run/exit-bypass/trusted /run/exit-bypass/${far.provider}")
         text = metrics()
         assert roles(text) == {"primary": 0, "failover1": 1, "failover2": 0}, roles(text)
@@ -491,8 +518,11 @@ in
         anonymous(text)
         gate.succeed(": > /run/exit-tunnel/server")
         assert roles(metrics()) == {"primary": 0, "failover1": 0, "failover2": 0}
-        gate.succeed("rm -r /run/exit-tunnel /run/exit-bypass")
+        gate.succeed("rm -r /run/exit-tunnel/server /run/exit-bypass")
         assert roles(metrics())["primary"] == 1
+        # Restarted alone, it finds the server in use by its key.
+        gate.succeed("systemctl restart exit-watchdog.service")
+        gate.wait_until_succeeds("grep -qx primary /run/exit-tunnel/server", timeout=30)
 
     with subtest("a work client leaves by wan"):
         assert seen(work) == "${isp.gate}"
@@ -654,5 +684,72 @@ in
             rules = gate.succeed("ip rule show priority 1200")
             assert rules.strip() == mark_rule, f"{miss}: {rules}"
         assert ask(resolver, "udp", resolvers[0]) == "${far.provider}"
+
+    # The watchdog at its production 180 s: WireGuard rekeys a live peer only
+    # every two minutes, so a live server's handshake is often over 120 s old,
+    # and a lower threshold would leave the live one too.
+    def watchdog_log():
+        log = gate.succeed("journalctl -u exit-watchdog.service -o cat")
+        anonymous(log)
+        return log
+
+    with subtest("the primary down: failover1 within four minutes, and nothing by wan meanwhile"):
+        provider.succeed("systemctl stop wireguard-wg-provider.service")
+        wan_before = from_wan()
+        trusted.wait_until_succeeds(f"{fetch} | grep -qx ${far.failover}", timeout=240)
+        assert from_wan() == wan_before, "trusted left by wan"
+        assert exit_role() == "failover1"
+        assert "no handshake from primary in 180 s, switched to failover1" in watchdog_log()
+        text = metrics()
+        assert roles(text) == {"primary": 0, "failover1": 1, "failover2": 0}, roles(text)
+        anonymous(text)
+
+    with subtest("the primary back: failover1 holds until the tunnel restarts"):
+        provider.succeed("systemctl start wireguard-wg-provider.service")
+        time.sleep(25)
+        assert exit_role() == "failover1"
+        assert seen(trusted) == "${far.failover}"
+        # Restarted alone, it names the server in use by its key, off the primary.
+        gate.succeed("rm /run/exit-tunnel/server; systemctl restart exit-watchdog.service")
+        gate.wait_until_succeeds("test -s /run/exit-tunnel/server", timeout=30)
+        assert exit_role() == "failover1"
+        assert seen(trusted) == "${far.failover}"
+        gate.succeed("systemctl restart exit-tunnel.service")
+        gate.wait_until_succeeds("grep -qx primary /run/exit-tunnel/server", timeout=30)
+        trusted.wait_until_succeeds(f"{fetch} | grep -qx ${far.provider}", timeout=60)
+
+    with subtest("both down: closed, nothing by wan, and the watchdog moves on past each"):
+        provider.succeed("systemctl stop wireguard-wg-provider.service")
+        failover.succeed("systemctl stop wireguard-wg-provider.service")
+        wan_before = from_wan()
+        for role in ("failover1", "failover2"):
+            gate.wait_until_succeeds(f"grep -qx {role} /run/exit-tunnel/server", timeout=240)
+            trusted.fail(fetch)
+        assert from_wan() == wan_before, "trusted left by wan"
+        assert "no handshake from failover1 in 180 s, switched to failover2" in watchdog_log()
+
+    with subtest("restarting the tunnel returns it to the primary"):
+        provider.succeed("systemctl start wireguard-wg-provider.service")
+        failover.succeed("systemctl start wireguard-wg-provider.service")
+        gate.succeed("systemctl restart exit-tunnel.service")
+        gate.wait_until_succeeds("grep -qx primary /run/exit-tunnel/server", timeout=30)
+        trusted.wait_until_succeeds(f"{fetch} | grep -qx ${far.provider}", timeout=60)
+        assert roles(metrics())["primary"] == 1
+
+    with subtest("by hand, with the watchdog stopped, one switch to a named role"):
+        gate.succeed("systemctl stop exit-watchdog.service")
+        out = gate.succeed("exit-watchdog failover1")
+        assert out.strip() == "switched to failover1", out
+        assert exit_role() == "failover1"
+        # syncconf leaves the new server alone, the old one dropped.
+        peers = gate.succeed("wg show ${net.hosts.gate.exitIface} peers").split()
+        assert peers == ["${keys.failover.public}"], len(peers)
+        trusted.wait_until_succeeds(f"{fetch} | grep -qx ${far.failover}", timeout=60)
+        gate.fail("exit-watchdog nowhere")
+        assert exit_role() == "failover1"
+        gate.succeed("systemctl restart exit-tunnel.service")
+        gate.wait_until_succeeds("grep -qx primary /run/exit-tunnel/server", timeout=30)
+        gate.succeed("systemctl is-active exit-watchdog.service")
+        trusted.wait_until_succeeds(f"{fetch} | grep -qx ${far.provider}", timeout=60)
   '';
 }
