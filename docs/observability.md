@@ -110,12 +110,11 @@ A handshake timestamp of 0 means none since `wg0` came up.
 ## Logs
 
 Each of `metricsTargets` uploads its journal to VictoriaLogs as it is written
-(`modules/journal-upload.nix`), except Kea's lines, which stay on gate in a
-journal namespace of their own. An upload resumes from its saved cursor, so
-lines written while core5 is down follow when it is back; its first start
-begins at the newest entry. The store keeps a year, at most 20 GiB, and stops
-taking lines under 50 GiB free. Grafana has it as a datasource;
-`fleet-ssh core5` asks vmauth:
+(`modules/journal-upload.nix`), except Kea's, which stay on gate in their own
+journal namespace. An upload resumes from its saved cursor, so lines written
+while core5 is down follow later; its first start begins at the newest entry.
+The store keeps a year, at most 20 GiB, and stops taking lines under 50 GiB
+free. Grafana has it as a datasource; `fleet-ssh core5` asks vmauth:
 
 ```
 curl -s http://127.0.0.1:<victoriaLogsQuery>/select/logsql/query --data-urlencode 'query=_time:1h _HOSTNAME:gate' | wc -l
@@ -131,11 +130,11 @@ journals ───upload──► VictoriaLogs ◄─────query── vma
             hc-ping.com   ◄── Watchdog, every 5 minutes ──────────────────┘
 ```
 
-Rules are in `modules/alert-rules.nix`, each with its reasons beside it, and
-`tests/alert-rules.nix` checks each. The journals' are in
-`modules/log-alert-rules.nix`, raised by `tests/log-alerts.nix`. Every label
-and annotation leaves the house in the push, so a rule names things and never
-quotes an address, a serial number or a value.
+Rules are in `modules/alert-rules.nix`, each with its reasons beside it, checked
+by `tests/alert-rules.nix`; the journals' are in `modules/log-alert-rules.nix`,
+checked by `tests/log-alerts.nix`. Every label and annotation leaves the house
+in the push, so a rule names things and never quotes an address, a serial
+number or a value.
 
 - **Priority.** `critical` is high in ntfy, `warning` the default, `info` low. `HostUserLogin`
   pushes once an hour at most.
@@ -159,7 +158,7 @@ revision, root device, last upgrade and failed units.
 |---|---|---|---|
 | `HostDown` | A host's node_exporter scrape is 0 for 5 minutes | critical | `host-status`. No answer: power and link, then [recovery.md](recovery.md). Answering with no exporter: a generation older than node_exporter, so check its root device |
 | `ScrapeDown` | Any other scrape but the stack's own is 0 for 10 minutes, or every target of a probe job | warning | `systemctl status prometheus-<job>-exporter` on that host; the blackbox exporter for a probe job, on core5 |
-| `WanDown` | gate's `wan` has no carrier, no lease or no default route, or both public resolvers fail pings, for 2 minutes | critical | The queries above show which. It arrives once the WAN is back, so it is often history, and the Watchdog's silence is what reaches the phone on time |
+| `WanDown` | gate's `wan` has no carrier, no lease or no default route, or both public resolvers fail pings, for 2 minutes | critical | The queries above show which. It arrives once the WAN is back; the Watchdog's silence is what arrives in time |
 | `ExitTunnelDown` | No exit tunnel handshake for 5 minutes, for 3 | warning; critical once a segment or the resolvers ride it | `journalctl -u exit-tunnel` on gate |
 | `ExitBypassOpen` | An exit bypass is open | warning | Close it once the tunnel is back |
 | `ExitLeakWhileUp` | Leak drops in every 2 minutes for 5, tunnel up | critical | `ip rule` and table `exit` on gate; or a client reaching an address on `wan`'s own subnet |
@@ -181,6 +180,7 @@ revision, root device, last upgrade and failed units.
 | `SudoFailed` | sudo refused a password in 15 minutes | critical | Its `sudo` lines, as in Logs |
 | `Fail2banBan` | fail2ban banned an address in 15 minutes | warning | Its `fail2ban` lines |
 | `HostUserLogin` | An SSH login as the host's user in the hour | info | Its `sshd-session` lines |
+| `JournalSilent` | A host that sent lines in the day sent none for 30 minutes | warning | Its `systemd-journal-upload`, or core5's `victorialogs` when all are silent |
 | `Watchdog` | Always | none | Routed to healthchecks.io alone, below |
 
 `Watchdog` pings healthchecks.io every 5 minutes as `core5-metrics-watchdog`. When
@@ -188,8 +188,7 @@ they stop, healthchecks.io pushes through the same topic from outside the house,
 without a reason: core5 is off or out of disk, or the path to delivery is
 broken. With core5 down this is the one signal. Start with `fleet-ssh core5
 host-status`, then the Alerting dashboard. The check appears at its first ping
-with the one-day default; set its period to 15 minutes and its grace to 5,
-which a ping cannot do.
+with the one-day default; set its period to 15 minutes and grace to 5 by hand.
 
 ## CVE scan
 
@@ -200,9 +199,9 @@ findings changed, or "scan failed" after two tries.
 ## Secrets
 
 **Grafana's `admin` password** is in sops on core5, and evaluation fails without
-it. Grafana reads it once, when it creates the account on first start, so later
-changes go through Grafana's own profile page and then the secret to match. From
-the repo, in your own terminal, with the password at the prompt:
+it. Grafana reads it only when it creates the account, on first start: change it
+later in Grafana's profile page, then the secret to match. From the repo, in
+your own terminal, with the password at the prompt:
 
 ```bash
 read -rs pw
@@ -224,9 +223,8 @@ for h in core4 lifeline; do
 done; unset pw h
 ```
 
-To check each pair without printing either half. The hash must be 60 bytes
-exactly: sops splices it into AdGuard's configuration, and a stray newline or
-quote would stop AdGuard from starting.
+To check each pair without printing either half. The hash must be exactly
+60 bytes: a stray newline or quote in it stops AdGuard starting.
 
 ```bash
 for h in core4 lifeline; do

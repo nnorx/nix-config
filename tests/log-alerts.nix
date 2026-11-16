@@ -4,7 +4,8 @@
 # VictoriaLogs on core5, and vmalert-logs raises the alert in Alertmanager,
 # routed to the receiver of its priority. A login as diag raises nothing, nor
 # does fail2ban restoring a ban at start, and no label or annotation carries an
-# address.
+# address. JournalSilent's query names core4 while its upload is stopped, and
+# no host while both upload.
 #
 # `nix build .#checks.x86_64-linux.log-alerts`. It needs KVM, which forge's
 # daemon has; CI's vm-tests job runs it on pull requests.
@@ -26,8 +27,11 @@ let
     map (r: {
       name = r.alert;
       value = r.expr;
-    }) (builtins.head (import ../modules/log-alert-rules.nix).groups).rules
+    }) (builtins.concatMap (g: g.rules) (import ../modules/log-alert-rules.nix).groups)
   );
+
+  # JournalSilent's query over a minute, as 30 is too long to wait here.
+  silent = builtins.replaceStrings [ "_time:30m" ] [ "_time:1m" ] exprs.JournalSilent;
 
   # A banned address from TEST-NET-1, which no test machine holds.
   banned = "192.0.2.10";
@@ -163,19 +167,28 @@ in
   testScript = ''
     import json
     import shlex
+    import time
 
     collector = ${collector}
 
     def curl(*args):
         return collector.succeed("curl -sf " + " ".join(shlex.quote(a) for a in args))
 
-    def stats(alert):
-        """The rule's own query, run against the store now."""
-        out = curl("${store}/select/logsql/stats_query", "--data-urlencode", "query=" + EXPRS[alert])
+    def run(expr):
+        out = curl("${store}/select/logsql/stats_query", "--data-urlencode", "query=" + expr)
         return json.loads(out)["data"]["result"]
 
-    def wait_stored(phrase):
-        query = shlex.quote(f'query=_HOSTNAME:=core4 "{phrase}"')
+    def stats(alert):
+        """The rule's own query, run against the store now."""
+        return run(EXPRS[alert])
+
+    def silent():
+        rows = run(SILENT)
+        print(rows)
+        return rows
+
+    def wait_stored(phrase, host="core4"):
+        query = shlex.quote(f'query=_HOSTNAME:={host} "{phrase}"')
         collector.wait_until_succeeds(
             f"curl -sf ${store}/select/logsql/query --data-urlencode {query} | grep -q .", timeout=120
         )
@@ -207,7 +220,14 @@ in
             f"{login}@${core4Ip} true </dev/null"
         )
 
+    def fresh(machine, phrase):
+        """A line from the machine, once it is in the store."""
+        machine.succeed(f"logger -t journal-silent '{phrase}'")
+        wait_stored(phrase, machine.name)
+
     EXPRS = json.loads(${builtins.toJSON (builtins.toJSON exprs)})
+    SILENT = ${builtins.toJSON silent}
+    assert SILENT != EXPRS["JournalSilent"]
 
     start_all()
     for unit in ("victorialogs", "vmauth-logs", "victoriametrics", "alertmanager", "vmalert-logs"):
@@ -244,5 +264,24 @@ in
         ssh("/etc/admin-key", "core4")
         print(core4.succeed("journalctl -u sshd --no-pager | grep Accepted"))
         wait_alert("HostUserLogin", "info", "info", "Someone logged in to core4 as its own user over SSH.")
+
+    with subtest("a host uploading is not JournalSilent"):
+        fresh(core4, "uploading")
+        fresh(collector, "uploading")
+        assert [r for r in silent() if r["metric"]["instance"] == "core4"] == []
+
+    with subtest("a host whose upload stops is JournalSilent"):
+        core4.succeed("systemctl stop systemd-journal-upload")
+        time.sleep(70)
+        fresh(collector, "after the stop")
+        [r] = silent()
+        assert r["metric"]["instance"] == "core4", r
+        assert r["value"][1] == "0", r
+
+    with subtest("its upload back, it is not"):
+        core4.succeed("systemctl start systemd-journal-upload")
+        fresh(core4, "after the start")
+        fresh(collector, "after the start")
+        assert silent() == []
   '';
 }
