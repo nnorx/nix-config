@@ -13,7 +13,7 @@ Failed and missed jobs are a separate, hosted path, `modules/alerts.nix`
 | Service | Listens on | Port in `lib/net.nix` | Module |
 |---|---|---|---|
 | VictoriaMetrics, the store | core5 loopback | `victoriaMetricsStore` | `modules/metrics.nix` |
-| vmauth, reads alone, in front of the store | core5 loopback | `victoriaMetrics` | `modules/metrics.nix` |
+| vmauth, metric reads alone | core5 loopback | `victoriaMetrics` | `modules/metrics.nix` |
 | Grafana | core5's address | `grafana` | `modules/metrics.nix`, `modules/dashboards.nix` |
 | vmalert | core5 loopback | `vmalert` | `modules/alerting.nix` |
 | vmalert-logs | core5 loopback | `vmalertLogs` | `modules/alerting.nix` |
@@ -24,7 +24,8 @@ Failed and missed jobs are a separate, hosted path, `modules/alerts.nix`
 | Unbound exporter | core4's and lifeline's addresses | `unboundExporter` | `modules/unbound.nix` |
 | Kea exporter | gate's servers gateway | `keaExporter` | `hosts/gate/metrics.nix` |
 | VictoriaLogs, the fleet's journals | core5 loopback | `victoriaLogs` | `modules/logs.nix` |
-| vmauth, journal uploads alone | core5's address | `victoriaLogsInsert` | `modules/logs.nix` |
+| vmauth, uploads alone | core5's address | `victoriaLogsInsert` | `modules/logs.nix` |
+| vmauth, log reads alone | core5 loopback | `victoriaLogsQuery` | `modules/logs.nix` |
 
 Exporters on other hosts accept connections from core5's address alone.
 
@@ -88,9 +89,9 @@ alert still shows as firing there: silences are Alertmanager's.
 - **vmui**, for ad hoc queries: `ssh -L <port>:127.0.0.1:<port> core5` with
   `ports.victoriaMetrics`, then `http://localhost:<port>/vmui`. vmauth passes
   queries, series, labels, the status pages and vmui, and refuses the rest.
-- **The `diag` login** queries the store through vmauth from `fleet-ssh core5`.
-  It cannot reach the store's own port, vmalert, Alertmanager or the blackbox
-  exporter (`modules/diag-login.nix`).
+- **The `diag` login** queries each store through its vmauth, never the
+  stores' own ports, vmalert, Alertmanager or the blackbox exporter
+  (`modules/diag-login.nix`).
 - **Admin paths** (deleting series, snapshots) take the key core5 makes at boot,
   at the store's own port, as root. `modules/metrics.nix` has the delete command.
 
@@ -115,11 +116,11 @@ Each of `metricsTargets` uploads its journal to VictoriaLogs as it is written
 journal namespace of their own. An upload resumes from its saved cursor, so
 lines written while core5 is down follow when it is back; its first start
 begins at the newest entry. The store keeps a year, at most 20 GiB, and stops
-taking lines under 50 GiB free. Grafana has it as the VictoriaLogs datasource,
-and `fleet-ssh core5` reaches it on loopback:
+taking lines under 50 GiB free. Grafana has it as a datasource;
+`fleet-ssh core5` asks vmauth:
 
 ```
-curl -s http://127.0.0.1:<victoriaLogs>/select/logsql/query --data-urlencode 'query=_time:1h _HOSTNAME:gate' | wc -l
+curl -s http://127.0.0.1:<victoriaLogsQuery>/select/logsql/query --data-urlencode 'query=_time:1h _HOSTNAME:gate' | wc -l
 ```
 
 ## Alerts
