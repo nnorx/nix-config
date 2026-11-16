@@ -4,7 +4,8 @@
 # upload's first start is not sent; a unit in gate's Kea namespace stays on
 # gate. And a client reaches the upload path alone: vmauth refuses select,
 # delete, other ingestion and admin paths, and the store's port is closed to
-# it. On loopback, delete is off and the admin endpoints take the key.
+# it. On loopback, delete is off and the admin endpoints take the key, and
+# the query vmauth passes reads alone.
 #
 # `nix build .#checks.x86_64-linux.journal-upload`. It needs KVM, which
 # forge's daemon has; CI's vm-tests job runs it on pull requests.
@@ -14,6 +15,7 @@ let
   seg = net.segments.servers;
   store = "http://127.0.0.1:${toString net.ports.victoriaLogs}";
   insert = "http://${net.hosts.${collector}.ip}:${toString net.ports.victoriaLogsInsert}";
+  query = "http://127.0.0.1:${toString net.ports.victoriaLogsQuery}";
 
   # What vmauth answers a path that matches no route.
   refusedStatus = 400;
@@ -68,9 +70,9 @@ in
   testScript = ''
     import shlex
 
-    def select(phrase):
+    def select(phrase, base="${store}"):
         query = shlex.quote('query="' + phrase + '"')
-        return f"curl -sf ${store}/select/logsql/query --data-urlencode {query}"
+        return f"curl -sf {base}/select/logsql/query --data-urlencode {query}"
 
     def found(phrase):
         """The store's lines holding `phrase`, as JSON lines."""
@@ -80,14 +82,16 @@ in
         hostname = shlex.quote('"_HOSTNAME":"' + host + '"')
         ${collector}.wait_until_succeeds(f"{select(phrase)} | grep -F {hostname}", timeout=120)
 
-    def status(machine, url):
+    def status(machine, url, method="POST"):
         return int(machine.succeed(
-            f"curl -s --path-as-is -o /dev/null -w '%{{http_code}}' -X POST {shlex.quote(url)}"
+            f"curl -s --path-as-is -o /dev/null -w '%{{http_code}}' -X {method} {shlex.quote(url)}"
         ))
 
     start_all()
     ${collector}.wait_for_unit("victorialogs.service")
     ${collector}.wait_for_unit("vmauth-logs.service")
+    ${collector}.wait_for_unit("vmauth-logs-query.service")
+    ${collector}.wait_for_open_port(${toString net.ports.victoriaLogsQuery}, "127.0.0.1")
     # From a source: vmauth-logs refuses core5's own address.
     core4.wait_until_succeeds("curl -s -o /dev/null --max-time 2 ${insert}/", timeout=60)
 
@@ -144,5 +148,20 @@ in
             assert status(${collector}, f"${store}{path}") == 401, f"{path} without the key"
             code = status(${collector}, f"${store}{path}?authKey={key}")
             assert 200 <= code < 300, f"{path} with the key: {code}"
+
+    with subtest("the query vmauth passes reads alone"):
+        out = ${collector}.succeed(select("journal-upload-test-core4", "${query}"))
+        assert "journal-upload-test-core4" in out, out
+        assert status(${collector}, "${query}/select/vmui/", "GET") == 200
+        for method, path in [
+            ("POST", "/insert/jsonline"),
+            ("POST", "/insert/journald/upload"),
+            ("GET", "/delete/run_task?filter=*"),
+            ("GET", "/internal/force_merge"),
+            ("GET", "/flags"),
+            ("POST", "/select/logsql/../../insert/jsonline"),
+        ]:
+            code = status(${collector}, f"${query}{path}", method)
+            assert code == ${toString refusedStatus}, f"{method} {path} through the query vmauth: {code}"
   '';
 }

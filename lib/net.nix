@@ -364,6 +364,8 @@
     # loopback, and a vmauth on its address passing journal uploads alone.
     victoriaLogs = 9428;
     victoriaLogsInsert = 9429;
+    # A second vmauth, on loopback, passing reads alone.
+    victoriaLogsQuery = 9430;
 
     # On the collector's loopback (modules/alerting.nix). vmalert's default,
     # 8880, is the UniFi guest portal on the same host.

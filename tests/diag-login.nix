@@ -15,13 +15,13 @@
 # so host-status has an upgrade in the journal to report. Stand-in HTTP
 # listeners sit on each server's loopback, at VictoriaMetrics' port (vmauth's
 # on core5), the three alerting ports, the blackbox exporter's and the metrics
-# store's own, and on the client at VictoriaMetrics' port, so a connection the
-# rule did not refuse would succeed.
+# and log stores' own, and on the client at VictoriaMetrics' port, so a
+# connection the rule did not refuse would succeed.
 { net }:
 let
   user = "server";
 
-  # What the stand-ins listen on: one port diag may query, and five it may
+  # What the stand-ins listen on: one port diag may query, and six it may
   # not, the list modules/diag-login.nix refuses.
   queryPort = net.ports.victoriaMetrics;
   refusedPorts = [
@@ -30,6 +30,7 @@ let
     net.ports.vmalertLogs
     net.ports.blackboxExporter
     net.ports.victoriaMetricsStore
+    net.ports.victoriaLogs
   ];
 
   # An HTTP server on every address, IPv4 and IPv6, at `port`.

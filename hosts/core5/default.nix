@@ -33,6 +33,7 @@
     "grafana"
     "victorialogs"
     "vmauth-logs"
+    "vmauth-logs-query"
   ];
 
   # This host's user, which the UniFi container runs as.

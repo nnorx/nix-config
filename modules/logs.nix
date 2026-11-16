@@ -1,6 +1,7 @@
 # The fleet's journals, on the collector: VictoriaLogs on loopback, which
 # Grafana and core5's own upload use, and a vmauth on core5's address in front
-# of it that passes journal uploads alone, from the other metricsTargets. Each
+# of it that passes journal uploads alone, from the other metricsTargets. A
+# second vmauth, on loopback, passes reads alone, for the diag login. Each
 # host's side is ./journal-upload.nix. docs/observability.md is the runbook.
 {
   config,
@@ -16,6 +17,7 @@ let
   hardening = import ../lib/hardening.nix;
   storeAddress = "127.0.0.1:${toString net.ports.victoriaLogs}";
   insertPort = net.ports.victoriaLogsInsert;
+  queryAddress = "127.0.0.1:${toString net.ports.victoriaLogsQuery}";
 
   # Each uploader at the address it reaches core5 from: gate at the gateway
   # of its metricsSegment, as it is scraped.
@@ -37,6 +39,54 @@ let
       ];
     }
   );
+
+  # Queries and vmui, whole-path matches as in ./metrics.nix. Every handler
+  # under /select/logsql reads; inserts, deletes and admin paths lie elsewhere.
+  queryConfig = pkgs.writeText "vmauth-logs-query.yml" (
+    builtins.toJSON {
+      unauthorized_user.url_map = [
+        {
+          src_paths = [
+            "/select/logsql/.*"
+            "/select/vmui(/.*)?"
+          ];
+          url_prefix = "http://${storeAddress}";
+        }
+      ];
+    }
+  );
+
+  # Both vmauths, narrower than the baseline: the rest of what VictoriaLogs'
+  # own module sets, and no addresses but the ones each unit names.
+  vmauthSandbox = hardening // {
+    DynamicUser = true;
+    Restart = "on-failure";
+    RestartSec = "5s";
+    IPAddressDeny = "any";
+    CapabilityBoundingSet = "";
+    PrivateDevices = true;
+    PrivateUsers = true;
+    ProtectClock = true;
+    ProtectHostname = true;
+    ProtectKernelLogs = true;
+    ProtectKernelModules = true;
+    ProtectProc = "invisible";
+    ProcSubset = "pid";
+    LockPersonality = true;
+    MemoryDenyWriteExecute = true;
+    RestrictRealtime = true;
+    RestrictAddressFamilies = [
+      "AF_INET"
+      "AF_INET6"
+      "AF_UNIX"
+    ];
+    SystemCallArchitectures = "native";
+    SystemCallFilter = [
+      "@system-service"
+      "~@privileged"
+      "~@resources"
+    ];
+  };
 in
 {
   assertions = [
@@ -100,46 +150,36 @@ in
     description = "Pass journal uploads alone to VictoriaLogs";
     wantedBy = [ "multi-user.target" ];
     after = [ "victorialogs.service" ];
-    serviceConfig = hardening // {
+    serviceConfig = vmauthSandbox // {
       ExecStart = lib.escapeShellArgs [
         (lib.getExe' config.services.victoriametrics.package "vmauth")
         "-auth.config=${vmauthConfig}"
         "-httpListenAddr=${host.ip}:${toString insertPort}"
         "-httpInternalListenAddr=unix:/run/vmauth-logs/internal.sock"
       ];
-      DynamicUser = true;
       RuntimeDirectory = "vmauth-logs";
       RuntimeDirectoryMode = "0700";
-      Restart = "on-failure";
-      RestartSec = "5s";
       # The firewall's sources again, and loopback for the store.
-      IPAddressDeny = "any";
       IPAddressAllow = sources ++ [ "localhost" ];
-      # The one unit here listening beyond loopback, so narrower than the
-      # baseline: the rest of what VictoriaLogs' own module sets.
-      CapabilityBoundingSet = "";
-      PrivateDevices = true;
-      PrivateUsers = true;
-      ProtectClock = true;
-      ProtectHostname = true;
-      ProtectKernelLogs = true;
-      ProtectKernelModules = true;
-      ProtectProc = "invisible";
-      ProcSubset = "pid";
-      LockPersonality = true;
-      MemoryDenyWriteExecute = true;
-      RestrictRealtime = true;
-      RestrictAddressFamilies = [
-        "AF_INET"
-        "AF_INET6"
-        "AF_UNIX"
+    };
+  };
+
+  # The diag login's way to the store, whose own port ./diag-login.nix refuses
+  # it.
+  systemd.services.vmauth-logs-query = {
+    description = "Pass reads alone to VictoriaLogs";
+    wantedBy = [ "multi-user.target" ];
+    after = [ "victorialogs.service" ];
+    serviceConfig = vmauthSandbox // {
+      ExecStart = lib.escapeShellArgs [
+        (lib.getExe' config.services.victoriametrics.package "vmauth")
+        "-auth.config=${queryConfig}"
+        "-httpListenAddr=${queryAddress}"
+        "-httpInternalListenAddr=unix:/run/vmauth-logs-query/internal.sock"
       ];
-      SystemCallArchitectures = "native";
-      SystemCallFilter = [
-        "@system-service"
-        "~@privileged"
-        "~@resources"
-      ];
+      RuntimeDirectory = "vmauth-logs-query";
+      RuntimeDirectoryMode = "0700";
+      IPAddressAllow = "localhost";
     };
   };
 

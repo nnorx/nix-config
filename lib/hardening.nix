@@ -4,7 +4,7 @@
 #   modules/adguardhome.nix    AdGuard's query counts for node_exporter
 #   modules/alerting.nix       vmalert, and the read of main's head
 #   modules/alerts.nix         the notify and heartbeat oneshots
-#   modules/logs.nix           VictoriaLogs and its vmauth
+#   modules/logs.nix           VictoriaLogs and its vmauths
 #   modules/metrics.nix        VictoriaMetrics, vmauth and Grafana
 #   modules/node-exporter.nix  the host-status facts for node_exporter
 #   modules/offbox-push.nix    each backup push
