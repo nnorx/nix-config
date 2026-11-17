@@ -1,8 +1,8 @@
-# The security alerts, over the fleet's journals in VictoriaLogs: the rules
+# The alerts over the fleet's journals in VictoriaLogs: the rules
 # vmalert-logs evaluates on the collector (modules/alerting.nix), as vmalert's
-# rule file. tests/log-alerts.nix raises each from a real journal line.
+# rule file. tests/log-alerts.nix runs each against real journal lines.
 #
-# Each query counts the matching lines by host over its window, which is also
+# Each security query counts the matching lines by host over its window, which is also
 # how long the alert holds after the last of them, so a burst is one push. A
 # line uploaded later than its window, after core5 or the link was down, is in
 # the store but raises nothing.
@@ -60,6 +60,26 @@ in
           '';
           labels.severity = "info";
           annotations.summary = "Someone logged in to {{ $labels.instance }} as its own user over SSH.";
+        }
+      ];
+    }
+    {
+      name = "journals";
+      type = "vlogs";
+      interval = "1m";
+      rules = [
+        {
+          # A host up with its upload stopped, or a store taking nothing. A
+          # host silent for a whole day drops out, so a retired one stops.
+          alert = "JournalSilent";
+          expr = ''
+            _time:1d
+            | stats by (_HOSTNAME) count() if (_time:30m) as recent
+            | filter recent:=0
+            | rename _HOSTNAME as instance
+          '';
+          labels.severity = "warning";
+          annotations.summary = "No journal lines from {{ $labels.instance }} for 30 minutes.";
         }
       ];
     }
