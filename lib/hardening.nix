@@ -11,6 +11,7 @@
 #   hosts/gate/exit.nix        the exit tunnel's failover watchdog
 #   hosts/gate/govee.nix       smcroute
 #   hosts/gate/metrics.nix     gate's WAN lease, WireGuard and exit tunnel
+#   hosts/gate/trusted-clients.nix  devices new to trusted, from Kea's leases
 #
 # Each merges this into its serviceConfig with `//` and keeps its own settings,
 # and its reasons for them, beside it. Plain data rather than a module, so a

@@ -1,7 +1,7 @@
 {
   "prose": 30007,
   "comments": {
-    "nix": 26.1,
+    "nix": 26.0,
     "sh": 21.3
   },
   "shell": {
