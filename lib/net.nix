@@ -243,7 +243,7 @@
   # Segments whose internet traffic leaves through the exit tunnel rather than
   # `wan`, failing closed (docs/router.md, "Exit tunnel"). Each is turned on
   # in a deploy of its own. Never work or servers.
-  exitSegments = [ ];
+  exitSegments = [ "trusted" ];
 
   # The exit tunnel's routing table, and its MTU: don't-fragment pings of 1392
   # bytes crossed the provider with `wan` at 1500, and nothing larger did.
