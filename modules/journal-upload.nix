@@ -14,8 +14,9 @@
 }:
 let
   collector = net.hosts.${net.metricsCollector};
+  remote = hostname != net.metricsCollector;
   url =
-    if hostname == net.metricsCollector then
+    if !remote then
       "http://127.0.0.1:${toString net.ports.victoriaLogs}/insert/journald"
     else
       "http://${collector.ip}:${toString net.ports.victoriaLogsInsert}/insert/journald";
@@ -36,5 +37,9 @@ lib.mkIf (lib.elem hostname net.metricsTargets) {
     settings.Upload.URL = url;
   };
 
-  systemd.services.systemd-journal-upload.serviceConfig.ExecStartPre = [ seed ];
+  systemd.services.systemd-journal-upload.serviceConfig = {
+    ExecStartPre = [ seed ];
+    # The Pis' network is online, by systemd's count, before end0 has a link.
+    RestartMode = lib.mkIf (remote && (net.hosts.${hostname}.iface or null) == "end0") "direct";
+  };
 }

@@ -117,6 +117,28 @@ in
         wait_found("journal-upload-test-fresh", "core4")
         assert "journal-upload-test-history" not in found("journal-upload-test-history"), "history was uploaded"
 
+    with subtest("core4's upload retries without a link and never enters failed"):
+        unit = "systemd-journal-upload"
+        # The failed state is momentary even without RestartMode=direct, and
+        # `Failed with result` is logged either way, so read the transition.
+        core4.succeed("systemd-analyze log-level debug")
+        core4.succeed(f"systemctl stop {unit}")
+        since = core4.succeed("date +%s").strip()
+        core4.send_monitor_command("set_link vlan1 off")
+        core4.wait_until_succeeds("grep -qx 0 /sys/class/net/end0/carrier", timeout=10)
+        core4.succeed(f"systemctl start --no-block {unit}")
+        restarts = int(core4.succeed(f"systemctl show -P NRestarts {unit}"))
+        core4.sleep(5)
+        core4.send_monitor_command("set_link vlan1 on")
+        core4.wait_until_succeeds(f"[ $(systemctl show -P NRestarts {unit}) -gt {restarts} ]", timeout=30)
+        core4.wait_for_unit(f"{unit}.service", timeout=60)
+        core4.succeed("logger journal-upload-test-relinked")
+        wait_found("journal-upload-test-relinked", "core4")
+        core4.succeed("systemd-analyze log-level info")
+        changes = core4.succeed(f"journalctl -u {unit} --since @{since} -o cat | grep -F 'Changed ' || true")
+        assert " -> auto-restart" in changes, changes
+        assert " -> failed" not in changes, changes
+
     with subtest("a client reaches the upload path alone"):
         for path in [
             "/select/logsql/query?query=*",
