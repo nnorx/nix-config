@@ -27,7 +27,7 @@ Privacy project.
 | core5 | UniFi controller | Ubiquiti | Remote management and analytics off |
 | servers | Switch and AP | Ubiquiti | Dropped at gate, NTP aside |
 | core5 | Home Assistant weather | api.met.no | |
-| core5 | Home Assistant's `default_config` | Home Assistant's servers | |
+| core5 | Companion app notifications | Home Assistant's push relay | |
 | guest segment | All of its DNS | Cloudflare and Quad9 | |
 | forge | Firefox, Brave | Mozilla, Brave | Telemetry and crash reports off by policy |
 | forge | VS Code | Microsoft, the extension marketplace | Telemetry off |
@@ -209,9 +209,9 @@ gets IPv6. `tests/gate-servers-egress.nix` checks it.
 **Home Assistant** (`modules/home-assistant.nix`). Onboarding was local, with
 analytics declined, and the Govee lights are driven over their LAN API. `met`
 asks api.met.no hourly for the forecast at the home location.
-`default_config` loads `homeassistant_alerts`, which fetches Home Assistant's
-alert feed, and `cloud`, inert without a sign-in. Companion app
-notifications go through Home Assistant's push relay.
+Its integrations are `default_config`'s less the two that call Home
+Assistant's servers, `cloud` and `homeassistant_alerts`
+(`tests/home-assistant.nix`).
 
 ## forge
 
