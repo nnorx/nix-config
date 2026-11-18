@@ -28,6 +28,7 @@ pkgs.lib.genAttrs
     "tang"
     "alerting"
     "grafana"
+    "home-assistant"
     "journal-upload"
     "log-alerts"
   ]

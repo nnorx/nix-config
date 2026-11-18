@@ -61,9 +61,7 @@
   boot.loader.raspberry-pi.bootloader = "kernel";
 
   # Onboard Bluetooth off, in config.txt. Nothing here uses it and BlueZ is not
-  # running, but Home Assistant's bluetooth integration, which default_config
-  # pulls in, still finds the adapter and errors without BlueZ to drive it.
-  # Removing the adapter is simpler than running a stack for no device. The
+  # running; removing the adapter is simpler than running a stack for no device. The
   # firmware reads config.txt only at boot, so this takes effect on a reboot.
   hardware.raspberry-pi.config.all.dt-overlays.disable-bt.enable = true;
 

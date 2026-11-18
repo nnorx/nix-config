@@ -78,11 +78,30 @@ in
       doInstallCheck = false;
     });
 
-    # Setting this replaces the module's list, so its defaults are restated
-    # first. An integration added in the UI but missing here fails at setup
-    # with a missing Python module.
+    # Setting this replaces the module's list. An integration added in the UI
+    # but missing here fails at setup with a missing Python module.
     extraComponents = [
-      "default_config"
+      # `default_config`'s dependencies, less `cloud` and `homeassistant_alerts`,
+      # which call Home Assistant's servers; `go2rtc`, which does nothing
+      # outside Docker; and `bluetooth` and `usb`, which make the module widen
+      # the unit's sandbox for hardware core5 lacks. Its manifest is the list to
+      # compare after an upgrade.
+      "assist_pipeline"
+      "conversation"
+      "dhcp"
+      "energy"
+      "file"
+      "history"
+      "logbook"
+      "media_source"
+      "mobile_app"
+      "my"
+      "ssdp"
+      "stream"
+      "sun"
+      "usage_prediction"
+      "webhook"
+      "zeroconf"
       "met"
       "esphome"
       "rpi_power"
@@ -94,7 +113,22 @@ in
     ];
 
     config = {
-      default_config = { };
+      assist_pipeline = { };
+      conversation = { };
+      dhcp = { };
+      energy = { };
+      file = { };
+      history = { };
+      logbook = { };
+      media_source = { };
+      mobile_app = { };
+      my = { };
+      ssdp = { };
+      stream = { };
+      sun = { };
+      usage_prediction = { };
+      webhook = { };
+      zeroconf = { };
 
       # Home Assistant treats the presence of *any* core key here as "location
       # is configured in YAML" and locks the editor in the UI. The module fills
