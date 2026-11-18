@@ -25,6 +25,7 @@
     ./dev.nix
     ./vpn.nix
     ./dns.nix
+    ./network-identity.nix
     ./claude.nix
     ./night-shift.nix
     ./cve-scan.nix

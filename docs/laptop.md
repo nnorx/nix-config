@@ -323,6 +323,14 @@ sudo timeout 20 "$tcpdump" -nqi any -l '(port 53 or port 853) and not net 127.0.
   grep -oE '\.(53|853): ' | sort | uniq -c
 ```
 
+## Network identity
+
+Wi-Fi gets a MAC per network. Gate's lease and new-device alert go by the radio's own, so before deploying give the home profile that one:
+
+```bash
+nmcli connection modify "<home network>" 802-11-wireless.cloned-mac-address permanent
+```
+
 ## Secure Boot
 
 Enable it after the install, in this order.
