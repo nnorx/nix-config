@@ -36,6 +36,7 @@ Privacy project.
 | forge | Weekly CVE scan | NVD, GitHub, ntfy.sh | Counts alone |
 | forge | Firmware metadata | LVFS | |
 | forge | DNS away from home | Quad9, over TLS | Never plaintext |
+| forge | Wi-Fi and DHCP | The network joined | A MAC per network, no hostname ([laptop.md](laptop.md#network-identity)) |
 | forge | Steam, Plasma | Valve, KDE | |
 | GitHub Actions | CI, cache, lock bumps | GitHub, Cachix, registries | Vendor telemetry off |
 
@@ -219,17 +220,11 @@ notifications go through Home Assistant's push relay.
 `DisableTelemetry`, `DisableFirefoxStudies`, and `DNSOverHTTPS` locked off.
 Firefox's automatic DoH would respect AdGuard's canary domain, but it never
 checks while any policy is set, so the choice is off or DoH everywhere. Crash
-reports have no policy; three locked prefs stop backlogged reports being
-sent or offered and untick the crashed-tab page's box
-(`browser.crashReports.unsubmittedCheck.autoSubmit2`,
-`browser.crashReports.unsubmittedCheck.enabled`,
-`browser.tabs.crashReporting.sendReport`). A whole-browser crash still opens
+reports have no policy; three locked prefs stop them being sent or offered. A whole-browser crash still opens
 Mozilla's reporter, whose send box it remembers itself.
 
-**Brave** (same file). Managed policy turns off the daily usage ping
-(`BraveStatsPingEnabled`), P3A (`BraveP3AEnabled`) and Web Discovery
-(`BraveWebDiscoveryEnabled`), and Chromium's `MetricsReportingEnabled`, which
-Brave reads as its crash-report switch. Each also locks its setting;
+**Brave** (same file). Managed policy turns off the usage ping, P3A, Web Discovery and
+crash reports (Chromium's `MetricsReportingEnabled`), each locked;
 `brave://policy` lists them.
 
 **VS Code** (`hosts/forge/dev.nix`). Microsoft's build, with settings and
@@ -276,7 +271,7 @@ opportunistic TLS (silently plaintext on exactly the networks that block
 853); DoH (resolved does not speak it, and it gains only those networks); and
 recursing on forge (plaintext to authoritative servers).
 
-**Steam and Plasma.** Steam's hardware survey asks first. Plasma's user
+**Steam and Plasma.** Steam's survey asks first. Plasma's user
 feedback is off by default, and DrKonqi sends crash reports only when asked.
 
 **Dev tools** (`home/dev-tools.nix`, `home/common-tools.nix`). npm, pnpm and
@@ -317,16 +312,12 @@ domain.
 
 By segment, at the category level:
 
-- **iot**: devices reaching their vendors' clouds, some of which need that
-  to work, and app analytics the blocklists refuse.
+- **iot**: devices reaching vendor clouds, some needing that to work, and app analytics the blocklists refuse.
 - **servers**: the switch and AP contacting their vendor, which gate
   drops, and time servers.
-- **vpn**: the tunnel peers, filtered as at home.
-- **The resolvers themselves**: time, GitHub, the caches and the alert
-  services, as above.
-- **trusted** is the household's own browsing and not summarised. Its most
-  blocked entries are app and OS analytics and push services.
-- **guest** is absent, since it resolves publicly, and **work** by design.
+- **vpn** and **the resolvers themselves**: as above.
+- **trusted**: the household's own browsing, not summarised.
+- **guest** resolves publicly and **work** is unlogged, so both are absent.
 
 ## Internet for iot
 
