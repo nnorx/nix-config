@@ -82,7 +82,9 @@ what keeps it isolated.
 
 Both run AdGuard Home in front of their own Unbound
 (`hosts/common/resolver.nix`, `modules/adguardhome.nix`), which recurses as
-gate's does.
+gate's does. Their port 53 out of the house, fallback included, leaves
+through gate's exit tunnel (router.md, "Exit tunnel"), so the ISP sees none
+of it and the servers see the provider's address.
 
 **AdGuard's fallback.** `fallback_dns` is `net.publicResolvers`, Cloudflare
 and Quad9, asked only on a transport error from the local Unbound: a timeout
