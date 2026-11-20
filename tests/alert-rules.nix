@@ -124,6 +124,21 @@ let
       inherit instance;
     } "1x40";
 
+  # gate's textfile, by the path node_exporter reports.
+  gateFacts = node "gate" // {
+    file = "/run/fleet-metrics/gate.prom";
+  };
+  routerFactsStale = {
+    instance = "gate";
+    severity = "warning";
+    summary = "gate's WAN, WireGuard, exit tunnel and new-device metrics have not been written for 2 minutes, so the alerts on them see nothing change.";
+  };
+  countStale = {
+    instance = "gate";
+    severity = "warning";
+    summary = "gate has not counted new trusted devices for 5 minutes, so NewTrustedClient sees none.";
+  };
+
   exitIdle = {
     instance = "gate";
     severity = "warning";
@@ -515,6 +530,105 @@ let
       alert_rule_test = [
         (expect "4m" "NewTrustedClient" "fleet" [ ])
         (expect "10m" "NewTrustedClient" "fleet" [ ])
+      ];
+    }
+
+    # gate's facts and its count, both written every minute: quiet. Then the
+    # count arriving 2 minutes after the facts, as at boot: quiet too.
+    {
+      interval = "1m";
+      input_series = [
+        (series "up" (node "gate") "1x30")
+        (series "node_textfile_mtime_seconds" (gateFacts) "${atS 0}+60x30")
+        (series "fleet_kea_new_trusted_clients_updated_timestamp_seconds" (node "gate") "${atS 0}+60x30")
+      ];
+      alert_rule_test = [
+        (expect "20m" "RouterFactsStale" "fleet" [ ])
+        (expect "20m" "TrustedClientCountStale" "fleet" [ ])
+      ];
+    }
+    {
+      interval = "1m";
+      input_series = [
+        (series "up" (node "gate") "1x30")
+        (series "node_textfile_mtime_seconds" (gateFacts) "${atS 0}+60x30")
+        (series "fleet_kea_new_trusted_clients_updated_timestamp_seconds" (node "gate")
+          "_x2 ${atS 120}+60x28"
+        )
+      ];
+      alert_rule_test = [
+        (expect "10m" "TrustedClientCountStale" "fleet" [ ])
+      ];
+    }
+
+    # The facts last written 5 minutes in: 2 minutes old at 7, firing 3
+    # later. The count read from them freezes with them, and only the facts
+    # fire.
+    {
+      interval = "1m";
+      input_series = [
+        (series "up" (node "gate") "1x30")
+        (series "node_textfile_mtime_seconds" (gateFacts) "${atS 0}+60x5 ${atS 300}x25")
+        (series "fleet_kea_new_trusted_clients_updated_timestamp_seconds" (node "gate")
+          "${atS 0}+60x5 ${atS 300}x25"
+        )
+      ];
+      alert_rule_test = [
+        (expect "9m" "RouterFactsStale" "fleet" [ ])
+        (expect "12m" "RouterFactsStale" "fleet" [ routerFactsStale ])
+        (expect "25m" "TrustedClientCountStale" "fleet" [ ])
+      ];
+    }
+
+    # No facts at all while node_exporter answers. Then gate going down,
+    # whose facts stop with its scrape: HostDown's, not this.
+    {
+      interval = "1m";
+      input_series = [
+        (series "up" (node "gate") "1x30")
+      ];
+      alert_rule_test = [
+        (expect "1m" "RouterFactsStale" "fleet" [ ])
+        (expect "5m" "RouterFactsStale" "fleet" [ routerFactsStale ])
+        (expect "5m" "TrustedClientCountStale" "fleet" [ ])
+      ];
+    }
+    {
+      interval = "1m";
+      input_series = [
+        (series "up" (node "gate") "1x3 0x27")
+        (series "node_textfile_mtime_seconds" (gateFacts) "${atS 0}+60x3 _x27")
+      ];
+      alert_rule_test = [
+        (expect "20m" "RouterFactsStale" "fleet" [ ])
+      ];
+    }
+
+    # The count last written 5 minutes in, under fresh facts: 5 minutes old
+    # at 10, firing 5 later. Then no count at all.
+    {
+      interval = "1m";
+      input_series = [
+        (series "up" (node "gate") "1x30")
+        (series "node_textfile_mtime_seconds" (gateFacts) "${atS 0}+60x30")
+        (series "fleet_kea_new_trusted_clients_updated_timestamp_seconds" (node "gate")
+          "${atS 0}+60x5 ${atS 300}x25"
+        )
+      ];
+      alert_rule_test = [
+        (expect "14m" "TrustedClientCountStale" "fleet" [ ])
+        (expect "17m" "TrustedClientCountStale" "fleet" [ countStale ])
+      ];
+    }
+    {
+      interval = "1m";
+      input_series = [
+        (series "up" (node "gate") "1x30")
+        (series "node_textfile_mtime_seconds" (gateFacts) "${atS 0}+60x30")
+      ];
+      alert_rule_test = [
+        (expect "3m" "TrustedClientCountStale" "fleet" [ ])
+        (expect "7m" "TrustedClientCountStale" "fleet" [ countStale ])
       ];
     }
 

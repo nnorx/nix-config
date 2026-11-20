@@ -4,8 +4,8 @@ What watches the fleet, on core5, and how to operate it. Its reasoning,
 to each threshold's measurements, is in [the design record as it last
 stood](https://github.com/nnorx/nix-config/blob/cf3fa4a/docs/observability.md).
 
-Failed and missed jobs are a separate, hosted path, `modules/alerts.nix`
-(README, "Alerts"), and do not depend on anything here.
+Failed and missed jobs alert through `modules/alerts.nix` (README, "Alerts"),
+which depends on nothing here.
 
 ## What runs
 
@@ -29,9 +29,9 @@ Failed and missed jobs are a separate, hosted path, `modules/alerts.nix`
 Exporters on other hosts accept connections from core5's address alone.
 
 The store keeps 12 months, and stops taking samples under 50 GiB free. Its
-data and Grafana's database are under `/var/lib` and are not backed up: the
-dashboards and datasource are provisioned from this repo, so losing either
-costs history, not configuration.
+data and Grafana's database, in `/var/lib`, are not backed up: the dashboards
+and datasource are provisioned from this repo, so losing either costs history
+alone.
 
 Grafana comes from `unstable`, and its migrations are one-way. Before rolling
 core5 back past a Grafana upgrade, delete `/var/lib/grafana/data/grafana.db`.
@@ -59,7 +59,7 @@ collector, from `/run/fleet-metrics`:
 | Metrics | Host | Written by | Every |
 |---|---|---|---|
 | `fleet_revision_info`, `fleet_root_device_info` | Every target | `fleet-metrics-facts` | 5 minutes |
-| `fleet_wan_*`, `fleet_wireguard_last_handshake_timestamp_seconds`, `fleet_exit_*`, `fleet_kea_new_trusted_clients_total` | gate | `gate-metrics-facts`, the last from `gate-trusted-clients` | 30 seconds |
+| `fleet_wan_*`, `fleet_wireguard_last_handshake_timestamp_seconds`, `fleet_exit_*`, `fleet_kea_new_trusted_clients_*` | gate | `gate-metrics-facts`, the last from `gate-trusted-clients` | 30 seconds |
 | `fleet_adguard_*`, from AdGuard's statistics and query log | core4, lifeline | `adguard-metrics` | 30 seconds |
 | `fleet_main_revision_info`, `fleet_main_revision_checked_timestamp_seconds` | core5 | `fleet-main-revision`, `git ls-remote` against main | 30 minutes |
 
@@ -88,8 +88,7 @@ alert still shows as firing there: silences are Alertmanager's.
 - **vmui**, for ad hoc queries: `ssh -L <port>:127.0.0.1:<port> core5` with
   `ports.victoriaMetrics`, then `http://localhost:<port>/vmui`. vmauth passes
   queries, series, labels, the status pages and vmui, and refuses the rest.
-- **The `diag` login** queries each store through its vmauth, never the
-  stores' own ports, vmalert, Alertmanager or the blackbox exporter
+- **The `diag` login** queries each store through its vmauth alone
   (`modules/diag-login.nix`).
 - **Admin paths** (deleting series, snapshots) take the key core5 makes at boot,
   at the store's own port, as root. `modules/metrics.nix` has the delete command.
@@ -130,8 +129,8 @@ journals ───upload──► VictoriaLogs ◄─────query── vma
             hc-ping.com   ◄── Watchdog, every 5 minutes ──────────────────┘
 ```
 
-Rules are in `modules/alert-rules.nix`, each with its reasons beside it, checked
-by `tests/alert-rules.nix`; the journals' are in `modules/log-alert-rules.nix`,
+Rules are in `modules/alert-rules.nix`, with their reasons, checked by
+`tests/alert-rules.nix`; the journals' are in `modules/log-alert-rules.nix`,
 checked by `tests/log-alerts.nix`. Every label and annotation leaves the house
 in the push, so a rule names things and never quotes an address, a serial
 number or a value.
@@ -147,11 +146,11 @@ number or a value.
   `WanDown` holds `ResolverFailing`.
 - **The stack failing to start** (`victoriametrics`, `vmauth`, `vmalert`,
   `vmalert-logs`, `alertmanager`, `grafana`) pushes through
-  `fleetAlerts.failure`, which does not depend on any of it.
+  `fleetAlerts.failure`, which depends on none of it.
 
 ### When one fires
 
-For anything on a host, `fleet-ssh <host> host-status` is the first question: its
+For anything on a host, start with `fleet-ssh <host> host-status`: its
 revision, root device, last upgrade and failed units.
 
 | Alert | Fires when | Severity | First look |
@@ -168,10 +167,12 @@ revision, root device, last upgrade and failed units.
 | `ConntrackPressure` | gate's table is over 80% of its limit for 10 minutes | warning | Fleet dashboard, Network: what is suddenly busy |
 | `DhcpPoolLow` | A segment's pool is over 90% leased for 15 minutes | warning | DHCP dashboard. Widen the pool in `lib/net.nix`, or find what is taking leases |
 | `NewTrustedClient` | A device new to trusted leased in 15 minutes | warning | `journalctl --namespace=kea` on gate, as root |
+| `RouterFactsStale` | `gate.prom` over 2 minutes old or missing, for 3 | warning | `journalctl -u gate-metrics-facts` on gate |
+| `TrustedClientCountStale` | New-device count over 5 minutes old or missing, for 5, `gate.prom` fresh | warning | `journalctl -u gate-trusted-clients` on gate |
 | `DiskFilling` | A filesystem is over 85% full, or over half full and predicted full in 3 days, for an hour | warning | `df -h` on the host |
 | `HostHot` | A thermal zone is above 75°C for 15 minutes | warning | Fleet dashboard. Airflow and load |
 | `DriveFailing` | A critical warning, a failed SMART verdict, spare under the drive's threshold, or a new media error, for 5 minutes | critical | Fleet dashboard, drive panels. Treat it as failing: check the off-box backups, then replace it |
-| `DriveWearing` | Over 80% of rated endurance used, for an hour | warning | Buy a replacement. It stays firing, and repeats every 30 days |
+| `DriveWearing` | Over 80% of rated endurance used, for an hour | warning | Buy a replacement. It stays firing |
 | `DriveUnread` | smartctl_exporter has read fewer drives than it was given, for 15 minutes | warning | `journalctl -u prometheus-smartctl-exporter` on core5 |
 | `InterfaceErrors` | Link (not tunnel) errors in every 10 minutes for 30 | warning | Fleet dashboard, Network. Cable, port, driver |
 | `RevisionBehind` | A Pi differs from main's head for 36 hours, gate for 7 days | warning | `host-status`, for the last upgrade. On a Pi, `journalctl -u nixos-upgrade`. On gate, deploy it |
@@ -186,9 +187,9 @@ revision, root device, last upgrade and failed units.
 `Watchdog` pings healthchecks.io every 5 minutes as `core5-metrics-watchdog`. When
 they stop, healthchecks.io pushes through the same topic from outside the house,
 without a reason: core5 is off or out of disk, or the path to delivery is
-broken. With core5 down this is the one signal. Start with `fleet-ssh core5
-host-status`, then the Alerting dashboard. The check appears at its first ping
-with the one-day default; set its period to 15 minutes and grace to 5 by hand.
+broken. Start with `fleet-ssh core5 host-status`, then the Alerting dashboard.
+The check appears at its first ping with the one-day default; set its period to
+15 minutes and grace to 5 by hand.
 
 ## CVE scan
 
@@ -199,9 +200,9 @@ findings changed, or "scan failed" after two tries.
 ## Secrets
 
 **Grafana's `admin` password** is in sops on core5, and evaluation fails without
-it. Grafana reads it only when it creates the account, on first start: change it
-later in Grafana's profile page, then the secret to match. From the repo, in
-your own terminal, with the password at the prompt:
+it. Grafana reads it only on first start, to create the account: change it later
+in Grafana's profile page, then the secret to match. From the repo, in your own
+terminal:
 
 ```bash
 read -rs pw
