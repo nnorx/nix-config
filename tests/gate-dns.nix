@@ -60,6 +60,10 @@ in
     # Redirected, so 853 is refused.
     trusted = client "trusted";
 
+    # Redirected too, and reaches servers only by the derived port-53 rule,
+    # so an answer from the fleet shows that rule covers it.
+    household = client "household";
+
     # Not redirected, since it is on public resolvers, so 853 passes. Shows
     # the refusal follows the redirect rather than covering everything.
     guest = client "guest";
@@ -77,7 +81,7 @@ in
     internet.wait_for_open_port(853)
     gate.wait_for_unit("nftables.service")
     gate.wait_for_unit("network.target")
-    for c in (trusted, guest):
+    for c in (trusted, household, guest):
         c.wait_for_unit("network.target")
         c.wait_until_succeeds("ping -c1 -W1 ${publicResolver}", timeout=60)
 
@@ -114,6 +118,16 @@ in
         for line in rules.splitlines():
             if "dport 853" in line:
                 assert "packets 0 " not in line, f"rule never matched: {line}"
+
+    with subtest("household: redirected to the fleet, and 853 refused"):
+        answer = household.succeed("dig +short +tries=1 +time=3 @${publicResolver} ${filteredName}").strip()
+        assert answer == "0.0.0.0", f"expected the fleet's answer, got {answer!r}"
+        answer = household.succeed("dig +short +tcp +tries=1 +time=3 @${publicResolver} ${filteredName}").strip()
+        assert answer == "0.0.0.0", f"expected the fleet's answer over TCP, got {answer!r}"
+        for proto in ("tcp", "udp"):
+            result, ms = probe(household, proto)
+            assert result == "refused" and ms < 1000, f"{proto} 853: {result} after {ms} ms"
+        internet.succeed("[ ! -s /tmp/853-tcp ] && [ ! -s /tmp/853-udp ]")
 
     with subtest("guest: not redirected, and 853 passes"):
         answer = guest.succeed("dig +short +tries=1 +time=3 @${publicResolver} ${filteredName}").strip()

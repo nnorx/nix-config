@@ -206,8 +206,8 @@ let
   # those starts as a counter reset, so a rate over any window is right but
   # for the queries between the hour's last read and its end. Only totals are
   # read: the response also lists the busiest clients and domains, and
-  # nothing here passes them on. The work segment is in none of it, since
-  # AdGuard leaves that segment out of its statistics entirely.
+  # nothing here passes them on. The unlogged segments are in none of it,
+  # since AdGuard leaves them out of its statistics entirely.
   render = pkgs.writeText "adguard-metrics.jq" ''
     def role: . as $a
       | if ($roles.primary | index([$a])) then "primary"
@@ -256,7 +256,7 @@ let
   # starts again on the hour as the totals do: a count that restarts no lower
   # than it ended reads as no increase, hiding a block. Each entry carries its
   # client and name, and only its time and its rules' list ids are read. The
-  # work segment is not in the log, and the window is well inside its rotation.
+  # unlogged segments are not in it, and the window is well inside its rotation.
   window = 900;
   epoch = ''
     def epoch: capture("^(?<t>.{19})(\\.[0-9]+)?(?<z>Z|[+-][0-9]{2}:[0-9]{2})$")
@@ -364,13 +364,13 @@ in
   #
   #   [error] dnsproxy: exchange failed upstream=<addr> question="<name> IN <type>" ...
   #
-  # Work's queries among them, kept for the journal's month rather than the
+  # The unlogged segments' among them, kept for the journal's month, not the
   # query log's 84 hours. AdGuard has no setting below its whole log, and it
   # writes every level to stderr, so the journal holds all of it at info and
   # LogLevelMax= would drop its real errors too. journald drops only these
   # lines instead. What they told is in fleet_adguard_upstream_responses_total:
   # AdGuard asks its fallback after each such failure, so the fallback's share
-  # is the same signal, counted. docs/privacy.md, "The work segment is
+  # is the same signal, counted. docs/privacy.md, "work and household are
   # recorded nowhere"; tests/dns-metrics.nix checks the filter.
   systemd.services.adguardhome.serviceConfig.LogFilterPatterns = [
     "~\\[error\\] dnsproxy: exchange failed upstream=\\S+ question="
@@ -402,9 +402,13 @@ in
       # `ids` takes CIDR, so one entry covers the segment however its hosts are
       # addressed. Statistics are dropped alongside the log: a per-client query
       # count over time is a weaker record than the log but still a record.
+      # AdGuard reads a field left out as false, filtering included, so the
+      # client names the global settings.
       clients.persistent = lib.mapAttrsToList (name: seg: {
         inherit name;
         ids = [ seg.subnet ];
+        use_global_settings = true;
+        use_global_blocked_services = true;
         ignore_querylog = true;
         ignore_statistics = true;
       }) (lib.filterAttrs (_: seg: !(seg.logQueries or true)) net.segments);
@@ -440,8 +444,8 @@ in
       };
 
       # Debug logging writes per-query lines, client addresses among them, to
-      # the journal, outside both the retention above and the work segment's
-      # rule.
+      # the journal, outside both the retention above and the unlogged
+      # segments' rules.
       # Off is the default; it is written down so turning it on is a visible
       # change rather than a flag left behind after a debugging session.
       log.verbose = false;
@@ -461,8 +465,8 @@ in
         # client, and the third octet is the segment, so every client in the
         # house would be logged under one address: not even the segment
         # survives. It also anonymises before it looks the client up, so the
-        # work segment's rule, which matches that segment's subnet, would stop
-        # matching and work's queries would be logged. What remained would be
+        # unlogged segments' rules, which match their subnets, would stop
+        # matching and their queries would be logged. What remained would be
         # the domains, which are the sensitive half, with the one thing that
         # makes them useful for debugging, and for checking that gate's
         # dns-redirect catches a device, removed. Short retention is the

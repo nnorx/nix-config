@@ -106,9 +106,9 @@ gate's firewall changes go behind `deploy-guard`.
 `wg-exit` is gate's WireGuard client to a VPN provider's server, one of three
 in one city (`hosts/gate/exit.nix`). A segment in `exitSegments`
 (`lib/net.nix`) leaves through it instead of `wan`, and through nothing while
-it is down. Each segment is turned on in a deploy of its own; work and
-servers never are. The servers' keys and endpoints and gate's inner address
-are in sops alone.
+it is down. Each segment is turned on in a deploy of its own; work,
+servers and household never are. The servers' keys and endpoints and gate's
+inner address are in sops alone.
 
 | Piece | What it does |
 |---|---|

@@ -15,8 +15,8 @@
 #
 #   - Client addresses or names. dns-top-domains.jq reads the address only to
 #     find the segment, and keeps the segment's name.
-#   - The segments lib/net.nix marks `logQueries = false`, which is work. Not
-#     even a count.
+#   - The segments lib/net.nix marks `logQueries = false`, work and
+#     household. Not even a count.
 #   - Reverse lookups and local names, which spell out an address or a
 #     device's hostname. They are counted under a fixed label.
 #
