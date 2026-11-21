@@ -173,7 +173,7 @@ revision, root device, last upgrade and failed units.
 | `DriveFailing` | A critical warning, a failed SMART verdict, spare under the drive's threshold, or a new media error, for 5 minutes | critical | Fleet dashboard, drive panels. Treat it as failing: check the off-box backups, then replace it |
 | `DriveWearing` | Over 80% of rated endurance used, for an hour | warning | Buy a replacement. It stays firing, and repeats every 30 days |
 | `DriveUnread` | smartctl_exporter has read fewer drives than it was given, for 15 minutes | warning | `journalctl -u prometheus-smartctl-exporter` on core5 |
-| `InterfaceErrors` | Receive or transmit errors in every 10 minutes for 30 | warning | Fleet dashboard, Network. Cable, port, driver |
+| `InterfaceErrors` | Link (not tunnel) errors in every 10 minutes for 30 | warning | Fleet dashboard, Network. Cable, port, driver |
 | `RevisionBehind` | A Pi differs from main's head for 36 hours, gate for 7 days | warning | `host-status`, for the last upgrade. On a Pi, `journalctl -u nixos-upgrade`. On gate, deploy it |
 | `RevisionCheckStale` | main's head unread for 6 hours | warning | `journalctl -u fleet-main-revision` on core5. `RevisionBehind` judges no host until it clears |
 | `WireGuardPeerSilent` | A peer has not connected in 90 days | info | Review it, or revoke it in `lib/wireguard-keys.nix` |

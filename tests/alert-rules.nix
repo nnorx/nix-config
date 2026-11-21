@@ -549,12 +549,16 @@ let
 
     # gate's WAN port fails to send 3 frames a minute, throughout. core4's
     # port counts 200 damaged frames at once, a link renegotiating, and none
-    # after.
+    # after. gate's wg0, a tunnel, refuses 3 packets a minute, throughout.
     {
       interval = "1m";
       input_series = [
         (series "node_network_transmit_errs_total" (node "gate" // { device = "wan"; }) "0+3x50")
         (series "node_network_receive_errs_total" (node "gate" // { device = "wan"; }) "0x50")
+        (series "node_network_protocol_type" (node "gate" // { device = "wan"; }) "1x50")
+        (series "node_network_receive_errs_total" (node "gate" // { device = "wg0"; }) "0+3x50")
+        (series "node_network_transmit_errs_total" (node "gate" // { device = "wg0"; }) "0x50")
+        (series "node_network_protocol_type" (node "gate" // { device = "wg0"; }) "65534x50")
         (series "node_network_transmit_errs_total" (node "core4" // { device = "end0"; }) "0x50")
         (series "node_network_receive_errs_total" (node "core4" // { device = "end0"; }) "0x5 200x45")
       ];
