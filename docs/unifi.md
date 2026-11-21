@@ -272,8 +272,8 @@ Then:
    factory-default switch tags nothing, so the two already agree.
 3. Adopt the switch in the controller. Discovery is L2 and everything shares a
    VLAN at this point, so it should appear on its own.
-4. **Change no native network on any port.** Add only tagged trusted, iot, work
-   and guest to gate's uplink port and the AP's port, which is what SSIDs need.
+4. **Change no native network on any port.** Add only the client VLANs,
+   tagged, to gate's uplink port and the AP's port, which is what SSIDs need.
    Everything else stays on the factory default. Setting a port's native network
    to the `servers` network object splits its traffic onto VLAN 20, away from
    the switch's own management and every port still on the default.

@@ -271,7 +271,7 @@ let
   # Each resolver's health, one line per resolver, from Unbound's exporter and
   # AdGuard's counts (modules/unbound.nix, modules/adguardhome.nix). Nothing
   # here can be split by client: neither source has one. AdGuard's counts
-  # leave the work segment out, and Unbound's include it in their totals.
+  # leave the unlogged segments out, and Unbound's include them in totals.
   rate = expr: "rate(${expr}[$__rate_interval])";
   perResolver = expr: "sum by (instance) (${rate expr})";
   ratio = num: den: "${perResolver num} / ${perResolver den}";
@@ -284,9 +284,9 @@ let
       [
         (panel {
           title = "Queries per second";
-          # AdGuard's count is every client but the work segment. Unbound's is
-          # what AdGuard forwarded, which is everything it did not block,
-          # work's included.
+          # AdGuard's count is every client but the unlogged segments.
+          # Unbound's is what AdGuard forwarded, which is everything it did not
+          # block, theirs included.
           targets = [
             {
               expr = perResolver "fleet_adguard_queries_total";

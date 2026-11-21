@@ -400,9 +400,9 @@ let
     '';
   }) net.rootZoneSources;
 
-  # The exit tunnel's segments (hosts/gate/exit.nix). work keeps its own
-  # managed VPN, and servers carries what recovery needs, which must never wait
-  # on the provider. Provider inner addresses live in 10/8 and 100.64/10, where
+  # The exit tunnel's segments (hosts/gate/exit.nix). A segment marked
+  # `exit = false` in lib/net.nix never joins them; its comment there says
+  # why. Provider inner addresses live in 10/8 and 100.64/10, where
   # a house subnet would be shadowed by, or shadow, the provider's network.
   # Two aligned blocks overlap exactly when one holds the other's base.
   cidrBase = cidr: builtins.elemAt (lib.splitString "/" cidr) 0;
@@ -413,16 +413,11 @@ let
   ];
   exitChecks =
     map (name: {
-      assertion =
-        segments ? ${name}
-        && !(lib.elem name [
-          "work"
-          "servers"
-        ]);
+      assertion = segments ? ${name} && (segments.${name}.exit or true);
       message = ''
-        net.exitSegments lists "${name}", which is not a declared segment, or is
-        work or servers, which never leave through the exit tunnel: work has
-        its own managed VPN, and servers carries what recovery needs.
+        net.exitSegments lists "${name}", which is not a declared segment, or
+        is marked `exit = false` in lib/net.nix and never leaves through the
+        exit tunnel. The segment's comment there says why.
       '';
     }) net.exitSegments
     ++ lib.mapAttrsToList (name: seg: {

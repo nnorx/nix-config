@@ -34,6 +34,10 @@
       subnet = "192.168.20.0/24";
       gateway = "192.168.20.1";
       prefixLength = 24;
+
+      # Never in `exitSegments`: it carries what recovery needs, which must
+      # never wait on the provider. modules/net-assertions.nix reads `exit`.
+      exit = false;
     };
 
     # Cameras, plugs, TVs. No LAN access, WAN only.
@@ -61,6 +65,9 @@
       # Filtered but not logged, since a record of that machine's lookups is
       # not ours to hold. modules/adguardhome.nix reads this on every resolver.
       logQueries = false;
+
+      # Never in `exitSegments`: it has its own managed VPN.
+      exit = false;
       pool = {
         first = "192.168.50.100";
         last = "192.168.50.240";
@@ -76,6 +83,30 @@
       pool = {
         first = "192.168.40.100";
         last = "192.168.40.240";
+      };
+    };
+
+    # Devices the house does not manage. Filtered like trusted, but not
+    # logged and out `wan`: their lookups are not ours to hold, nor their
+    # traffic ours to route through the exit.
+    #
+    # Three costs, accepted (docs/privacy.md, "The household segment"):
+    # with `exitResolvers` the Pis recurse through the exit tunnel, so geo-DNS
+    # answers for the exit city; a list that breaks an app leaves no log line
+    # to say which; and a phone set to strict Private DNS gets no DNS, since
+    # 853 is refused.
+    household = {
+      id = 70;
+      subnet = "192.168.70.0/24";
+      gateway = "192.168.70.1";
+      prefixLength = 24;
+      logQueries = false;
+
+      # Never in `exitSegments`: staying out of it is the segment's purpose.
+      exit = false;
+      pool = {
+        first = "192.168.70.100";
+        last = "192.168.70.240";
       };
     };
 
@@ -242,7 +273,7 @@
 
   # Segments whose internet traffic leaves through the exit tunnel rather than
   # `wan`, failing closed (docs/router.md, "Exit tunnel"). Each is turned on
-  # in a deploy of its own. Never work or servers.
+  # in a deploy of its own. Never a segment marked `exit = false`.
   exitSegments = [ "trusted" ];
 
   # The exit tunnel's routing table, and its MTU: don't-fragment pings of 1392

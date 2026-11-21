@@ -40,6 +40,7 @@ let
     "iot"
     "work"
     "guest"
+    "household"
   ];
 
   # Which segment each routed interface carries. Addresses, Kea subnets, nat
@@ -50,6 +51,7 @@ let
     ${tagged "iot"} = "iot";
     ${tagged "work"} = "work";
     ${tagged "guest"} = "guest";
+    ${tagged "household"} = "household";
 
     # Listed so the tunnel inherits masquerade, the upstream deny and the DNS
     # redirect. No pool, so no DHCP; ./wireguard.nix sets its address.
@@ -136,6 +138,15 @@ let
   refuseDotIfaces = builtins.attrNames (
     lib.filterAttrs (_: name: !(builtins.elem name dotExempt)) redirectOn
   );
+
+  # A redirected segment needs port 53 into servers, or the redirect hands
+  # every lookup to the default-drop chain. Derived from `redirectOn`, so a
+  # new segment resolves the day it is added. trusted reaches servers
+  # outright, and the tunnel's DNS is per peer, in ./wireguard.nix.
+  resolveOnlyIfaces = lib.subtractLists [
+    trustedBr
+    tunnel
+  ] redirectIfaces;
 
   # Spread across the resolvers so neither is a single point of failure for
   # clients DHCP cannot repoint. `numgen inc` picks per connection, so a retry
@@ -371,8 +382,8 @@ in
       # nat's blanket `oifname wan accept`. `mkBefore` pins that order: nixpkgs
       # declares no priority between the two definitions.
       #
-      # iot reaches servers for DNS alone, so its lookups are filtered and
-      # logged; Govee's LAN API with core5 is in ./govee.nix.
+      # Redirected segments but trusted reach servers for DNS alone, so their
+      # lookups are filtered; Govee's LAN API with core5 is in ./govee.nix.
       #
       # 853 is refused with `reject`, so a client falls back to 53 at once
       # rather than after a timeout. TCP gets a reset, since a bare `reject`
@@ -389,8 +400,9 @@ in
         iifname "${tagged "iot"}" oifname ${outward} jump iot-egress comment "iot's way out, counted, and refused for iot-trial"
         iifname "${trunk}" oifname ${outward} jump servers-egress comment "servers' way out, for the fleet's hosts only"
         iifname "${trustedBr}" oifname "${trunk}" accept comment "trusted reaches servers"
-        iifname "${tagged "iot"}" oifname "${trunk}" meta l4proto { tcp, udp } th dport 53 accept comment "iot resolves via the Pis, nothing else"
-        iifname "${tagged "work"}" oifname "${trunk}" meta l4proto { tcp, udp } th dport 53 accept comment "work resolves via the Pis, nothing else"
+        ${lib.optionalString (resolveOnlyIfaces != [ ]) ''
+          iifname ${nftSet (quoted resolveOnlyIfaces)} oifname "${trunk}" meta l4proto { tcp, udp } th dport 53 accept comment "resolve via the Pis, nothing else"
+        ''}
       '';
 
       # DHCP requests arrive before the client has an address, so the port is
@@ -421,8 +433,8 @@ in
   # particular interface is configured. The retries below are the safety net.
   systemd.services.kea-dhcp4-server.after = map (i: "network-addresses-${i}.service") dhcpIfaces;
 
-  # Kea's lines name each client's MAC and lease, the work segment's among
-  # them, so they stay on gate, in a journal of their own that
+  # Kea's lines name each client's MAC and lease, the unlogged segments'
+  # among them, so they stay on gate, in a journal of their own that
   # modules/journal-upload.nix does not read, kept as gate's main one is:
   # `journalctl --namespace=kea -u kea-dhcp4-server`.
   systemd.services.kea-dhcp4-server.serviceConfig.LogNamespace = "kea";

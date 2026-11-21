@@ -109,23 +109,23 @@ one shows up in review.
 |---|---|---|
 | AdGuard's query log | 84-hour rotation: 3.5 days to a week | Debugging a device needs the last few days |
 | AdGuard's statistics | One day | The dashboard's counts; the log answers anything older |
-| Client addresses | Kept, not anonymised | Anonymising zeroes the segment octet, so the log could not say which device asked, and the work rule would stop matching |
+| Client addresses | Kept, not anonymised | Anonymising zeroes the segment octet, so the log could not say which device asked, and the no-log rules would stop matching |
 | Unbound's query logging | Off | |
 | Unbound's cache dump | Deleted once loaded at start | It holds every name resolved, without clients |
 | Safe browsing, parental control | Off | Each sends a hash prefix of every name to AdGuard |
 
-**The work segment is recorded nowhere.** `logQueries = false` in
+**work and household are recorded nowhere.** `logQueries = false` in
 `lib/net.nix` becomes a persistent AdGuard client on both resolvers, covering
-the segment's subnet, with `ignore_querylog` and `ignore_statistics`.
+each segment's subnet, with `ignore_querylog` and `ignore_statistics`.
 Everything else that sees those queries:
 
 - AdGuard's verbose log is off. The error line it writes when an exchange with
   Unbound fails names the lookup, so the unit drops those lines with
   `LogFilterPatterns=`; the fallback's share of upstream answers counts the
   same failures without names.
-- Unbound sees work's queries from 127.0.0.1, and logs nothing about them.
+- Unbound sees their queries from 127.0.0.1, and logs nothing about them.
 - The metrics store on core5 keeps counts without names or clients, and
-  AdGuard's sources, its statistics and query log, leave work out
+  AdGuard's sources, its statistics and query log, leave both out
   (`tests/dns-metrics.nix`).
 
 ### What goes upstream
@@ -154,6 +154,16 @@ list to some clients only; a rule in `user_rules`, such as
 segment. HaGeZi's per-vendor TV and Android lists are one line each if a
 device needs one. When something breaks, the query log names the list that
 blocked it.
+
+### The household segment
+
+Unmanaged devices, which nothing here configures. Three costs, accepted:
+
+- With `exitResolvers`, recursion takes the exit tunnel, so geo-DNS can
+  answer for the exit city.
+- No log names a list that breaks an app; reproduce it on trusted.
+- Android's strict Private DNS gets no DNS, as 853 is refused. Automatic or
+  Off works.
 
 ## The Pis
 
@@ -301,8 +311,8 @@ It reads each resolver's AdGuard query log, read-only, as the admin user
 named after the host, prompting for each password. It needs to reach the
 AdGuard UI: forge at home or through the tunnel. The output is one Markdown
 table per segment. It never prints a client address or device name, counts
-reverse lookups and local names under a fixed label, and leaves out the work
-segment entirely. `scripts/dns-top-domains.sh` has the options.
+reverse lookups and local names under a fixed label, and leaves out the
+unlogged segments entirely. `scripts/dns-top-domains.sh` has the options.
 
 Run it in your own terminal, not through an agent: it summarises the house's
 browsing. Read it before pasting any of it, and `--exclude` the house's own
@@ -317,7 +327,8 @@ By segment, at the category level:
   drops, and time servers.
 - **vpn** and **the resolvers themselves**: as above.
 - **trusted**: the household's own browsing, not summarised.
-- **guest** resolves publicly and **work** is unlogged, so both are absent.
+- **guest** resolves publicly, **work** and **household** are unlogged: all
+  absent.
 
 ## Internet for iot
 

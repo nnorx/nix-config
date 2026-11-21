@@ -9,7 +9,7 @@ addressing.
 
 | Host | Hardware | Address | Role |
 |---|---|---|---|
-| **gate** | CWWK N100, 4x Intel i226 | `.1` in every segment | The router. nftables, NAT, Kea DHCP across five VLANs, its own recursive Unbound, and WireGuard for remote access |
+| **gate** | CWWK N100, 4x Intel i226 | `.1` in every segment | The router. nftables, NAT, Kea DHCP on every client VLAN, its own recursive Unbound, and WireGuard for remote access |
 | **core4** | Raspberry Pi 4 (8GB) | 192.168.20.32 | AdGuard Home + Unbound, node_exporter, DNS metrics |
 | **lifeline** | Raspberry Pi 4 | 192.168.20.11 | AdGuard Home + Unbound, node_exporter, DNS metrics. An independent second DNS path |
 | **core5** | Raspberry Pi 5, NVMe | 192.168.20.49 | Home Assistant, UniFi controller, the metrics store, alerting and Grafana, Docker |
@@ -26,7 +26,7 @@ Alongside the fleet, **forge** is a Framework 16 laptop running NixOS as a
 desktop: Plasma, Steam, LUKS and Secure Boot. It is not a server and does not
 share `hosts/common`; see [docs/laptop.md](docs/laptop.md).
 
-[docs/network.md](docs/network.md) describes the network: six segments, the
+[docs/network.md](docs/network.md) describes the network: seven segments, the
 trunk, DNS, and what stays out of this public repo. Addressing lives in
 [`lib/net.nix`](lib/net.nix) alone, reaching every host through `specialArgs`,
 and [`modules/net-assertions.nix`](modules/net-assertions.nix) fails the build

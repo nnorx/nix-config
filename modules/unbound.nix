@@ -34,7 +34,7 @@ let
   '';
 
   # The dump is deleted once loaded: it records every name the house resolved
-  # over up to four days, the work segment's included, and exists only to
+  # over up to four days, the unlogged segments' included, and exists only to
   # bridge a restart. The cost is a cold cache after a crash.
   loadCache = pkgs.writeShellScript "unbound-load-cache" ''
     export PATH="${pkgs.coreutils}/bin:$PATH"
@@ -122,8 +122,8 @@ in
           "corp"
         ];
 
-        # Off, as by default, and written down because it keeps the work
-        # segment unrecorded here too, where AdGuard's per-client rule cannot
+        # Off, as by default, and written down because it keeps the unlogged
+        # segments unrecorded here too, where AdGuard's per-client rule cannot
         # reach.
         log-queries = false;
         log-replies = false;

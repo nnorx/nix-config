@@ -1,6 +1,6 @@
 # A resolver's DNS metrics, end to end in VMs: core5 can scrape Unbound's
 # exporter and AdGuard's counts on a resolver, nothing else on servers can, the
-# counts answer the DNS dashboard's questions, and the work segment
+# counts answer the DNS dashboard's questions, and the unlogged segments
 # and every client and name stay out of them.
 #
 # `nix build .#checks.x86_64-linux.dns-metrics`. It needs KVM, which forge's
@@ -24,11 +24,38 @@ let
   blackbox = "http://127.0.0.1:${toString net.ports.blackboxExporter}/probe";
   store = "127.0.0.1:${toString net.ports.victoriaMetrics}";
 
-  # A device on the work segment, on the same wire as the resolver: an address
-  # from that segment's pool, with a route to the resolver on the link, and
-  # one back. gate would route between them; the source address AdGuard sees
-  # is the same either way.
-  workIp = seg.work.pool.first;
+  # A device on each segment lib/net.nix marks `logQueries = false`, on the
+  # same wire as the resolver: an address from that segment's pool, with a
+  # route to the resolver on the link, and one back. gate would route between
+  # them; the source address AdGuard sees is the same either way.
+  unlogged = builtins.filter (name: !(seg.${name}.logQueries or true)) (builtins.attrNames seg);
+  clientIp = name: seg.${name}.pool.first;
+  unloggedClient =
+    name:
+    { pkgs, ... }:
+    {
+      virtualisation.interfaces.end0.vlan = wire;
+      environment.systemPackages = [ pkgs.dnsutils ];
+      networking = {
+        useDHCP = false;
+        firewall.enable = false;
+        interfaces.end0 = {
+          ipv4.addresses = [
+            {
+              address = clientIp name;
+              inherit (seg.${name}) prefixLength;
+            }
+          ];
+          ipv4.routes = [
+            {
+              address = resolver.ip;
+              prefixLength = 32;
+            }
+          ];
+        };
+      };
+    };
+  pyList = xs: "[${builtins.concatStringsSep ", " xs}]";
 
   # Test values only: the hosts' own are in sops.
   password = "test-metrics-password";
@@ -123,12 +150,10 @@ in
                 inherit (seg.servers) prefixLength;
               }
             ];
-            ipv4.routes = [
-              {
-                address = workIp;
-                prefixLength = 32;
-              }
-            ];
+            ipv4.routes = map (name: {
+              address = clientIp name;
+              prefixLength = 32;
+            }) unlogged;
           };
           # As hosts/common/resolver.nix opens it.
           firewall.interfaces.end0 = {
@@ -199,32 +224,13 @@ in
         };
       };
     };
-
-    work =
-      { pkgs, ... }:
-      {
-        virtualisation.interfaces.end0.vlan = wire;
-        environment.systemPackages = [ pkgs.dnsutils ];
-        networking = {
-          useDHCP = false;
-          firewall.enable = false;
-          interfaces.end0 = {
-            ipv4.addresses = [
-              {
-                address = workIp;
-                inherit (seg.work) prefixLength;
-              }
-            ];
-            ipv4.routes = [
-              {
-                address = resolver.ip;
-                prefixLength = 32;
-              }
-            ];
-          };
-        };
-      };
-  };
+  }
+  // builtins.listToAttrs (
+    map (name: {
+      inherit name;
+      value = unloggedClient name;
+    }) unlogged
+  );
 
   testScript = ''
     import re
@@ -236,7 +242,8 @@ in
     resolver.wait_for_unit("prometheus-unbound-exporter.service")
     resolver.wait_for_unit("prometheus-node-exporter.service")
     other.wait_for_unit("dnsmasq.service")
-    for m in (core5, work):
+    unlogged = ${pyList unlogged}
+    for m in [core5] + unlogged:
         m.wait_for_unit("network.target")
     resolver.wait_until_succeeds("dig +time=2 +tries=1 @127.0.0.1 example.lan | grep -q 'status: NXDOMAIN'", timeout=60)
 
@@ -334,20 +341,27 @@ in
         lists = {l["list"] for l, _ in series(after, "fleet_adguard_security_blocked")}
         assert lists == {"Phishing Army"}, lists
 
-    with subtest("the work segment is counted by Unbound alone, and by no client"):
+    with subtest("the unlogged segments are counted by Unbound alone, and by no client"):
         before = adguard()
         beforeUnbound = total(scrape("${unbound}"), "unbound_queries_total")
         # Names that reach Unbound, and one that AdGuard blocks.
-        dig(work, "work-a.example.net", 5)
-        dig(work, "ads.blocked.test", 5)
-        dig(work, "phish.list.test", 5)
+        for m in unlogged:
+            dig(m, f"{m.name}-a.example.net", 5)
+            dig(m, "ads.blocked.test", 5)
+            dig(m, "phish.list.test", 5)
         after = adguard()
         afterUnbound = total(scrape("${unbound}"), "unbound_queries_total")
         # Not higher: AdGuard's count can only fall, at the top of an hour.
         assert one(after, "fleet_adguard_queries_total") <= one(before, "fleet_adguard_queries_total")
         assert one(after, "fleet_adguard_blocked_total") <= one(before, "fleet_adguard_blocked_total")
         assert one(after, "fleet_adguard_security_blocked", list="Phishing Army") <= one(before, "fleet_adguard_security_blocked", list="Phishing Army")
-        assert afterUnbound >= beforeUnbound + 5, (beforeUnbound, afterUnbound)
+        assert afterUnbound >= beforeUnbound + 5 * len(unlogged), (beforeUnbound, afterUnbound)
+
+    with subtest("the unlogged segments are still filtered"):
+        for m in unlogged:
+            for name in ("ads.blocked.test", "phish.list.test"):
+                answer = m.succeed(f"dig +short +time=5 +tries=1 @${resolver.ip} {name}").strip()
+                assert answer == "0.0.0.0", f"{m.name} got {answer!r} for {name}"
 
     with subtest("no client address and no name in either source"):
         ours = [l for l in adguard().splitlines() if l.startswith("fleet_adguard")]
@@ -355,7 +369,9 @@ in
             for line in t:
                 if line.startswith("#"):
                     continue
-                for needle in ("${collector.ip}", "${workIp}", "example", "blocked.test", "list.test", ".lan"):
+                for needle in ("${collector.ip}", ${
+                  builtins.concatStringsSep ", " (map (n: "\"${clientIp n}\"") unlogged)
+                }, "example", "blocked.test", "list.test", ".lan"):
                     assert needle not in line, line
 
     with subtest("core5's probes: each resolver answers, and pings leave"):

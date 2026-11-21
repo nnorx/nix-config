@@ -22,7 +22,7 @@ and a third runs the UniFi controller and Home Assistant. gate itself is
                  lan1   │                    │   lan0
               untagged  │                    │   802.1Q trunk
                trusted  │                    │   untagged: servers
-                        │                    │   tagged:   10 30 40 50
+                        │                    │   tagged:   10 30 40 50 70
               ┌─────────┴────────┐   ┌───────┴──────────────┐
               │  wired machine   │   │  Flex switch, PoE    │
               │  2.5G, bridged   │   │  192.168.20.2        │
@@ -38,7 +38,7 @@ and a third runs the UniFi controller and Home Assistant. gate itself is
 
 ## Segments
 
-Six, defined once in [`lib/net.nix`](../lib/net.nix) and consumed everywhere
+Seven, defined once in [`lib/net.nix`](../lib/net.nix) and consumed everywhere
 else by attribute name. The third octet carries the VLAN id, so an address
 names its own segment; `vpn` is not a VLAN but keeps the convention. `gate`
 holds `.1` in each. Below `.100` is reserved for statics and reservations,
@@ -51,6 +51,7 @@ holds `.1` in each. Below `.100` is reserved for statics and reservations,
 | 30 | iot | 192.168.30.0/24 | Cameras, plugs, TVs, the Govee lamps | Internet, plus port 53 to the Pis. Govee's LAN API with Home Assistant, per [`hosts/gate/govee.nix`](../hosts/gate/govee.nix). Port 53 redirected |
 | 40 | guest | 192.168.40.0/24 | Visitors | Internet only, public resolvers. Not redirected |
 | 50 | work | 192.168.50.0/24 | One managed laptop | Internet, plus port 53 to the Pis. Port 53 redirected, and not logged |
+| 70 | household | 192.168.70.0/24 | Unmanaged devices | As work, with [its costs](privacy.md#the-household-segment) |
 | none | vpn | 192.168.60.0/24 | WireGuard peers on `wg0`, one fixed address each: forge `.10`, phone `.20` | Per peer, from `segments.vpn.grants` in [`lib/net.nix`](../lib/net.nix), which [`hosts/gate/wireguard.nix`](../hosts/gate/wireguard.nix) renders. Every peer gets port 53 to the Pis; forge adds the AdGuard UI, SSH to the fleet and internet. Port 53 redirected |
 
 "Port 53 redirected" means plaintext DNS aimed anywhere else is rewritten to
@@ -97,8 +98,8 @@ laptops, and printer and cast discovery work.
 | Port | Contents |
 |---|---|
 | 5, 6, 7 | core4, lifeline, core5. Factory default, untagged |
-| 8 | U7 Pro. Default native, **tagged** trusted, iot, work, guest |
-| 9 | gate `lan0`. Default native, **tagged** trusted, iot, work, guest |
+| 8 | U7 Pro. Default native, **tagged** every client VLAN |
+| 9 | gate `lan0`. Default native, **tagged** every client VLAN |
 
 Switch management is static at `192.168.20.2`, the AP at `192.168.20.3`.
 
@@ -107,20 +108,15 @@ and nothing that has to be reachable in its default state lives on a tag.**
 gate maps untagged traffic on `lan0` to `192.168.20.0/24`, so any
 factory-defaulted device appearing on any port is immediately addressable.
 Segments that exist for clients rather than infrastructure are tagged and reach
-gate as `lan0.10`, `lan0.30`, `lan0.40` and `lan0.50`.
+gate as `lan0.<VLAN id>`.
 
 This is the bootstrap path. A UniFi switch's management rides the untagged
 native VLAN, and a factory reset returns it there, so with no untagged address
 on gate a reset switch has no path to the controller. Tagging every segment
 has stranded the switch, needing hands on it to recover.
 
-The corollary is that **port profiles must leave the native network alone.**
-Setting a port's native network to the `servers` *network object* puts its
-traffic on VLAN 20, which splits it from the switch's own management on VLAN 1
-and from every port still on the default. gate does not care what the switch
-calls the untagged VLAN: anything arriving untagged on `lan0` is
-`192.168.20.0/24` to it. Add only tagged networks to the AP and gate uplink
-ports; leave everything else on the factory default.
+The corollary is that **port profiles must leave the native network alone**;
+[unifi.md](unifi.md#re-adopting-the-flex-switch), step 4, says why.
 
 ## DNS
 
@@ -152,9 +148,6 @@ is derived from where the resolvers sit rather than written out. `servers` also
 carries the Pis' own recursion, which must reach authoritative servers on port
 53 untouched. `guest` is excluded because it is not on the fleet's resolvers at
 all.
-
-`work` is redirected and filtered, but not logged (`logQueries = false`;
-[privacy.md](privacy.md#what-the-resolvers-keep)).
 
 **Local names.** Kea does not register hostnames with AdGuard. Unbound
 answers NXDOMAIN for the suffixes devices invent for local names (`lan`,
