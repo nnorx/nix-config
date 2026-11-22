@@ -334,9 +334,14 @@ in
           # every 10 minutes for 30, as a failing cable, port or driver keeps
           # up, and a link reseated or renegotiating, a burst of seconds,
           # does not.
+          #
+          # Not tunnels, type 65534 (no link layer), which is WireGuard here.
+          # Their errors are policy, not faults: a peer sending from an address
+          # it is not allowed, as forge's full profile does with IPv6.
           alert = "InterfaceErrors";
           expr = ''
             sum by (instance, device) (increase({__name__=~"node_network_(receive|transmit)_errs_total"}[10m])) > 0
+              unless on (instance, device) node_network_protocol_type == 65534
           '';
           for = "30m";
           labels.severity = "warning";
