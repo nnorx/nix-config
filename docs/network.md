@@ -190,8 +190,8 @@ credentials. They stay off the repo entirely, encrypted or not. See
 
 ### Naming a device
 
-A rule that names one device needs a stable address, and on iot that is a Kea
-reservation, keyed on a MAC. So a device has two halves:
+A rule naming one device needs a stable address: a Kea reservation, keyed on a
+MAC. So a device has two halves:
 
 | Half | What | Where |
 |---|---|---|
@@ -200,15 +200,17 @@ reservation, keyed on a MAC. So a device has two halves:
 
 A role name says what a rule needs and no more: no model, no room. `govee-1` is
 fine, since `hosts/gate/govee.nix` already says the house has Govee lights. A
-device whose existence alone should not be public gets no reservation, and the
-pool serves it.
+device whose existence should stay private gets no reservation.
 
-Addresses sit below the segment's pool, in the range reserved for statics and
-reservations. A rule reads a role through a named list, such as `goveeLights`.
+A rule reads a role through a named list, such as `goveeLights`.
 `modules/net-assertions.nix` checks that each device's segment has a pool, that
 its address is outside the pool and not the gateway, and that no address is
-shared. Nothing that builds from this repo needs a credential: there is no
-private flake input, and sops decrypts on gate at activation.
+shared.
+
+Kea's config is the sops template `kea-dhcp4.conf` (`hosts/gate/routing.nix`),
+rendered on gate at activation, so no build sees a MAC or needs a credential.
+A malformed MAC makes Kea refuse it, stopping DHCP everywhere: check the shape
+before writing one, then `sudo kea-dhcp4 -t /etc/kea/dhcp4-server.conf` on gate.
 
 ### Already disclosed
 

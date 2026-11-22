@@ -4,7 +4,7 @@
 # gate is hosts/gate/routing.nix itself, on VM NICs given gate's interface
 # names, so the ruleset under test is the one gate renders. What it leaves out
 # is everything that needs gate's hardware or secrets: WireGuard, DDNS and
-# deploy-guard. "The internet" is one VM holding the public resolvers'
+# deploy-guard. Kea reserves the devices' addresses for test MACs. "The internet" is one VM holding the public resolvers'
 # addresses, and the fleet's resolvers are one VM holding both of theirs,
 # answering a filtered name the way AdGuard blocks it, while the internet
 # answers it differently, so an answer says which side it came from.
@@ -43,6 +43,74 @@ rec {
   };
 
   filteredName = "filtered.example";
+
+  # A MAC for each device in lib/net.nix, locally administered: gate's own
+  # are in sops.
+  testMac =
+    let
+      names = builtins.attrNames net.devices;
+      digit = k: builtins.substring k 1 "0123456789abcdef";
+      hex = n: digit (n / 16) + digit (n - n / 16 * 16);
+    in
+    builtins.listToAttrs (
+      builtins.genList (i: {
+        name = builtins.elemAt names i;
+        value = "02:00:00:00:00:${hex (i + 1)}";
+      }) (builtins.length names)
+    );
+
+  # sops-nix, as far as gate's modules use it. A secret's value is its
+  # placeholder, which the router sets for the devices' MACs and a test sets
+  # for the rest, so templates render with test values.
+  sops =
+    {
+      config,
+      lib,
+      pkgs,
+      ...
+    }:
+    let
+      inherit (lib) mkOption types;
+      placeholder = config.sops.placeholder;
+    in
+    {
+      options.sops = {
+        placeholder = mkOption {
+          type = types.attrsOf types.str;
+          default = { };
+        };
+        secrets = mkOption {
+          default = { };
+          type = types.attrsOf (
+            types.submodule (
+              { name, ... }:
+              {
+                freeformType = types.attrsOf types.anything;
+                options.path = mkOption { default = toString (pkgs.writeText name placeholder.${name}); };
+              }
+            )
+          );
+        };
+        templates = mkOption {
+          default = { };
+          type = types.attrsOf (
+            types.submodule (
+              { name, config, ... }:
+              {
+                freeformType = types.attrsOf types.anything;
+                options.content = mkOption {
+                  type = types.str;
+                  default = "";
+                };
+                options.file = mkOption { default = pkgs.writeText name config.content; };
+                options.path = mkOption { default = toString config.file; };
+              }
+            )
+          );
+        };
+      };
+      config.sops.placeholder = lib.mapAttrs' (name: mac: lib.nameValuePair "mac-${name}" mac) testMac;
+    };
 
   # Answers `filteredName` with `answer`, on every address it holds.
   answering = answer: {
@@ -102,6 +170,7 @@ rec {
       imports = [
         ../../hosts/gate/routing.nix
         ../../modules/kernel-hardening.nix
+        sops
       ];
 
       virtualisation.interfaces = {

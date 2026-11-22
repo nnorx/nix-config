@@ -198,7 +198,7 @@ in
     }
   ];
 
-  services.kea.dhcp4.settings.control-socket = {
+  gate.kea.dhcp4.control-socket = {
     socket-type = "unix";
     socket-name = keaSocket;
   };
