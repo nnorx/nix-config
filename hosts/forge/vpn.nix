@@ -43,6 +43,9 @@ let
   ];
   resolvers = map hostIp net.resolvers;
 
+  iface = "wg-home";
+  chain = "wg-home-ipv6";
+
   nmList = xs: lib.concatMapStrings (x: "${x};") xs;
 
   # The secrets are filled in by NetworkManager-ensure-profiles from the files
@@ -64,7 +67,7 @@ let
         # time and bringing either up takes the other down. Both carry the
         # same key and address, and gate keeps one endpoint per key, so two
         # live at once would steal each other's replies.
-        interface-name = "wg-home";
+        interface-name = iface;
         autoconnect = false;
       };
       wireguard = {
@@ -134,12 +137,13 @@ in
         ipv6.method = "disabled";
       };
 
-      # IPv6 is routed into the tunnel too, where it dies: gate has no IPv6
-      # and accepts nothing from this peer but its IPv4 address. Without
-      # this, a network that offers IPv6 would carry that half of the traffic
-      # outside the tunnel. The address is a unique-local placeholder that
-      # exists only so NetworkManager will install the IPv6 route; glibc then
-      # prefers IPv4 for global destinations, so most connections never try it.
+      # IPv6 is routed into the tunnel too, where the firewall below refuses
+      # it: gate has no IPv6 and accepts nothing from this peer but its IPv4
+      # address. Without this, a network that offers IPv6 would carry that
+      # half of the traffic outside the tunnel. The address is a unique-local
+      # placeholder that exists only so NetworkManager will install the IPv6
+      # route; glibc then prefers IPv4 for global destinations, so most
+      # connections never try it.
       home-full = profile {
         id = "home (full)";
         allowedIPs = [
@@ -172,4 +176,23 @@ in
   # hand-written iptables rules shadowing routing that NetworkManager owns and
   # may change between releases.
   networking.firewall.checkReversePath = "loose";
+
+  # IPv6 into the tunnel is refused here rather than dropped at gate, so a
+  # connection that tries it fails at once and falls back to IPv4, instead of
+  # waiting out a timeout. The firewall runs these at every start and reload,
+  # and leaves OUTPUT alone, so they take out what they put in first.
+  networking.firewall.extraCommands = ''
+    ip6tables -w -D OUTPUT -o ${iface} -j ${chain} 2>/dev/null || true
+    ip6tables -w -F ${chain} 2>/dev/null || true
+    ip6tables -w -X ${chain} 2>/dev/null || true
+    ip6tables -w -N ${chain}
+    ip6tables -w -A ${chain} -p tcp -j REJECT --reject-with tcp-reset
+    ip6tables -w -A ${chain} -j REJECT --reject-with icmp6-adm-prohibited
+    ip6tables -w -A OUTPUT -o ${iface} -j ${chain}
+  '';
+  networking.firewall.extraStopCommands = ''
+    ip6tables -w -D OUTPUT -o ${iface} -j ${chain} 2>/dev/null || true
+    ip6tables -w -F ${chain} 2>/dev/null || true
+    ip6tables -w -X ${chain} 2>/dev/null || true
+  '';
 }
