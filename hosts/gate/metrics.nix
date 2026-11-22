@@ -108,8 +108,10 @@ let
       leak=$(nft -j list counter inet nixos-fw exit-leak-dropped 2>/dev/null |
         jq -r '.nftables[].counter // empty | "\(.packets) \(.bytes)"') || leak=""
       newClients=""
+      updated=""
       if [ -e ${newClientsFile} ]; then
         newClients=$(tr -dc 0-9 2>/dev/null <${newClientsFile}) || newClients=""
+        updated=$(stat -c %Y ${newClientsFile} 2>/dev/null) || updated=""
       fi
 
       tmp=$(mktemp -p ${textfileDir})
@@ -170,6 +172,12 @@ let
           echo '# HELP fleet_kea_new_trusted_clients_total Devices Kea leased to on trusted for the first time.'
           echo '# TYPE fleet_kea_new_trusted_clients_total counter'
           echo "fleet_kea_new_trusted_clients_total $newClients"
+        fi
+        # Every run rewrites the count, so its age says whether the runs work.
+        if [ -n "$updated" ]; then
+          echo '# HELP fleet_kea_new_trusted_clients_updated_timestamp_seconds When gate-trusted-clients last wrote the count.'
+          echo '# TYPE fleet_kea_new_trusted_clients_updated_timestamp_seconds gauge'
+          echo "fleet_kea_new_trusted_clients_updated_timestamp_seconds $updated"
         fi
       } >"$tmp"
       chmod 0644 "$tmp"

@@ -19,6 +19,10 @@ let
   # holds the WAN and the DHCP pools, and it upgrades by hand.
   router = "gate";
 
+  # When hosts/gate/metrics.nix last wrote its facts, as node_exporter's
+  # textfile collector reports it: by the file's full path.
+  routerFacts = ''node_textfile_mtime_seconds{instance="${router}", file="/run/fleet-metrics/${router}.prom"}'';
+
   # How old main's head may be, in hours, and still be judged by: past it,
   # RevisionBehind stops and RevisionCheckStale says so. modules/alerting.nix
   # reads the head every 30 minutes, so this is a dozen reads failing in a row.
@@ -223,6 +227,38 @@ in
           '';
           labels.severity = "warning";
           annotations.summary = "A device new to ${router} joined the trusted segment. ${router}'s DHCP leases say which.";
+        }
+        {
+          # gate-metrics-facts rewrites the file every 30 seconds, and a failed
+          # run leaves the last one in place, so its series read flat rather
+          # than missing. Or the file is gone while node_exporter answers, as
+          # when no run has worked since boot. Its age peaked at 52 seconds in
+          # the week before this; 3 minutes past 2 is past a boot.
+          alert = "RouterFactsStale";
+          expr = ''
+            time() - max by (instance) (${routerFacts}) > 120
+              or (max by (instance) (up{job="node", instance="${router}"}) == 1 unless on (instance) ${routerFacts})
+          '';
+          for = "3m";
+          labels.severity = "warning";
+          annotations.summary = "${router}'s WAN, WireGuard, exit tunnel and new-device metrics have not been written for 2 minutes, so the alerts on them see nothing change.";
+        }
+        {
+          # The same for gate-trusted-clients, every minute, whose count
+          # NewTrustedClient reads: old, or never written since boot. Only
+          # while gate.prom is fresh, since the count's age is read from it,
+          # and RouterFactsStale already says when it is not.
+          alert = "TrustedClientCountStale";
+          expr = ''
+            (
+              time() - max by (instance) (fleet_kea_new_trusted_clients_updated_timestamp_seconds{instance="${router}"}) > 300
+                or (max by (instance) (${routerFacts}) unless on (instance) fleet_kea_new_trusted_clients_updated_timestamp_seconds)
+            )
+              and on (instance) (time() - max by (instance) (${routerFacts}) < 120)
+          '';
+          for = "5m";
+          labels.severity = "warning";
+          annotations.summary = "${router} has not counted new trusted devices for 5 minutes, so NewTrustedClient sees none.";
         }
         {
           # /nix/store is a second mount of the root, and ramfs reports no size
