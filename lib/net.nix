@@ -268,7 +268,7 @@
   # on the wire); larger ones vanished silently, so WireGuard's default 1420
   # left the tunnel up and carrying nothing. 1280 is the floor, because IPv6
   # inside the tunnel refuses anything smaller: 1340 on the wire. Peers set by
-  # hand, like the phone, need it in their app.
+  # hand need it in their app.
   vpnMtu = 1280;
 
   # Segments whose internet traffic leaves through the exit tunnel rather than

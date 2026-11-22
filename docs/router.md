@@ -80,12 +80,11 @@ access", has the setup.
   key, so a WAN port scan finds nothing listening.
 - **Per-peer policy.** Peers get fixed addresses on the `vpn` segment, and
   what each reaches is `segments.vpn.grants` in `lib/net.nix`. forge gets
-  DNS, the AdGuard UI and SSH to the fleet; the phone, DNS alone. Neither gets
-  the UniFi UI.
+  DNS, the AdGuard UI and SSH to the fleet. The phone's address is reserved,
+  with DNS alone and no key. No peer gets the UniFi UI.
 - **forge's two profiles.** Split, the default, carries the home subnets and
   DNS. Full tunnel is for untrusted networks: it moves what the local network
-  sees to the home ISP, bounded by the home upload. The phone is split only,
-  with `PersistentKeepalive = 25` for carrier NAT.
+  sees to the home ISP, bounded by the home upload.
 - **MTU 1280**, not WireGuard's 1420: over a phone hotspot larger packets
   vanished while the handshake and pings worked. `vpnMtu` in `lib/net.nix`
   has the measurement. Test from a hotspot with the phone's own Wi-Fi off, or

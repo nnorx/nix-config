@@ -52,7 +52,7 @@ holds `.1` in each. Below `.100` is reserved for statics and reservations,
 | 40 | guest | 192.168.40.0/24 | Visitors | Internet only, public resolvers. Not redirected |
 | 50 | work | 192.168.50.0/24 | One managed laptop | Internet, plus port 53 to the Pis. Port 53 redirected, and not logged |
 | 70 | household | 192.168.70.0/24 | Unmanaged devices | As work, with [its costs](privacy.md#the-household-segment) |
-| none | vpn | 192.168.60.0/24 | WireGuard peers on `wg0`, one fixed address each: forge `.10`, phone `.20` | Per peer, from `segments.vpn.grants` in [`lib/net.nix`](../lib/net.nix), which [`hosts/gate/wireguard.nix`](../hosts/gate/wireguard.nix) renders. Every peer gets port 53 to the Pis; forge adds the AdGuard UI, SSH to the fleet and internet. Port 53 redirected |
+| none | vpn | 192.168.60.0/24 | WireGuard peers on `wg0`, one fixed address each: forge `.10`, `.20` reserved for a phone | Per peer, from `segments.vpn.grants` in [`lib/net.nix`](../lib/net.nix), which [`hosts/gate/wireguard.nix`](../hosts/gate/wireguard.nix) renders. Every peer gets port 53 to the Pis; forge adds the AdGuard UI, SSH to the fleet and internet. Port 53 redirected |
 
 "Port 53 redirected" means plaintext DNS aimed anywhere else is rewritten to
 the fleet's resolvers ([DNS](#dns)). Everything not in the policy column is
