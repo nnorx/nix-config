@@ -39,11 +39,10 @@ GitHub's own host key is pinned in `modules/offbox-push.nix`. It is public.
 
 | Key | For | Made | Held | Rotate | If lost | If leaked |
 |---|---|---|---|---|---|---|
-| gate's, `wireguard-private-key` (gate) | gate's end of every tunnel | `wg genkey`, into sops | `secrets/gate.yaml`; public half in `lib/wireguard-keys.nix` | New key and public half, deploy gate behind deploy-guard, rebuild forge, re-import the phone's config | Recoverable while the age key is | Rotate, and the PSKs |
+| gate's, `wireguard-private-key` (gate) | gate's end of every tunnel | `wg genkey`, into sops | `secrets/gate.yaml`; public half in `lib/wireguard-keys.nix` | New key and public half, deploy gate behind deploy-guard, rebuild forge | Recoverable while the age key is | Rotate, and the PSKs |
 | gate's exit key, `exit-private-key` (gate) | gate's end of the exit tunnel | `wg genkey` on gate, into sops | `secrets/gate.yaml`; the provider holds the public half | router.md, "Exit tunnel" | Recoverable while the age key is | Rotate, and delete the old key at the provider |
 | forge's, `/var/lib/wireguard/forge.env` | forge's peer (`segments.vpn.grants`) | On forge | forge alone, root-only | laptop.md, "Remote access" | Make a new one | Delete forge's line, deploy gate |
-| The phone's | The phone's peer | On the phone | Its WireGuard app | README, "Remote access" | Make a new one | Delete its line, deploy gate |
-| PSKs: `wireguard-psk-forge`, `wireguard-psk-phone` (gate), `wireguard-psk` (forge) | A symmetric layer over each handshake | `wg genpsk`, into sops | gate's file, forge's file, the phone's config | README, "Remote access", step 2; forge's pair from one `wg genpsk` | Regenerate | Regenerate |
+| PSKs: `wireguard-psk-forge` (gate), `wireguard-psk` (forge) | A symmetric layer over each handshake | `wg genpsk`, into sops | gate's file, forge's file | README, "Remote access", step 2; forge's pair from one `wg genpsk` | Regenerate | Regenerate |
 | `wireguard-endpoint-host` (forge), `ddns-hostname` (gate) | Not credentials: names that resolve to the house | A random label | Those two files, and the record on Cloudflare | A new label in both, deploy gate, rebuild forge, delete the old record | Nothing lost | Rotate |
 
 ### age and sops

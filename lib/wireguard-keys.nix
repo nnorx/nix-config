@@ -12,6 +12,5 @@
 
   peers = {
     forge = "s7mFo68h82DgwfoyJ+a93TtioPIX6C8Cl3kj0oeEzBc=";
-    phone = "CMCn/ZHvmY4k8W64c9WZKM8T5eA62IPjcHf+1qNq9XU=";
   };
 }

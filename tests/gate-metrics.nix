@@ -155,9 +155,7 @@ in
                 one(text, f"node_network_{name}_total", device=device)
 
     with subtest("each WireGuard peer's last handshake, by name"):
-        for peer in (${
-          builtins.concatStringsSep ", " (map (p: "\"${p}\"") (builtins.attrNames keys.peers))
-        }):
+        for peer in ${builtins.toJSON (builtins.attrNames keys.peers)}:
             assert one(text, "fleet_wireguard_last_handshake_timestamp_seconds", peer=peer) == 0
 
     with subtest("no exit tunnel: no handshake, primary, every bypass closed"):

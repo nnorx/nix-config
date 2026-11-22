@@ -272,9 +272,10 @@ To add a peer:
    The peer needs the same key. A peer built from this repo reads its own copy
    from its secrets file, as forge does from `wireguard-psk` in
    `secrets/forge.yaml`, so set both from one `wg genpsk` and keep them equal
-   when rotating. Any other peer receives it inside its config, like the
-   phone's QR code, and needs its MTU set to `vpnMtu` from `lib/net.nix`
-   (1280) by hand; see the comment there for why.
+   when rotating. Any other peer receives it inside its config, as a QR
+   code, and needs its MTU set to `vpnMtu` from `lib/net.nix` (1280) by hand;
+   see the comment there for why. A phone also needs
+   `PersistentKeepalive = 25`, for carrier NAT.
 3. Generate the peer's key pair on the peer, and add its public key to
    `lib/wireguard-keys.nix`. gate refuses to evaluate with a key that has no
    address or no grants.
