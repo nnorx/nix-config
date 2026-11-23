@@ -71,18 +71,18 @@ Assistant and the lamps goes through Govee's cloud.
 
 **core5 has no address on iot.** gate routes Home Assistant's discovery scan
 from servers into iot and lets the replies and commands cross, three rules in
-[`hosts/gate/govee.nix`](../hosts/gate/govee.nix), which has the reasoning.
-Nothing else crosses: a named lamp reaches core5 on UDP 4002, and core5
-reaches it on UDP 4003.
+[`hosts/gate/govee.nix`](../hosts/gate/govee.nix). Nothing else crosses: a
+named lamp reaches core5 on UDP 4002, and core5 reaches it on UDP 4003.
 
 ### Adding a lamp
 
-1. **In the Govee app, add it and give it the iot Wi-Fi**, which offers 2.4
-   GHz and WPA2: many of these lamps cannot join 5 GHz or WPA3.
+1. **In the Govee app, add it to the iot Wi-Fi**, which offers 2.4 GHz and
+   WPA2: many lamps cannot join 5 GHz or WPA3.
 2. **Turn on LAN Control** in the app. Without it the lamp ignores the
    scan.
-3. **Name it** in `devices` and `goveeLights` (network.md, "Naming a device")
-   and deploy gate, which drops answers from a pool address.
+3. **Name it** in `devices` and `goveeLights` (network.md, "Naming a device").
+   gate and core5 drop answers from a pool address: deploy gate; core5
+   follows at its nightly upgrade.
 4. **In Home Assistant**, Settings > Devices & services. Govee lights local
    shows up as discovered within a minute; if not, add it.
 
