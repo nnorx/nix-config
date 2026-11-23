@@ -207,10 +207,11 @@ A rule reads a role through a named list, such as `goveeLights`.
 its address is outside the pool and not the gateway, and that no address is
 shared.
 
-Kea's config is the sops template `kea-dhcp4.conf` (`hosts/gate/routing.nix`),
-rendered on gate at activation, so no build sees a MAC or needs a credential.
-A malformed MAC makes Kea refuse it, stopping DHCP everywhere: check the shape
-before writing one, then `sudo kea-dhcp4 -t /etc/kea/dhcp4-server.conf` on gate.
+Kea's config is the sops template `kea-dhcp4.conf`, rendered on gate at
+activation, so no build sees a MAC or needs a credential. A malformed MAC
+stops DHCP everywhere: check its shape first, then run
+`sudo kea-dhcp4 -t /etc/kea/dhcp4-server.conf` on gate, output silenced,
+since errors quote it.
 
 ### Already disclosed
 
