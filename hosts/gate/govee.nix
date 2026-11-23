@@ -13,7 +13,8 @@
 # core5 forwards packets for Docker. The host that administers the network
 # would sit one hop from the least trusted devices in the house. This way gate
 # stays the only place segments meet, and what crosses is the three rules at
-# the bottom.
+# the bottom. Replies come only from the lights, and commands go only to them,
+# at the addresses Kea reserves them in `net.devices`.
 #
 # The scan crosses as routed multicast. smcroute installs one static route:
 # the group, from core5's address only, from servers into iot. The kernel
@@ -45,6 +46,7 @@ let
       (builtins.attrNames config.networking.vlans);
 
   homeAssistant = net.hosts.core5.ip;
+  lights = "{ ${lib.concatMapStringsSep ", " (name: net.devices.${name}.ip) net.goveeLights} }";
   inherit (net.ports) goveeScan goveeReply goveeCommand;
 
   # `-N` below enables no interface by default, so only these two become
@@ -111,7 +113,7 @@ in
   # of the exchange is getting through.
   networking.firewall.extraForwardRules = ''
     iifname "${trunk}" oifname "${iot}" ip saddr ${homeAssistant} ip daddr ${net.goveeGroup} udp dport ${toString goveeScan} counter accept comment "govee: Home Assistant scans iot"
-    iifname "${trunk}" oifname "${iot}" ip saddr ${homeAssistant} udp dport ${toString goveeCommand} counter accept comment "govee: Home Assistant commands a light"
-    iifname "${iot}" oifname "${trunk}" ip daddr ${homeAssistant} udp dport ${toString goveeReply} counter accept comment "govee: a light answers Home Assistant"
+    iifname "${trunk}" oifname "${iot}" ip saddr ${homeAssistant} ip daddr ${lights} udp dport ${toString goveeCommand} counter accept comment "govee: Home Assistant commands a light"
+    iifname "${iot}" oifname "${trunk}" ip saddr ${lights} ip daddr ${homeAssistant} udp dport ${toString goveeReply} counter accept comment "govee: a light answers Home Assistant"
   '';
 }

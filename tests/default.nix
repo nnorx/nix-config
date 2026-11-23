@@ -16,6 +16,7 @@ pkgs.lib.genAttrs
     "gate-dhcp"
     "gate-metrics"
     "gate-iot-egress"
+    "gate-govee"
     "gate-servers-egress"
     "gate-tunnel"
     "gate-exit"
