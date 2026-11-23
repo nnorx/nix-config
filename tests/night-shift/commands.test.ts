@@ -357,13 +357,15 @@ kase("run_brief", "run: a handoff in a repo with preflight: its verdict and find
   writeFileSync(`${c.dir}/home/token-a`, "");
   const { status } = await c.ns(["run"], { env: { NIGHT_SHIFT_HIDE: `${c.dir}/secret-dir\n~/token-*\n${c.dir}/absent` } });
   assert.equal(status, 0);
+  const head = c.git("-C", repo, "rev-parse", `refs/heads/${BRANCH}`);
+  const base = c.git("-C", `${c.dir}/remote/demo.git`, "rev-parse", "main");
   const text = comments(c);
-  assert.ok(text.includes("Fixed the widget.\n\n**Preflight: review.** One host changes.\n- gate, review: its firewall changes\n- review: merge by day\n\nTo publish:"), text);
+  assert.ok(text.includes(`Fixed the widget.\n\n**Preflight: review.** One host changes.\nBriefed at \`${head.slice(0, 12)}\`.\n- gate, review: its firewall changes\n- review: merge by day\n\nTo publish:`), text);
   assert.ok(!text.includes("its revision moves"), "notes left out");
   assert.deepEqual(pushed(c), ["TST-1: Handoff ready (review)"]);
   const bwrap = c.log().find((l) => l.tool === "bwrap")!;
   const args = bwrap.args!.join(" ");
-  assert.ok(args.startsWith(`--dev-bind / / --tmpfs ${c.dir}/secret-dir --ro-bind /dev/null ${c.dir}/home/token-a -- nix run .#preflight -- --head ${BRANCH} --json `), args);
+  assert.ok(args.startsWith(`--dev-bind / / --tmpfs ${c.dir}/secret-dir --ro-bind /dev/null ${c.dir}/home/token-a -- nix run .#preflight -- --head ${head} --base ${base} --json `), args);
   assert.equal(c.log().find((l) => l.tool === "nix")!.cwd, repo, "in the repo, on the agent's branch");
 });
 

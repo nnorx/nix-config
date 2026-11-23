@@ -1,4 +1,5 @@
-import { existsSync, renameSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, renameSync } from "node:fs";
+import { dirname } from "node:path";
 import type { Env } from "./env.ts";
 import { cmp, commonDir, git } from "./util.ts";
 
@@ -6,9 +7,48 @@ export function resultPath(repo: string, ident: string): string {
   return `${commonDir(repo) ?? `${repo}/.git`}/night-shift/${ident}.md`;
 }
 
-/** Keeps a result that has been read, or that turned up too late, out of the way of the next one. */
+/**
+ * Keeps a result that has been read, or that turned up too late, out of the
+ * way of the next one. Renaming moves a link, never its target, so a results
+ * directory that is not a plain one is moved aside whole.
+ */
 export function archive(result: string): void {
-  if (existsSync(result)) renameSync(result, `${result}.${Math.floor(Date.now() / 1000)}`);
+  const at = Math.floor(Date.now() / 1000);
+  const dir = dirname(result);
+  const st = lstatSync(dir, { throwIfNoEntry: false });
+  if (st && !st.isDirectory()) renameSync(dir, `${dir}.${at}`);
+  else if (st && lstatSync(result, { throwIfNoEntry: false })) renameSync(result, `${result}.${at}`);
+}
+
+/**
+ * A file an agent wrote, read only as a regular file in a plain directory:
+ * the dispatcher can read what the agent's sandbox hides, so it follows no
+ * link the agent made. The open is checked as well as the path, so a file
+ * swapped in after the lstat is refused too. undefined when there is none.
+ */
+export function readAgentFile(path: string): { text: string } | { refused: string } | undefined {
+  const dir = dirname(path);
+  const d = lstatSync(dir, { throwIfNoEntry: false });
+  if (!d) return undefined;
+  if (!d.isDirectory()) return { refused: `\`${dir}\` is not a plain directory` };
+  const st = lstatSync(path, { throwIfNoEntry: false });
+  if (!st) return undefined;
+  const refused = { refused: `\`${path}\` is not a regular file` };
+  if (!st.isFile()) return refused;
+  let fd: number;
+  try {
+    // O_NONBLOCK: a FIFO swapped in would otherwise hold the open.
+    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  } catch {
+    return refused;
+  }
+  try {
+    const f = fstatSync(fd);
+    if (!f.isFile() || f.dev !== st.dev || f.ino !== st.ino) return refused;
+    return { text: readFileSync(fd, "utf8") };
+  } finally {
+    closeSync(fd);
+  }
 }
 
 /**

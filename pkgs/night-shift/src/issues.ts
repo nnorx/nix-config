@@ -1,5 +1,5 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { basename, dirname } from "node:path";
 import type { Mode } from "./env.ts";
 import type { Linear } from "./linear.ts";
 import { cmp, die, now } from "./util.ts";
@@ -100,11 +100,18 @@ ${answers(i, viewer) || "(none)"}`;
  * The issue as the agent is handed it, as <ID>.issue.md next to its result,
  * for a session reviewing the branch: the key is out of Claude's reach. Under
  * .git/, so nothing publishes it. Written before claude starts, so a run that
- * fails to start still leaves it.
+ * fails to start still leaves it. The agent can write that directory, so the
+ * text goes to a new file, which "wx" refuses to open through a link, renamed
+ * into place, which replaces a link rather than writing through it.
  */
 export function writeIssue(i: Issue, viewer: string, result: string): void {
-  mkdirSync(dirname(result), { recursive: true });
+  const dir = dirname(result);
+  mkdirSync(dir, { recursive: true });
+  if (!lstatSync(dir).isDirectory()) die(`${dir} is not a plain directory`);
   const [head, ...rest] = task(i, viewer).split("\n");
   const meta = `- URL: ${i.url}\n- State: ${i.state.name}\n- Handed to the agent: ${now()}`;
-  writeFileSync(result.replace(/\.md$/, ".issue.md"), `${head}\n\n${meta}\n${rest.join("\n")}\n`);
+  const file = result.replace(/\.md$/, ".issue.md");
+  const tmp = `${dir}/.${basename(file)}.${process.pid}.${Date.now()}`;
+  writeFileSync(tmp, `${head}\n\n${meta}\n${rest.join("\n")}\n`, { flag: "wx" });
+  renameSync(tmp, file);
 }

@@ -4,7 +4,8 @@
 // which must fetch, a local bare one: an insteadOf mapping instead would hide
 // the GitHub URL from `git remote get-url`.
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { ago, BRANCH, type Case, kase, type Logged, NAME } from "./harness.ts";
 
 const pushed = (c: Case, body: string) => c.count((l) => l.tool === "ntfy" && l.body === body);
@@ -278,7 +279,121 @@ kase("finish_blocked", "finish: blocked: Needs you", async (c) => {
   assert.equal(pushed(c, "TST-1: Needs you"), 1);
 });
 
-kase("finish_quiet", "finish: no result past the stall hours of work: Needs you", async (c) => {
+// The dispatcher reads what the agent's sandbox hides, so an agent's result
+// is read only as a regular file in a plain directory.
+const CANARY = "not for Linear";
+const planted = `handoff\n${CANARY}\n`;
+
+kase("finish_result_symlink", "finish: a result that is a link: not read, Needs you, the link archived", async (c) => {
+  const result = runningAgent(c);
+  const target = `${c.dir}/elsewhere.md`;
+  writeFileSync(target, planted);
+  mkdirSync(dirname(result));
+  symlinkSync(target, result);
+  assert.equal((await c.ns(["run"])).status, 0);
+  assert.ok(!c.comments().includes(CANARY), "the target not read");
+  assert.match(c.comments(), /Did not read the agent's result: `[^`]*\/TST-1\.md` is not a regular file\./);
+  assert.equal(c.stateName(), "Needs you");
+  assert.equal(pushed(c, "TST-1: Needs you"), 1);
+  assert.ok(archived(result), "the link archived");
+  const moved = readdirSync(dirname(result)).find((n) => n.startsWith("TST-1.md."))!;
+  assert.ok(lstatSync(`${dirname(result)}/${moved}`).isSymbolicLink(), "the link moved, not its target");
+  assert.equal(readFileSync(target, "utf8"), planted, "the target unchanged");
+  assert.equal(c.st().phase, "waiting");
+});
+
+kase("finish_result_dir_symlink", "finish: a results directory that is a link: not read, Needs you, the link archived", async (c) => {
+  runningAgent(c);
+  const elsewhere = `${c.dir}/elsewhere`;
+  mkdirSync(elsewhere);
+  writeFileSync(`${elsewhere}/TST-1.md`, planted);
+  const dir = `${c.demo}/.git/night-shift`;
+  symlinkSync(elsewhere, dir);
+  assert.equal((await c.ns(["run"])).status, 0);
+  assert.ok(!c.comments().includes(CANARY), "the target not read");
+  assert.match(c.comments(), /Did not read the agent's result: `[^`]*\/night-shift` is not a plain directory\./);
+  assert.equal(c.stateName(), "Needs you");
+  assert.equal(lstatSync(dir, { throwIfNoEntry: false }), undefined, "the link archived");
+  const moved = readdirSync(`${c.demo}/.git`).filter((n) => n.startsWith("night-shift."));
+  assert.equal(moved.length, 1);
+  assert.ok(lstatSync(`${c.demo}/.git/${moved[0]}`).isSymbolicLink(), "the link moved, not its target");
+  assert.deepEqual(readdirSync(elsewhere), ["TST-1.md"], "nothing moved in the target");
+  assert.equal(readFileSync(`${elsewhere}/TST-1.md`, "utf8"), planted, "the target unchanged");
+});
+
+// The issue file is written new and renamed into place, never through a link.
+function plantIssueLink(c: Case): string {
+  const target = `${c.dir}/elsewhere.md`;
+  writeFileSync(target, "Nick's own\n");
+  mkdirSync(`${c.demo}/.git/night-shift`, { recursive: true });
+  symlinkSync(target, `${c.demo}/.git/night-shift/TST-1.issue.md`);
+  return target;
+}
+
+function issueWritten(c: Case, target: string): void {
+  assert.equal(readFileSync(target, "utf8"), "Nick's own\n", "the link's target unchanged");
+  const file = `${c.demo}/.git/night-shift/TST-1.issue.md`;
+  assert.ok(lstatSync(file).isFile(), "a regular file in its place");
+  assert.ok(readFileSync(file, "utf8").startsWith("# TST-1: Fix the widget\n"), "with the issue's text");
+  assert.deepEqual(readdirSync(`${c.demo}/.git/night-shift`).filter((n) => n.startsWith(".")), [], "no temporary file left");
+}
+
+kase("start_issue_file_symlink", "start: the issue file a link: replaced by a regular file, the target unchanged", async (c) => {
+  c.repo("demo");
+  c.issue("issue-1");
+  const target = plantIssueLink(c);
+  assert.equal((await c.ns(["run"])).status, 0);
+  assert.equal(c.stateName(), "Running");
+  issueWritten(c, target);
+});
+
+kase("resume_issue_file_symlink", "resume: the issue file a link: replaced by a regular file, the target unchanged", async (c) => {
+  runningAgent(c, ago(), "handoff\nFixed the widget.");
+  c.issue("issue-1", (i) => (i.comments.nodes = [{ body: "Go on.", createdAt: "2030-01-01T00:00:00.000Z", user: { id: "user-nick" } }]));
+  const target = plantIssueLink(c);
+  assert.equal((await c.ns(["run"])).status, 0);
+  assert.equal(c.claude("--bg").filter((l) => l.args![1] === "--resume").length, 1, "resumed");
+  issueWritten(c, target);
+});
+
+// The brief compares commit ids: the head from the branch's full ref, the
+// base from what origin answers, not from tags or origin/main.
+function briefed(c: Case): string {
+  const result = runningAgent(c, ago(), "handoff\nFixed the widget.");
+  mkdirSync(`${c.demo}/scripts`);
+  writeFileSync(`${c.demo}/scripts/preflight-brief.jq`, "");
+  writeFileSync(`${c.dir}/brief.json`, JSON.stringify({ verdict: { level: "routine", text: "Nothing changes." } }));
+  return result;
+}
+
+const arg = (l: Logged, flag: string) => l.args![l.args!.indexOf(flag) + 1];
+
+kase("finish_brief_pinned", "finish: the brief by commit id, past a tag and origin/main moved", async (c) => {
+  briefed(c);
+  const head = c.git("-C", c.demo, "rev-parse", `refs/heads/${BRANCH}`);
+  const main = c.git("-C", `${c.dir}/remote/demo.git`, "rev-parse", "main");
+  c.git("-C", c.demo, "update-ref", "refs/remotes/origin/main", head);
+  c.git("-C", c.demo, "tag", BRANCH, main);
+  assert.equal((await c.ns(["run"])).status, 0);
+  const nix = c.log().filter((l) => l.tool === "nix");
+  assert.equal(nix.length, 1, "preflight run once");
+  assert.equal(arg(nix[0]!, "--head"), head, "the branch's own tip");
+  assert.equal(arg(nix[0]!, "--base"), c.git("-C", c.demo, "merge-base", head, main), "the merge-base with origin's main");
+  assert.ok(c.comments().includes(`**Preflight: routine.** Nothing changes.\nBriefed at \`${head.slice(0, 12)}\`.`), c.comments());
+  assert.equal(pushed(c, "TST-1: Handoff ready (routine)"), 1);
+});
+
+kase("finish_brief_offline", "finish: origin unreachable: no preflight, the comment says it was skipped", async (c) => {
+  briefed(c);
+  c.git("-C", c.demo, "remote", "set-url", "origin", `${c.dir}/remote/gone.git`);
+  assert.equal((await c.ns(["run"])).status, 0);
+  assert.equal(c.count((l) => l.tool === "nix"), 0, "no preflight");
+  assert.ok(c.comments().includes("**Preflight skipped:** origin could not be reached"), c.comments());
+  assert.equal(c.stateName(), "Handoff ready");
+  assert.equal(pushed(c, "TST-1: Handoff ready"), 1);
+});
+
+kase("finish_quiet","finish: no result past the stall hours of work: Needs you", async (c) => {
   runningAgent(c, ago(5 * 3600));
   // A minute short of 4 hours of work as of the last run, 5 minutes ago.
   c.st((s) => Object.assign(s, { worked: 4 * 3600 - 60, ticked: ago(300) }));

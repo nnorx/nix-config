@@ -4,7 +4,9 @@
 // night-shift.sh holds the run lock around this, and lets the machine sleep
 // once it ends. Nothing here publishes, merges or deploys.
 import { spawnSync } from "node:child_process";
-import { existsSync, globSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync, globSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { basename } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -16,7 +18,7 @@ import { latest, running } from "./machine.ts";
 import { notify } from "./notify.ts";
 import { promptNew, promptResume, workPromptNew, workPromptResume } from "./prompts.ts";
 import {
-  addWorktree, archive, discardStart, fetchBase, githubRepo, type Merged, mergedPr, onBranch, resultPath, tip,
+  addWorktree, archive, discardStart, fetchBase, githubRepo, type Merged, mergedPr, onBranch, readAgentFile, resultPath, tip,
 } from "./repo.ts";
 import { cmp, commonDir, die, Fatal, git, now, relay, say, warn } from "./util.ts";
 import {
@@ -116,10 +118,11 @@ class Run {
   /** Drops an issue the dispatcher is done with, with its issue text and results, read or not. */
   forget(f: string, why?: string): void {
     const s = read(f);
-    // Unless the repo is gone too.
+    // Unless the repo is gone too. Not through a link, into a directory the
+    // agent chose; rmSync removes a link itself.
     const common = s.repo ? commonDir(s.repo) : undefined;
     const dir = `${common}/night-shift`;
-    if (common && existsSync(dir)) {
+    if (common && lstatSync(dir, { throwIfNoEntry: false })?.isDirectory()) {
       for (const n of readdirSync(dir)) {
         if (n === `${s.ident}.issue.md` || n === `${s.ident}.md` || n.startsWith(`${s.ident}.md.`)) {
           rmSync(`${dir}/${n}`, { force: true });
@@ -207,9 +210,18 @@ class Run {
    * Preflight's verdict and findings, for repos that have its brief. It
    * evaluates code the agent wrote, with the network on since evaluation
    * fetches flake inputs, so NIGHT_SHIFT_HIDE's paths are hidden from it.
+   * Given commit ids, never names: the sandbox lets commands write tags and
+   * origin/main, so the base comes from origin itself, as fetchBase answers.
    */
   brief(repo: string, branch: string): string {
     if (!existsSync(`${repo}/scripts/preflight-brief.jq`)) return "";
+    const failed = `**Preflight failed** on this branch. Run \`nix run .#preflight -- --head ${branch}\` to see why.`;
+    const head = tip(repo, branch);
+    if (!head) return failed;
+    const origin = fetchBase(repo);
+    if (!origin) return "**Preflight skipped:** origin could not be reached for a base to compare with.";
+    const base = git(repo, "merge-base", head, origin.sha).stdout.trim();
+    if (!base) return failed;
     const dir = mkdtempSync(`${tmpdir()}/night-shift-brief.`);
     try {
       const args = ["--dev-bind", "/", "/"];
@@ -219,16 +231,16 @@ class Run {
           args.push(...(isDir ? ["--tmpfs", q] : ["--ro-bind", "/dev/null", q]));
         }
       }
-      const r = spawnSync("bwrap", [...args, "--", "nix", "run", ".#preflight", "--", "--head", branch, "--json", `${dir}/brief.json`], {
-        cwd: repo,
-        stdio: "ignore",
-      });
+      const preflight = ["nix", "run", ".#preflight", "--", "--head", head, "--base", base, "--json", `${dir}/brief.json`];
+      const r = spawnSync("bwrap", [...args, "--", ...preflight], { cwd: repo, stdio: "ignore" });
       if (r.status === 0) {
         const b = JSON.parse(readFileSync(`${dir}/brief.json`, "utf8"));
         type Finding = { level: string; text: string };
         const shown = (f: Finding) => f.level !== "note";
         return [
+          // finish takes the level from the first line.
           `**Preflight: ${b.verdict.level}.** ${b.verdict.text}`,
+          `Briefed at \`${head.slice(0, 12)}\`.`,
           ...Object.entries((b.hosts ?? {}) as Record<string, { findings?: Finding[] }>).flatMap(([h, v]) =>
             (v.findings ?? []).filter(shown).map((f) => `- ${h}, ${f.level}: ${f.text}`)
           ),
@@ -240,7 +252,7 @@ class Run {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
-    return `**Preflight failed** on this branch. Run \`nix run .#preflight -- --head ${branch}\` to see why.`;
+    return failed;
   }
 
   /**
@@ -252,17 +264,20 @@ class Run {
     const s = read(f);
     if (s.phase === "refused") return;
     const result = resultPath(s.repo, s.ident);
-    const has = existsSync(result);
-    if (s.phase !== "running" && !has) return;
+    // Looked for by lstat, so a link that leads nowhere is seen, and refused.
+    const got = readAgentFile(result);
+    if (s.phase !== "running" && !got) return;
     let why: string | undefined;
+    let refused = "";
     let kind = "";
     let body = "";
     let verdict = "";
-    if (!has) {
+    if (!got) {
       why = await this.quiet(f, s);
       if (!why) return;
     } else {
-      const text = readFileSync(result, "utf8");
+      const text = "text" in got ? got.text : "";
+      if ("refused" in got) refused = got.refused;
       kind = (text.split("\n")[0] ?? "").replace(/\s/g, "");
       body = trimEnd(text.split("\n").slice(1).join("\n"));
       // Preflight first: it takes minutes, and the issue's state is read
@@ -297,6 +312,9 @@ class Run {
       : `Answer in a comment and move this back to ${QUEUED} to resume it`;
     if (why) {
       await this.report(i, NEEDS, `${why} ${attach} shows where it is; ${nudge}.`, "Went quiet");
+    } else if (refused) {
+      await this.report(i, NEEDS, `Did not read the agent's result: ${refused}. ${attach} shows where it is; ${nudge}.`, "Needs you");
+      archive(result);
     } else {
       if (kind === "handoff") {
         const level = /^\*\*Preflight: ([^.]*)\./.exec(verdict)?.[1];
