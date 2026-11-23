@@ -25,14 +25,17 @@ die() {
 # in GitLens, where it is easier to move between files. The summary above the
 # question is enough for a docs fix, not for code going out under Nick's name.
 confirm() {
-  local question=$1 into=$2 tip=$3 reply
+  local question=$1 into=$2 tip=$3 reply tty
   shift 3
+  # PR_HANDOFF_TTY is for tests/pr-handoff/run.sh.
+  exec {tty}<"${PR_HANDOFF_TTY:-/dev/tty}" || return 1
   while :; do
-    read -r -p "$question [y/N/d=diff/g=GitLens] " reply </dev/tty
+    read -r -u "$tty" -p "$question [y/N/d=diff/g=GitLens] " reply || return 1
     case $reply in
       [yY] | [yY][eE][sS]) return 0 ;;
       # Quitting less early ends the diff with SIGPIPE, which is not a failure.
-      [dD]) "$@" | less -R || true ;;
+      # -+R -+r, whatever $LESS says: escapes in the diff show as text.
+      [dD]) "$@" | less -+R -+r || true ;;
       [gG]) gitlens "$into" "$tip" || true ;;
       *) return 1 ;;
     esac
@@ -63,37 +66,49 @@ gitlens() {
     grep -v "is not in the list of known options" >&2 || true
 }
 
-# From GitHub in an agent's worktree: refs/remotes/origin/HEAD is in the
-# repository's shared refs, which commands in the sandbox can write, and an
-# agent that pointed it elsewhere would change what this compares against.
+# As origin answers, never refs/remotes/origin/HEAD: the shared refs are the
+# sandbox's to write, from any checkout. GitHub's API if origin names none.
 default_branch() {
   local ref
-  if ! agent_worktree && ref=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD); then
-    echo "${ref#origin/}"
-  else
-    gh repo view --json defaultBranchRef -q .defaultBranchRef.name
-  fi
+  ref=$(git ls-remote --symref origin HEAD | sed -n 's|^ref: refs/heads/\([^[:space:]]*\)[[:space:]]*HEAD$|\1|p') || ref=""
+  [[ -n $ref ]] || ref=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name) || ref=""
+  [[ -n $ref ]] || die "neither origin nor GitHub names a default branch"
+  echo "$ref"
+}
+
+# remote_head <branch>: the commit origin has it at, from origin, or nothing.
+remote_head() {
+  local out sha ref
+  out=$(git ls-remote origin "refs/heads/$1") || die "could not ask origin for $1"
+  while read -r sha ref; do
+    [[ $ref != "refs/heads/$1" ]] || echo "$sha"
+  done <<<"$out"
 }
 
 # The first line is the title or subject. The rest, less its leading blank
 # lines, goes to $body. Never evaluated: it reaches gh as an argument and a
 # file, so nothing Claude writes can make this do more than publish it.
 read_handoff() {
+  [[ ! -L $dir ]] || die "$dir is a link; publish by hand"
+  [[ -f $1 && ! -L $1 ]] || die "no handoff at $1, or not a plain file; ask Claude to write one"
   [[ -s $1 ]] || die "no handoff at $1; ask Claude to write one"
+  plain "the handoff $1" <"$1"
   head=$(head -n 1 "$1")
   [[ -n $head ]] || die "the first line of $1, the title, is empty"
   tail -n +2 "$1" | sed '/./,$!d' >"$body"
 }
 
+# plain <what>: refuses stdin if it has a control character but tab or
+# newline, C1 as UTF-8, since the terminal would act on it as it is shown.
+plain() {
+  local n
+  n=$(LC_ALL=C grep -naPm1 '[\x00-\x08\x0b-\x1f\x7f]|\xc2[\x80-\x9f]' | cut -d: -f1) || n=""
+  [[ -z $n ]] || die "line $n of $1 has a control character; nothing shown or published"
+}
+
 # What looks like an IP or MAC address. lib/net.nix's own addresses are
 # public and match too, so a hit is a reason to look, not to refuse.
 address='\b([0-9]{1,3}\.){3}[0-9]{1,3}\b|\b([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}\b'
-
-# An agent's worktree, as `claude --bg -w` and the night shift make them:
-# everything in it was written by an agent.
-agent_worktree() {
-  [[ $(git rev-parse --show-toplevel) == */.claude/worktrees/* ]]
-}
 
 # Files the branch changes that run on Nick's machine once he works in the
 # checkout, rather than on GitHub's: hooks, build and test setup, editor and
@@ -107,14 +122,13 @@ watched() {
   git diff --name-only "$1" | grep -E "$WATCHED${extra:+|$extra}" || true
 }
 
-# lfsconfig_moved <base>: whether the .lfsconfig git-lfs would read here
-# differs from origin/<base>'s, which the fetch in publish has just set.
-# git-lfs reads it from the working tree, else the index, else HEAD, and it
-# says where LFS objects go (lfs.url, lfs.pushurl). In an agent's worktree it
-# can be untracked, which neither the diff nor the uncommitted check shows,
-# and `git lfs push` would then upload the branch's objects wherever the
-# agent pointed. --no-filters: the bytes git-lfs reads, not what a
-# .gitattributes rule would make of them.
+# lfsconfig_moved <base commit>: whether the .lfsconfig git-lfs would read
+# here differs from the base's. git-lfs reads it from the working tree, else
+# the index, else HEAD, and it says where LFS objects go (lfs.url,
+# lfs.pushurl). Untracked, neither the diff nor the uncommitted check shows
+# it, and `git lfs push` would upload the branch's objects wherever it says.
+# --no-filters: the bytes git-lfs reads, not what a .gitattributes rule
+# would make of them.
 lfsconfig_moved() {
   local top ours theirs
   top=$(git rev-parse --show-toplevel)
@@ -123,7 +137,7 @@ lfsconfig_moved() {
   else
     ours=$(git rev-parse --quiet --verify ":.lfsconfig" || git rev-parse --quiet --verify "HEAD:.lfsconfig" || true)
   fi
-  theirs=$(git rev-parse --quiet --verify "origin/$1:.lfsconfig" || true)
+  theirs=$(git rev-parse --quiet --verify "$1:.lfsconfig" || true)
   [[ $ours != "$theirs" ]]
 }
 
@@ -157,7 +171,7 @@ show_commits() {
 }
 
 publish() {
-  local base="" force=() branch number="" state="" pr_base="" action tip now
+  local base="" force="" held="" branch default number="" state="" pr_base="" action tip now base_sha c
   while [[ $# -gt 0 ]]; do
     case $1 in
       --base)
@@ -166,7 +180,7 @@ publish() {
         shift 2
         ;;
       --force-with-lease)
-        force=(--force-with-lease)
+        force=1
         shift
         ;;
       *) usage ;;
@@ -174,7 +188,8 @@ publish() {
   done
 
   branch=$(git symbolic-ref --quiet --short HEAD) || die "not on a branch"
-  [[ $branch != "$(default_branch)" ]] || die "on $branch; publish from a feature branch"
+  default=$(default_branch)
+  [[ $branch != "$default" ]] || die "on $branch; publish from a feature branch"
   read_handoff "$dir/$branch.md"
 
   # gh finds the newest PR from this branch, which may be closed or merged.
@@ -190,37 +205,43 @@ publish() {
   else
     action="open a PR"
     number=""
-    base=${base:-$(default_branch)}
+    base=${base:-$default}
   fi
 
   git fetch --quiet origin "$base"
-  # The commit the review is of, and the one pushed: an agent still at work
-  # in its worktree could commit while the question waits, and that commit
-  # must not go out unread, as `merge` holds GitHub to its head.
+  # The commits the review is of, and those pushed, fixed here: an agent
+  # still at work could commit or move refs while the question waits, and
+  # that must not go out unread, as `merge` holds GitHub to its head. The
+  # base and the lease are origin's answers, not refs here.
+  base_sha=$(remote_head "$base")
+  { [[ -n $base_sha ]] && git cat-file -e "$base_sha^{commit}"; } ||
+    die "origin has no $base, or its head did not fetch"
+  [[ -z $force ]] || held=$(remote_head "$branch")
   tip=$(git rev-parse HEAD)
-  [[ $(git rev-list --count "origin/$base..$tip") -gt 0 ]] ||
-    die "$branch has no commits beyond origin/$base"
+  [[ $(git rev-list --count "$base_sha..$tip") -gt 0 ]] ||
+    die "$branch has no commits beyond origin's $base"
+  for c in $(git rev-list "$base_sha..$tip"); do
+    git show -s --format=%B "$c" | plain "commit ${c:0:7}'s message"
+  done
 
-  echo "Branch: $branch -> $base ($action)"
-  git log --oneline "origin/$base..$tip"
-  git diff --stat "origin/$base...$tip" | tail -n 1
+  echo "Branch: $branch -> $base at ${base_sha:0:7} ($action)"
+  git log --oneline "$base_sha..$tip"
+  git diff --stat "$base_sha...$tip" | tail -n 1
   if [[ -n $(git status --porcelain --untracked-files=no) ]]; then
     echo "!! Uncommitted changes, which will not be pushed."
   fi
-  if agent_worktree; then
-    local touched line
-    ! lfsconfig_moved "$base" ||
-      die "the .lfsconfig here is not origin/$base's, and it decides where LFS objects are pushed; read it, and remove it or publish by hand"
-    touched=$(watched "origin/$base...$tip")
-    if [[ -n $touched ]]; then
-      echo "!! An agent changed files that run code on this machine; read these first:"
-      while IFS= read -r line; do echo "     $line"; done <<<"$touched"
-    fi
+  local touched line
+  ! lfsconfig_moved "$base_sha" ||
+    die "the .lfsconfig here is not $base's, and it decides where LFS objects are pushed; read it, and remove it or publish by hand"
+  touched=$(watched "$base_sha...$tip")
+  if [[ -n $touched ]]; then
+    echo "!! The branch changes files that run code on this machine; read these first:"
+    while IFS= read -r line; do echo "     $line"; done <<<"$touched"
   fi
   show
-  show_commits "origin/$base..$tip"
+  show_commits "$base_sha..$tip"
   confirm "Push $branch and $action?" "$base" "$tip" \
-    git diff --color=always "origin/$base...$tip" ||
+    git diff "$base_sha...$tip" ||
     die "nothing published"
 
   now=$(git rev-parse HEAD)
@@ -228,19 +249,19 @@ publish() {
     die "nothing published: $branch moved from ${tip:0:7} to ${now:0:7} during the review." \
       "Run pr-handoff again to review the new head."
 
-  # With hooks off in an agent's worktree (below), the pre-push hook that
-  # uploads a repository's LFS objects does not run, so this does. The
-  # .lfsconfig is checked again first: one the agent left during the review
-  # would otherwise choose where they go.
-  if agent_worktree && git lfs env >/dev/null 2>&1 &&
+  # With hooks off (below), the pre-push hook that uploads a repository's LFS
+  # objects does not run, so this does. The .lfsconfig is checked again
+  # first: one left during the review would otherwise choose where they go.
+  if git lfs env >/dev/null 2>&1 &&
     git grep -q -e 'filter=lfs' "$tip" -- ':(top,glob)**/.gitattributes'; then
-    ! lfsconfig_moved "$base" ||
-      die "nothing published: an .lfsconfig that is not origin/$base's appeared during the review"
+    ! lfsconfig_moved "$base_sha" ||
+      die "nothing published: an .lfsconfig that is not $base's appeared during the review"
     git lfs push origin "$tip"
   fi
   # By commit, not by name, so nothing that lands on the branch now goes too.
-  # -u sets no upstream for a commit, so that is set after.
-  git push "${force[@]}" origin "$tip:refs/heads/$branch"
+  # -u sets no upstream for a commit, so that is set after. With no branch on
+  # origin, there is nothing to lease.
+  git push ${held:+"--force-with-lease=refs/heads/$branch:$held"} origin "$tip:refs/heads/$branch"
   git branch --quiet --set-upstream-to "origin/$branch" "$branch" || true
   if [[ -n $number ]]; then
     gh pr edit "$number" --title "$head" --body-file "$body" >/dev/null
@@ -265,7 +286,7 @@ merge() {
   show
   # GitHub's diff of the PR, which is what merges, whatever is checked out here.
   confirm "Squash-merge #$n into $base and delete $branch?" "$base" "$tip" \
-    gh pr diff "$n" --color=always ||
+    gh pr diff "$n" ||
     die "nothing merged"
 
   # Only the head read above, which the review was of. Merging deploys the
@@ -284,17 +305,13 @@ merge() {
 # The review prints straight to the terminal. A pager would stop it halfway.
 export GIT_PAGER=cat GH_PAGER=cat
 
-# No git hook runs from an agent's worktree, for any command here, git's or
-# gh's. A repository's core.hooksPath is often relative, husky's .husky/_ say,
-# which in a worktree means the worktree's own copy: the agent's to write,
-# from a sandbox, and run here with Nick's login. `git push --no-verify` would
-# skip only pre-push, not reference-transaction or the rest. The checks those
-# hooks run, the agent ran in its sandbox, and CI runs again. forge empties
-# hooksPath for every repository (home/claude.nix); this covers the Mac.
-if agent_worktree 2>/dev/null; then
-  n=${GIT_CONFIG_COUNT:-0}
-  export "GIT_CONFIG_KEY_$n=core.hooksPath" "GIT_CONFIG_VALUE_$n=/dev/null" GIT_CONFIG_COUNT=$((n + 1))
-fi
+# No git hook runs, for any command here, git's or gh's: every checkout is
+# written by agents too, and its hooks would run with Nick's login. `git push
+# --no-verify` would skip only pre-push. CI runs the checks hooks would.
+# forge empties hooksPath for every repository (home/claude.nix); this
+# covers the Mac.
+n=${GIT_CONFIG_COUNT:-0}
+export "GIT_CONFIG_KEY_$n=core.hooksPath" "GIT_CONFIG_VALUE_$n=/dev/null" GIT_CONFIG_COUNT=$((n + 1))
 
 # Under the common dir, so every worktree shares one place and nothing here is
 # ever committed. Commands in Claude's sandbox can write there.
@@ -310,7 +327,8 @@ case ${1-} in
     ;;
   gitlens)
     [[ $# -le 2 ]] || usage
-    gitlens "${2:-$(default_branch)}" HEAD
+    into=${2:-$(default_branch)}
+    gitlens "$into" HEAD
     ;;
   -h | --help) usage ;;
   *) publish "$@" ;;

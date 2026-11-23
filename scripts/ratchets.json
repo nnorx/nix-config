@@ -2,7 +2,7 @@
   "prose": 29987,
   "comments": {
     "nix": 25.8,
-    "sh": 21.3
+    "sh": 20.3
   },
   "shell": {
     "default": 300,
@@ -10,7 +10,7 @@
       "home/fleet-deploy.sh": 458,
       "tests/fleet-deploy/run.sh": 419,
       "home/agents-status.sh": 413,
-      "home/pr-handoff.sh": 317
+      "home/pr-handoff.sh": 335
     }
   },
   "systemd": {
