@@ -90,46 +90,6 @@ let
     ntfy-url = "http://${site}:${toString ntfyPort}/exit-bypass";
   };
 
-  # sops-nix, as far as gate's modules use it, with every value known.
-  sopsStub =
-    { lib, pkgs, ... }:
-    let
-      inherit (lib) mkOption types;
-      file = name: content: toString (pkgs.writeText name content);
-    in
-    {
-      options.sops = {
-        placeholder = mkOption { type = types.attrsOf types.str; };
-        secrets = mkOption {
-          default = { };
-          type = types.attrsOf (
-            types.submodule (
-              { name, ... }:
-              {
-                freeformType = types.attrsOf types.anything;
-                options.path = mkOption { default = file name secrets.${name}; };
-              }
-            )
-          );
-        };
-        templates = mkOption {
-          default = { };
-          type = types.attrsOf (
-            types.submodule (
-              { name, config, ... }:
-              {
-                freeformType = types.attrsOf types.anything;
-                options.content = mkOption { type = types.str; };
-                options.path = mkOption { default = file name config.content; };
-                options.file = mkOption { default = file name config.content; };
-              }
-            )
-          );
-        };
-      };
-      config.sops.placeholder = secrets;
-    };
-
   onFar = address: {
     virtualisation.interfaces.far.vlan = farWire;
     networking = {
@@ -256,8 +216,8 @@ in
           ../hosts/gate/exit.nix
           ../hosts/gate/metrics.nix
           ../modules/node-exporter.nix
-          sopsStub
         ];
+        sops.placeholder = secrets;
         # Kea is off in this topology, so its exporter would only retry.
         services.prometheus.exporters.kea.enable = lib.mkForce false;
         # As modules/baseline.nix sets them.

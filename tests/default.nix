@@ -13,6 +13,7 @@
 pkgs.lib.genAttrs
   [
     "gate-dns"
+    "gate-dhcp"
     "gate-metrics"
     "gate-iot-egress"
     "gate-servers-egress"

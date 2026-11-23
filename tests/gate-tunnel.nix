@@ -64,15 +64,6 @@ let
       ]
   );
 
-  sopsStub =
-    { lib, ... }:
-    {
-      options.sops.secrets = lib.mkOption {
-        type = lib.types.attrsOf lib.types.attrs;
-        default = { };
-      };
-    };
-
   peerNode =
     address:
     { pkgs, ... }:
@@ -109,7 +100,6 @@ assert covered == builtins.sort builtins.lessThan vpn.grantNames;
         imports = [
           (topology.router { })
           ../hosts/gate/wireguard.nix
-          sopsStub
         ];
         virtualisation.interfaces.${tunnel}.vlan = topology.wire.tunnel;
         networking.wireguard.interfaces = lib.mkForce { };

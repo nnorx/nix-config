@@ -16,8 +16,10 @@
 # Lists are derived from `segmentOn` and lib/net.nix where they can be, so a
 # new segment cannot be half-configured here.
 {
+  config,
   lib,
   net,
+  pkgs,
   ...
 }:
 let
@@ -169,8 +171,32 @@ let
       lib.filterAttrs (_: h: h ? ip && (h.segment or null) == segmentOn.${trunk}) net.hosts
     )
   );
+
+  json = pkgs.formats.json { };
+  keaConf = config.sops.templates."kea-dhcp4.conf";
+
+  # Each device's address, reserved for its MAC, which stays a placeholder
+  # until activation.
+  reservationsOn =
+    name:
+    lib.mapAttrsToList (device: d: {
+      hw-address = config.sops.placeholder."mac-${device}";
+      ip-address = d.ip;
+    }) (lib.filterAttrs (_: d: d.segment == name) net.devices);
 in
 {
+  # Kea's settings, from this file and ./metrics.nix. Not
+  # `services.kea.dhcp4.settings`, which nixpkgs takes instead of a
+  # `configFile`, never with one.
+  imports = [
+    {
+      options.gate.kea.dhcp4 = lib.mkOption {
+        inherit (json) type;
+        description = "Kea's DHCPv4 settings, rendered with each reservation's MAC at activation.";
+      };
+    }
+  ];
+
   # A segment with no interface here would be declared but never addressed or
   # served, and nothing else fails at evaluation. modules/firewall.nix guards
   # its own list the same way.
@@ -445,56 +471,74 @@ in
     MaxRetentionSec=3month
   '';
 
+  sops.secrets = lib.mapAttrs' (device: _: lib.nameValuePair "mac-${device}" { }) net.devices;
+
+  # Rendered at activation, so no MAC reaches the store. `kea` is the static
+  # user nixpkgs declares, which the unit runs as despite DynamicUser.
+  sops.templates."kea-dhcp4.conf" = {
+    owner = "kea";
+    restartUnits = [ "kea-dhcp4-server.service" ];
+    file = json.generate "kea-dhcp4.conf" { Dhcp4 = config.gate.kea.dhcp4; };
+  };
+
+  # nixpkgs restarts Kea when its config's path changes, and the rendered
+  # path never does. The template, placeholders and all, changes with the
+  # settings, so a deploy still restarts Kea and preflight's brief says so.
+  systemd.services.kea-dhcp4-server.restartTriggers = [ keaConf.file ];
+
   services.kea.dhcp4 = {
     enable = true;
-    settings = {
-      interfaces-config = {
-        interfaces = dhcpIfaces;
+    configFile = keaConf.path;
+  };
 
-        # Kea otherwise starts with no socket while an interface is still down,
-        # stays up deaf, and the house loses DHCP an hour later at renewal.
-        # Retrying and requiring every interface turns that into a failing
-        # unit; the cost is a restart loop while a port has no carrier.
-        service-sockets-max-retries = 5;
-        service-sockets-retry-wait-time = 5000;
-        service-sockets-require-all = true;
-      };
+  gate.kea.dhcp4 = {
+    interfaces-config = {
+      interfaces = dhcpIfaces;
 
-      # Persisted, so a reboot does not renumber every client, which on a
-      # router looks like a fault.
-      lease-database = {
-        type = "memfile";
-        persist = true;
-        name = "/var/lib/kea/dhcp4.leases";
-      };
-
-      valid-lifetime = 3600;
-      renew-timer = 900;
-      rebind-timer = 1800;
-
-      # Each subnet pinned to its interface, so a request on the iot VLAN
-      # cannot be answered from the trusted pool.
-      subnet4 = lib.mapAttrsToList (
-        iface: name:
-        let
-          s = seg.${name};
-        in
-        {
-          inherit (s) id subnet;
-          interface = iface;
-          pools = [ { pool = "${s.pool.first} - ${s.pool.last}"; } ];
-          option-data = [
-            {
-              name = "routers";
-              data = s.gateway;
-            }
-            {
-              name = "domain-name-servers";
-              data = lib.concatStringsSep ", " (resolversFor name);
-            }
-          ];
-        }
-      ) dhcpOn;
+      # Kea otherwise starts with no socket while an interface is still down,
+      # stays up deaf, and the house loses DHCP an hour later at renewal.
+      # Retrying and requiring every interface turns that into a failing
+      # unit; the cost is a restart loop while a port has no carrier.
+      service-sockets-max-retries = 5;
+      service-sockets-retry-wait-time = 5000;
+      service-sockets-require-all = true;
     };
+
+    # Persisted, so a reboot does not renumber every client, which on a
+    # router looks like a fault.
+    lease-database = {
+      type = "memfile";
+      persist = true;
+      name = "/var/lib/kea/dhcp4.leases";
+    };
+
+    valid-lifetime = 3600;
+    renew-timer = 900;
+    rebind-timer = 1800;
+
+    # Each subnet pinned to its interface, so a request on the iot VLAN
+    # cannot be answered from the trusted pool.
+    subnet4 = lib.mapAttrsToList (
+      iface: name:
+      let
+        s = seg.${name};
+      in
+      {
+        inherit (s) id subnet;
+        interface = iface;
+        pools = [ { pool = "${s.pool.first} - ${s.pool.last}"; } ];
+        reservations = reservationsOn name;
+        option-data = [
+          {
+            name = "routers";
+            data = s.gateway;
+          }
+          {
+            name = "domain-name-servers";
+            data = lib.concatStringsSep ", " (resolversFor name);
+          }
+        ];
+      }
+    ) dhcpOn;
   };
 }
