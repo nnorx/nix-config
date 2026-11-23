@@ -4,8 +4,9 @@
 # gate is hosts/gate/routing.nix itself, on VM NICs given gate's interface
 # names, so the ruleset under test is the one gate renders. What it leaves out
 # is everything that needs gate's hardware or secrets: WireGuard, DDNS and
-# deploy-guard. Kea reserves the devices' addresses for test MACs. "The internet" is one VM holding the public resolvers'
-# addresses, and the fleet's resolvers are one VM holding both of theirs,
+# deploy-guard. Kea reserves the devices' addresses for test MACs. "The
+# internet" is one VM holding the public resolvers' addresses, and the fleet's
+# resolvers are one VM holding both of theirs,
 # answering a filtered name the way AdGuard blocks it, while the internet
 # answers it differently, so an answer says which side it came from.
 #
@@ -71,7 +72,7 @@ rec {
     }:
     let
       inherit (lib) mkOption types;
-      placeholder = config.sops.placeholder;
+      values = config.sops.placeholder;
     in
     {
       options.sops = {
@@ -86,7 +87,7 @@ rec {
               { name, ... }:
               {
                 freeformType = types.attrsOf types.anything;
-                options.path = mkOption { default = toString (pkgs.writeText name placeholder.${name}); };
+                options.path = mkOption { default = toString (pkgs.writeText name values.${name}); };
               }
             )
           );
