@@ -235,7 +235,21 @@ t_empty_title() {
   expect_out "the title, is empty"
 }
 
+# The body sits behind a gutter, so a line of it cannot pass for the frame,
+# and the address in it is still flagged.
+t_body_framed() {
+  commit a.txt
+  printf 'topic: a change\n\n✓ nothing flagged\n10.1.2.3\n' >"$hand/topic.md"
+  echo n >"$c/answers"
+  run
+  expect_unpublished
+  expect_out "│ ✓ nothing flagged"
+  expect_out "!! These lines look like an IP or MAC address:"
+  ! grep -q "^✓ nothing flagged" "$c/out" || fail "the body's line passed for the frame's"
+}
+
 case_ publish t_publish
+case_ body-framed t_body_framed
 case_ merge t_merge
 case_ unfinished-answer t_unfinished_answer
 case_ empty-title t_empty_title

@@ -1,5 +1,6 @@
 import { lstatSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { bold, dim, green, gutter, yellow } from "../../night-shift/src/style.ts";
 import { die, maybe, must, say, tryRun } from "./proc.ts";
 
 // What the review shows before anything is published: the PR is public, and
@@ -62,17 +63,22 @@ function addresses(text: string): string[] {
   return lines.flatMap((l, n) => (ADDRESS.test(l) ? [`${n + 1}:${l}`] : []));
 }
 
-export function show(h: Handoff): void {
-  say("--- title");
-  say(h.head);
-  say("--- body");
-  process.stdout.write(h.body);
-  say("---");
+/** Something to read before answering, and the lines it is about. */
+export interface Flag {
+  what: string;
+  lines: string[];
+}
+
+/** A heading, then the title or subject and the body behind a gutter. */
+export function show(h: Handoff, title: string): Flag[] {
+  const body = h.body.toString("utf8").replace(/\n$/, "");
+  say();
+  say(bold(title));
+  say(gutter(h.head));
+  say(bold("Body"));
+  say(body ? gutter(body) : `   ${dim("(empty)")}`);
   const hits = addresses(`${h.head}\n${h.body.toString("utf8")}`);
-  if (hits.length) {
-    say("!! These lines look like an IP or MAC address:");
-    for (const hit of hits) say(hit);
-  }
+  return hits.length ? [{ what: "These lines look like an IP or MAC address:", lines: hits }] : [];
 }
 
 /**
@@ -80,14 +86,25 @@ export function show(h: Handoff): void {
  * listed on its PR after the squash merge, so their messages are published
  * with it.
  */
-export function showCommits(range: string): void {
+export function checkCommits(range: string): Flag[] {
   const hits = must("git", "rev-list", "--reverse", range)
     .split("\n")
     .filter(Boolean)
     .flatMap((c) => addresses(must("git", "show", "-s", "--format=%B", c)).map((hit) => `${c.slice(0, 7)}:${hit}`));
-  if (hits.length) {
-    say("!! These commit message lines look like an IP or MAC address:");
-    for (const hit of hits) say(hit);
+  return hits.length ? [{ what: "These commit message lines look like an IP or MAC address:", lines: hits }] : [];
+}
+
+/** Every flag together, last before the question, so none scrolls away. */
+export function showFlags(flags: Flag[]): void {
+  say();
+  if (!flags.length) {
+    say(green("✓ nothing flagged"));
+    return;
+  }
+  say(bold(yellow("Check first")));
+  for (const f of flags) {
+    say(`   ${yellow(`!! ${f.what}`)}`);
+    for (const line of f.lines) say(`        ${line}`);
   }
 }
 
