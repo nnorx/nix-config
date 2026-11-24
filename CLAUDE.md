@@ -82,9 +82,9 @@ before changing it.
   (`lib/claude-sandbox.nix`), so `sops` fails here by design; do not work
   around it.
   To add or change a secret, give Nick the command to run in his own terminal,
-  not through `!`, whose output lands in the transcript. Write with
-  `sops set --value-stdin` from a generator or a prompt that does not echo,
-  and check by comparison (equal or not, length, shape), never by printing.
+  not through `!`, whose output lands in the transcript: `secret-set <host>
+  <key>`, from its prompt or a generator piped in, and `secret-check`, which
+  compares and never prints (`home/secret.sh`).
 - Commands reach only GitHub, the flake registry and the cache
   (`home/claude.nix`). Any other host prompts or is refused. Say what was
   needed rather than retrying around it. nix builds run in the daemon, outside

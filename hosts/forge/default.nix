@@ -113,6 +113,9 @@
   home-manager.users.nick.shell-common.aliases.hms =
     lib.mkForce "nixos-rebuild switch --sudo --flake ~/projects/nix-config";
 
+  # The admin machine with the age key, so the only one that edits secrets.
+  home-manager.users.nick.imports = [ ../../home/secret.nix ];
+
   environment.systemPackages = with pkgs; [
     git
     sbctl # Secure Boot keys; see boot.nix

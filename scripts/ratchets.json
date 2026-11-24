@@ -1,8 +1,8 @@
 {
-  "prose": 29983,
+  "prose": 29975,
   "comments": {
     "nix": 25.7,
-    "sh": 20.0
+    "sh": 19.7
   },
   "shell": {
     "default": 300,

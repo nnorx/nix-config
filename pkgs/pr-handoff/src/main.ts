@@ -11,7 +11,8 @@ import { checkCommits, type Flag, type Handoff, lfsconfigMoved, plain, readHando
 const USAGE = `usage: pr-handoff [--base <branch>] [--force-with-lease]
            push this branch and open its PR, or update the open one
        pr-handoff merge <number>
-           squash-merge a PR with its prepared message, then delete the branch
+           squash-merge a PR with its prepared message, delete the branch,
+           and fast-forward the checkout that has its base out
        pr-handoff gitlens [<base>]
            open what this branch adds since it left <base>, the default
            branch unless given, in GitLens
@@ -258,6 +259,24 @@ async function merge(dir: string, args: string[]): Promise<void> {
   }
   rmSync(`${dir}/${branch}.md`, { force: true });
   rmSync(`${dir}/${branch}.squash.md`, { force: true });
+  fastForward(base);
+}
+
+/**
+ * The checkout with base out, if any, fast-forwarded to origin's. The merge
+ * has already happened, so a pull that cannot fast-forward is reported, not
+ * fatal.
+ */
+function fastForward(base: string): void {
+  const blocks = (maybe("git", "worktree", "list", "--porcelain") ?? "").split("\n\n");
+  const out = blocks.find((b) => b.split("\n").includes(`branch refs/heads/${base}`));
+  const wt = out && /^worktree (.*)$/m.exec(out)?.[1];
+  if (!wt) return;
+  if (shown("git", "-C", wt, "pull", "--ff-only", "--quiet", "origin", base) === 0) {
+    say(`${base} in ${wt} is now ${maybe("git", "-C", wt, "log", "--oneline", "-1")}`);
+  } else {
+    say(yellow(`${base} in ${wt} did not fast-forward; pull it by hand.`));
+  }
 }
 
 async function main(argv: string[]): Promise<void> {
