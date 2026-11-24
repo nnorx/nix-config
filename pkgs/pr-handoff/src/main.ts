@@ -5,7 +5,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname } from "node:path";
 import { die, Exit, Fatal, maybe, must, mustShow, onPath, page, say, shown, tryRun, Tty } from "./proc.ts";
-import { type Handoff, lfsconfigMoved, plain, readHandoff, show, showCommits, watched } from "./review.ts";
+import { bold, dim, rule, yellow } from "../../night-shift/src/style.ts";
+import { checkCommits, type Flag, type Handoff, lfsconfigMoved, plain, readHandoff, show, showFlags, watched } from "./review.ts";
 
 const USAGE = `usage: pr-handoff [--base <branch>] [--force-with-lease]
            push this branch and open its PR, or update the open one
@@ -159,23 +160,31 @@ async function publish(dir: string, args: string[]): Promise<void> {
     plain(`commit ${short(c)}'s message`, tryRun("git", ["show", "-s", "--format=%B", c]).stdout);
   }
 
-  say(`Branch: ${branch} -> ${base} at ${short(baseSha)} (${action})`);
-  mustShow("git", "log", "--oneline", `${baseSha}..${tip}`);
-  say(must("git", "diff", "--stat", `${baseSha}...${tip}`).trimEnd().split("\n").at(-1));
+  const flags: Flag[] = [];
   if (must("git", "status", "--porcelain", "--untracked-files=no").trim()) {
-    say("!! Uncommitted changes, which will not be pushed.");
+    flags.push({ what: "Uncommitted changes, which will not be pushed.", lines: [] });
   }
   if (lfsconfigMoved(baseSha)) {
     die(`the .lfsconfig here is not ${base}'s, and it decides where LFS objects are pushed; read it, and remove it or publish by hand`);
   }
-  // Shown before the question, so a review starts there.
   const touched = watched(`${baseSha}...${tip}`);
   if (touched.length) {
-    say("!! The branch changes files that run code on this machine; read these first:");
-    for (const path of touched) say(`     ${path}`);
+    flags.push({ what: "The branch changes files that run code on this machine; read these first:", lines: touched });
   }
-  show(h);
-  showCommits(`${baseSha}..${tip}`);
+
+  say();
+  say(rule(`Push ${branch} → ${base} (${action})`));
+  const stat = must("git", "diff", "--stat", `${baseSha}...${tip}`).trimEnd().split("\n").at(-1)!.trim();
+  say(`   ${dim(`origin's ${base} at ${short(baseSha)} · ${stat}`)}`);
+  say();
+  say(bold("Commits"));
+  for (const line of must("git", "log", "--format=%h %s", `${baseSha}..${tip}`).trimEnd().split("\n")) {
+    const space = line.indexOf(" ");
+    say(`   ${yellow(line.slice(0, space))}${line.slice(space)}`);
+  }
+  flags.push(...show(h, "Title"), ...checkCommits(`${baseSha}..${tip}`));
+  showFlags(flags);
+  say();
   if (!(await confirm(`Push ${branch} and ${action}?`, base, tip, ["git", "diff", `${baseSha}...${tip}`]))) {
     die("nothing published");
   }
@@ -220,9 +229,15 @@ async function merge(dir: string, args: string[]): Promise<void> {
   const h = readHandoff(dir, `${dir}/${branch}.squash.md`);
   if (!h.head.endsWith(`(#${n})`)) h.head = `${h.head} (#${n})`;
 
-  say(`PR: #${n} ${branch} -> ${base}`);
-  if (shown("gh", "pr", "checks", n!) !== 0) say("!! Not every check has passed.");
-  show(h);
+  say();
+  say(rule(`Squash-merge #${n} · ${branch} → ${base}`));
+  say();
+  say(bold("Checks"));
+  const flags: Flag[] = [];
+  if (shown("gh", "pr", "checks", n!) !== 0) flags.push({ what: "Not every check has passed.", lines: [] });
+  flags.push(...show(h, "Subject"));
+  showFlags(flags);
+  say();
   // GitHub's diff of the PR, which is what merges, whatever is checked out here.
   if (!(await confirm(`Squash-merge #${n} into ${base} and delete ${branch}?`, base, tip, ["gh", "pr", "diff", n!]))) {
     die("nothing merged");

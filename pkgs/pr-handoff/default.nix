@@ -11,11 +11,14 @@
   nodejs_24,
 }:
 let
+  # Rooted at pkgs/, for the color and framing it shares with night-shift.
   src = lib.fileset.toSource {
-    root = ./.;
+    root = ../.;
     fileset = lib.fileset.unions [
       ./package.json
       ./src
+      ../night-shift/package.json
+      ../night-shift/src/style.ts
     ];
   };
 in
@@ -28,6 +31,6 @@ writeShellApplication {
     less # the `d` answer pages the diff
     nodejs_24
   ];
-  text = ''exec node ${src}/src/main.ts "$@"'';
+  text = ''exec node ${src}/pr-handoff/src/main.ts "$@"'';
   meta.platforms = lib.platforms.unix;
 }
