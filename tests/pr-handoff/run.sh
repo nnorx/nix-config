@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs home/pr-handoff.sh against stubbed gh, less and code (./stub.sh), with
+# Runs pkgs/pr-handoff/ against stubbed gh, less and code (./stub.sh), with
 # real git in temporary repositories and a bare origin on disk, and checks
 # what it published. It runs as Nick on what agents wrote, and these are its
 # guards: handoff links and control characters refused, one commit range
@@ -15,7 +15,7 @@ set -euo pipefail
 
 root=$(realpath -- "$(dirname -- "$0")/../..")
 here=$root/tests/pr-handoff
-script=$(realpath -- "${PR_HANDOFF_SCRIPT:-$root/home/pr-handoff.sh}")
+script=$(realpath -- "${PR_HANDOFF_SCRIPT:-$root/pkgs/pr-handoff/src/main.ts}")
 
 work=$(mktemp -d)
 if [[ -n ${PR_HANDOFF_TESTS_KEEP:-} ]]; then
@@ -68,7 +68,7 @@ commit() {
 run() {
   status=0
   (cd "$co" && PH=$c PR_HANDOFF_TTY=$c/answers PATH=$bin:$PATH \
-    "$BASH" -euo pipefail "$script" "$@") >"$c/out" 2>&1 || status=$?
+    node "$script" "$@") >"$c/out" 2>&1 || status=$?
 }
 
 failures=()
@@ -206,7 +206,39 @@ t_merge_link() {
   ! called "gh pr merge" || fail "gh pr merge was called"
 }
 
+t_merge() {
+  commit a.txt
+  local tip
+  tip=$(git -C "$co" rev-parse HEAD)
+  echo "OPEN topic main $tip" >"$c/pr"
+  printf 'topic: a change\n\nWhy.\n' >"$hand/topic.squash.md"
+  run merge 7
+  expect_status 0
+  grep -qF "gh pr merge 7 --squash --delete-branch --match-head-commit $tip --subject topic: a change (#7) --body-file " "$c/log" ||
+    fail "gh pr merge not called with the reviewed head and the numbered subject"
+  [[ ! -e $hand/topic.md && ! -e $hand/topic.squash.md ]] || fail "the handoffs were kept"
+}
+
+# An answer cut off before its newline is no answer, as `read` has it.
+t_unfinished_answer() {
+  commit a.txt
+  printf y >"$c/answers"
+  run
+  expect_unpublished
+}
+
+t_empty_title() {
+  commit a.txt
+  printf '\nWhy it changes.\n' >"$hand/topic.md"
+  run
+  expect_unpublished
+  expect_out "the title, is empty"
+}
+
 case_ publish t_publish
+case_ merge t_merge
+case_ unfinished-answer t_unfinished_answer
+case_ empty-title t_empty_title
 case_ handoff-link t_handoff_link
 case_ handoff-dir-link t_handoff_dir_link
 case_ body-escape t_body_escape

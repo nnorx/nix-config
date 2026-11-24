@@ -19,9 +19,9 @@
 #      deletes worktrees and branches, and nothing else checks its guards once
 #      a change lands. Then fleet-deploy, home/fleet-deploy.sh, against
 #      stubbed hosts, nix and cache (tests/fleet-deploy/run.sh), since it
-#      deploys the Pis, then pr-handoff, home/pr-handoff.sh, against stubbed gh
-#      and less (tests/pr-handoff/run.sh), since it publishes as Nick what
-#      agents wrote, and the ratchets' exposure score
+#      deploys the Pis, then pr-handoff, pkgs/pr-handoff/, type-checked and
+#      run against stubbed gh and less (tests/pr-handoff/run.sh), since it
+#      publishes as Nick what agents wrote, and the ratchets' exposure score
 #      (scripts/test-ratchets-systemd.sh).
 set -euo pipefail
 
@@ -49,6 +49,7 @@ step "fleet-deploy"
 "$BASH" tests/fleet-deploy/run.sh
 
 step "pr-handoff"
+tsc -p pkgs/pr-handoff --typeRoots "$NIGHT_SHIFT_TYPES"
 "$BASH" tests/pr-handoff/run.sh
 
 step "ratchets' exposure score"

@@ -7,18 +7,7 @@
 { config, pkgs, ... }:
 {
   home.packages = [
-    (pkgs.writeShellApplication {
-      name = "pr-handoff";
-      runtimeInputs = [
-        config.programs.gh.package
-        pkgs.git
-        pkgs.coreutils
-        pkgs.gnused
-        pkgs.gnugrep
-        pkgs.less # the `d` answer pages the diff
-      ];
-      text = builtins.readFile ./pr-handoff.sh;
-    })
+    (pkgs.callPackage ../pkgs/pr-handoff { gh = config.programs.gh.package; })
   ];
 
   shell-common.aliases = {
