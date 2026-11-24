@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs home/fleet-deploy.sh against stubbed hosts, nix, cache and GitHub
+# Runs pkgs/fleet-deploy/ against stubbed hosts, nix, cache and GitHub
 # (./stub.sh), with real git in temporary repositories, and checks what it did.
 # fleet-deploy acts on the Pis, and these are its guards: hosts in their
 # nightly order, a typed name where the brief says `be there` or there is no
@@ -22,7 +22,7 @@ set -euo pipefail
 
 root=$(realpath -- "$(dirname -- "$0")/../..")
 here=$root/tests/fleet-deploy
-script=$(realpath -- "${FLEET_DEPLOY_SCRIPT:-$root/home/fleet-deploy.sh}")
+script=$(realpath -- "${FLEET_DEPLOY_SCRIPT:-$root/pkgs/fleet-deploy/src/main.ts}")
 
 work=$(mktemp -d)
 if [[ -n ${FLEET_DEPLOY_TESTS_KEEP:-} ]]; then
@@ -96,7 +96,7 @@ brief() {
 run() {
   status=0
   (cd "$c/checkout" && FD=$c FLEET_DEPLOY_KEY=$c/key PATH=$bin:$PATH \
-    "$BASH" -euo pipefail "$script" "$@") >"$c/out" 2>&1 || status=$?
+    node "$script" "$@") >"$c/out" 2>&1 || status=$?
 }
 
 failures=()
@@ -402,7 +402,7 @@ t_hold_needs_no_fetch() {
 t_outside_checkout() {
   status=0
   (cd "$c" && FD=$c FLEET_DEPLOY_KEY=$c/key PATH=$bin:$PATH \
-    "$BASH" -euo pipefail "$script") >"$c/out" 2>&1 || status=$?
+    node "$script") >"$c/out" 2>&1 || status=$?
   expect_status 64
   [[ -s $c/log ]] && fail "acted outside a checkout"
   true

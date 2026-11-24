@@ -146,7 +146,7 @@ sudo nixos-rebuild switch --flake github:nnorx/nix-config#core4 --accept-flake-c
 
 To deploy main to the Pis by day rather than waiting for the night, run
 `fleet-deploy` from a checkout on an admin machine
-([`home/fleet-deploy.sh`](home/fleet-deploy.sh)). It goes through each Pi's
+([`pkgs/fleet-deploy/`](pkgs/fleet-deploy/)). It goes through each Pi's
 deploy login, one host at a time and lifeline first. Before each host it shows
 preflight's brief against what that host runs, and asks to go ahead, wanting the
 host's name typed where the brief says `be there`. It waits for `cache.yml` to
