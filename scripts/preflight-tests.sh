@@ -17,12 +17,12 @@
 #      stubbed Linear, GitHub, ntfy and Claude (tests/night-shift/*.test.ts,
 #      through harness.ts). It runs unattended, acts as Nick in Linear and
 #      deletes worktrees and branches, and nothing else checks its guards once
-#      a change lands. Then fleet-deploy, pkgs/fleet-deploy/, type-checked
-#      and run against stubbed hosts, nix and cache
-#      (tests/fleet-deploy/run.sh), since it deploys the Pis, then pr-handoff, pkgs/pr-handoff/, type-checked and
-#      run against stubbed gh and less (tests/pr-handoff/run.sh), since it
-#      publishes as Nick what agents wrote, and the ratchets' exposure score
-#      (scripts/test-ratchets-systemd.sh).
+#      a change lands. Then fleet-deploy, pkgs/fleet-deploy/,
+#      type-checked and run against stubbed hosts, nix and cache
+#      (tests/fleet-deploy/run.sh), since it deploys the Pis, then pr-handoff,
+#      pkgs/pr-handoff/, type-checked and run against stubbed gh and less
+#      (tests/pr-handoff/run.sh), since it publishes as Nick what agents wrote,
+#      and the ratchets' exposure score (scripts/test-ratchets-systemd.sh).
 set -euo pipefail
 
 step() {
