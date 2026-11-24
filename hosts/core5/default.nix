@@ -117,9 +117,8 @@
   };
 
   # Govee lights answer Home Assistant's scan and report status here. Only
-  # from iot, where the lights are and whence gate lets this one port
-  # through; see hosts/gate/govee.nix.
-  networking.firewall.extraCommands = ''
-    iptables -A nixos-fw -p udp --dport ${toString net.ports.goveeReply} -s ${net.segments.iot.subnet} -j nixos-fw-accept
-  '';
+  # from the lights, at their Kea reservations; see hosts/gate/govee.nix.
+  networking.firewall.extraCommands = lib.concatMapStrings (light: ''
+    iptables -A nixos-fw -p udp --dport ${toString net.ports.goveeReply} -s ${net.devices.${light}.ip} -j nixos-fw-accept
+  '') net.goveeLights;
 }
