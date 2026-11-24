@@ -8,9 +8,10 @@ import {
   existsSync, globSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename } from "node:path";
+import { basename, dirname } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { agent, atWork, cl, roster, type Session } from "./claude.ts";
+import { takeDrafts } from "./drafts.ts";
 import { type Env, HANDS_ON, NEEDS, QUEUED, READY, RUNNING } from "./env.ts";
 import { closed, comment, getIssue, type Issue, move, trimEnd, writeIssue } from "./issues.ts";
 import { type Linear, LinearError } from "./linear.ts";
@@ -124,8 +125,8 @@ class Run {
     const dir = `${common}/night-shift`;
     if (common && lstatSync(dir, { throwIfNoEntry: false })?.isDirectory()) {
       for (const n of readdirSync(dir)) {
-        if (n === `${s.ident}.issue.md` || n === `${s.ident}.md` || n.startsWith(`${s.ident}.md.`)) {
-          rmSync(`${dir}/${n}`, { force: true });
+        if ([".issue.md", ".md", ".drafts"].some((x) => n === `${s.ident}${x}`) || n.startsWith(`${s.ident}.md.`)) {
+          rmSync(`${dir}/${n}`, { recursive: true, force: true });
         }
       }
     }
@@ -324,12 +325,32 @@ class Run {
           `Handoff ready on \`${s.branch}\`.\n\n${body}\n${verdict ? `\n${verdict}\n` : ""}\nTo publish: \`cd ${s.worktree} && pr-handoff\`. To talk to the agent: ${attach}.`,
           `Handoff ready${level ? ` (${level})` : ""}`,
         );
+      } else if (kind === "drafts" && !this.work) {
+        await this.drafts(i, result, body, attach);
       } else {
-        await this.report(i, NEEDS, `The agent stopped and needs you.\n\n${body}\n\n${answer}, or ${attach}.`, "Needs you");
+        const lead = kind === "drafts" ? "The agent ended with `drafts`, which only forge's night shift takes." : "The agent stopped and needs you.";
+        await this.report(i, NEEDS, `${lead}\n\n${body}\n\n${answer}, or ${attach}.`, "Needs you");
       }
       archive(result);
     }
     update(f, (u) => (u.phase = "waiting"));
+  }
+
+  /**
+   * A forge agent's drafts, moved into the repo's linear-handoff/ for
+   * `night-shift file`. No PR follows, so land never completes the issue.
+   */
+  async drafts(i: Issue, result: string, body: string, attach: string): Promise<void> {
+    const dir = result.replace(/\.md$/, ".drafts");
+    const handoff = `${dirname(dirname(result))}/linear-handoff`;
+    const t = takeDrafts(dir, handoff, i.identifier);
+    const n = t.moved.length;
+    const text = [`Drafts ready (${n})${n ? `, in \`${handoff}/\`` : ""}.`, "", body];
+    if (n) text.push("", ...t.moved.map((m) => `- ${m.title} (\`${m.name}\`)`));
+    if (t.refused) text.push("", `Took no drafts: ${t.refused}.`);
+    if (t.left.length) text.push("", `Not taken, so left in \`${dir}/\`:`, ...t.left.map((l) => `- \`${l.name}\`: ${l.why}`));
+    text.push("", `${n ? "To file them: run `night-shift file`. " : ""}To talk to the agent: ${attach}.`);
+    await this.report(i, READY, text.join("\n"), `Drafts ready (${n})`);
   }
 
   /**

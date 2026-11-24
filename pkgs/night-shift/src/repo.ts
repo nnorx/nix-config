@@ -27,6 +27,12 @@ export function archive(result: string): void {
  * swapped in after the lstat is refused too. undefined when there is none.
  */
 export function readAgentFile(path: string): { text: string } | { refused: string } | undefined {
+  const got = readAgentBytes(path);
+  return got && "bytes" in got ? { text: got.bytes.toString("utf8") } : got;
+}
+
+/** readAgentFile's bytes, undecoded, for a reader that checks the encoding itself. */
+export function readAgentBytes(path: string): { bytes: Buffer } | { refused: string } | undefined {
   const dir = dirname(path);
   const d = lstatSync(dir, { throwIfNoEntry: false });
   if (!d) return undefined;
@@ -45,7 +51,7 @@ export function readAgentFile(path: string): { text: string } | { refused: strin
   try {
     const f = fstatSync(fd);
     if (!f.isFile() || f.dev !== st.dev || f.ino !== st.ino) return refused;
-    return { text: readFileSync(fd, "utf8") };
+    return { bytes: readFileSync(fd) };
   } finally {
     closeSync(fd);
   }

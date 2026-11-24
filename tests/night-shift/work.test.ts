@@ -260,7 +260,20 @@ kase("work_finish_blocked", "work: blocked: report says how to answer", async (c
   assert.ok(report(c).includes('`night-shift resume TST-1 "<answer>"`'), "the report says how to answer");
 });
 
-kase("work_resume", "work: night-shift resume: resumed with the answer", async (c) => {
+kase("work_finish_drafts", "work: drafts: reported as blocked, saying only forge takes them", async (c) => {
+  work(c, (i) => (i.state = { name: "In Progress", type: "started" }));
+  workAgent(c, "running");
+  mkdirSync(`${c.demo}/.git/night-shift/TST-1.drafts`, { recursive: true });
+  writeFileSync(`${c.demo}/.git/night-shift/TST-1.drafts/a.md`, "---\ntitle: a gap\n---\n");
+  writeFileSync(`${c.demo}/.git/night-shift/TST-1.md`, "drafts\nOne gap.\n");
+  assert.equal((await c.nsw(["run"])).status, 0);
+  noLinearWrites(c);
+  assert.equal(notified(c, "Needs you"), 1, "a notification");
+  assert.ok(report(c).includes("The agent ended with `drafts`, which only forge's night shift takes.\n\nOne gap."), report(c));
+  assert.ok(!existsSync(`${c.demo}/.git/linear-handoff`), "no draft moved");
+});
+
+kase("work_resume","work: night-shift resume: resumed with the answer", async (c) => {
   work(c, (i) => (i.state = { name: "In Progress", type: "started" }));
   workAgent(c, "waiting");
   assert.equal((await c.nsw(["resume", "tst-1", "Use the blue one."])).status, 0);
