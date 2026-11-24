@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname } from "node:path";
 import { QUEUED, type Env } from "./env.ts";
 import { all, DOC_FIELDS, DOCS, type Doc, type Linear, LinearError, PROJECTS } from "./linear.ts";
+import { bold, cyan, diffColor, dim, green, gutter, rule, yellow } from "./style.ts";
 import { askTty, commonDir, die, git, run, say, warn } from "./util.ts";
 
 // Drafts for `night-shift file`: <repo>/.git/linear-handoff/<any>.md, written
@@ -109,6 +110,7 @@ interface Filing {
   title: string;
   /** The text as filed, or for an update the change to it. */
   preview: string;
+  diff?: boolean;
   mutation: string;
   variables: Record<string, unknown>;
   filed: (data: any) => string;
@@ -224,6 +226,7 @@ function docFiling(d: Draft, projects: { id: string; name: string }[], allDocs: 
     shown: `doc · ${projectName} · update`,
     title,
     preview: diff(content, d.body),
+    diff: true,
     mutation: `mutation($id: String!, $i: DocumentUpdateInput!) { documentUpdate(id: $id, input: $i) { success document { url ${DOC_FIELDS} } } }`,
     variables: { id: existing.id, i: { content: d.body } },
     filed: (data) => `filed doc '${title}'  ${data.documentUpdate.document.url}`,
@@ -312,15 +315,16 @@ export async function fileDrafts(env: Env, linear: Linear): Promise<Doc[]> {
   for (const [n, f] of (filings as Filing[]).entries()) {
     const path = found[n]!.path;
     say();
-    say(`── ${path} (written ${written(path)})`);
-    say(f.shown);
+    say(rule(`Draft ${n + 1} of ${found.length} · ${found[n]!.repo}`));
+    say(`   ${dim(`${path} · written ${written(path)}`)}`);
+    say(`   ${cyan(f.shown)}`);
     say();
-    say(f.title);
+    say(`   ${bold(f.title)}`);
     say();
-    say(f.preview);
+    say(gutter(f.preview, f.diff ? diffColor : undefined));
     say();
-    if (!/^[yY]$/.test(askTty("File this one? [y/N] "))) {
-      say("kept");
+    if (!/^[yY]$/.test(askTty(bold("File this one? [y/N] ")))) {
+      say(yellow("– kept"));
       continue;
     }
     // Moved aside first: if Linear takes it but the answer is lost, a rerun
@@ -329,7 +333,7 @@ export async function fileDrafts(env: Env, linear: Linear): Promise<Doc[]> {
     renameSync(path, filing);
     try {
       const data = await linear.gql(f.mutation, f.variables);
-      say(f.filed(data));
+      say(green(`✓ ${f.filed(data)}`));
       if (f.doc) fresh.push(f.doc(data));
       rmSync(filing);
       filed++;
@@ -344,6 +348,7 @@ export async function fileDrafts(env: Env, linear: Linear): Promise<Doc[]> {
       }
     }
   }
-  say(`filed ${filed} of ${found.length}`);
+  say();
+  say(bold(`filed ${filed} of ${found.length}`));
   return fresh;
 }
