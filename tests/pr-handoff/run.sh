@@ -3,8 +3,8 @@
 # real git in temporary repositories and a bare origin on disk, and checks
 # what it published. It runs as Nick on what agents wrote, and these are its
 # guards: handoff links and control characters refused, one commit range
-# shown and pushed, the default branch and the lease as origin answers, and
-# the files that run code here named in every checkout.
+# shown and pushed, the default branch and the lease as origin answers, the
+# files that run code here named in every checkout, and no hook run.
 # scripts/preflight-tests.sh runs it after fleet-deploy's.
 #
 # Answers to its prompt come through PR_HANDOFF_TTY, a line each. One line
@@ -219,6 +219,25 @@ t_merge() {
   [[ ! -e $hand/topic.md && ! -e $hand/topic.squash.md ]] || fail "the handoffs were kept"
 }
 
+t_merge_ff() {
+  commit a.txt
+  echo "OPEN topic main $(git -C "$co" rev-parse HEAD)" >"$c/pr"
+  printf 'topic: a change\n\nWhy.\n' >"$hand/topic.squash.md"
+  git -C "$co" worktree add --quiet "$c/main" main
+  local squash hooks
+  squash=$(git -C "$co" commit-tree -p "$base" -m "topic: a change (#7)" "HEAD^{tree}")
+  git -C "$co" push --quiet origin "$squash:refs/heads/main"
+  hooks=$(git -C "$co" rev-parse --path-format=absolute --git-common-dir)/hooks
+  mkdir -p "$hooks"
+  printf '#!/bin/sh\ntouch %q\n' "$c/hook-ran" >"$hooks/post-merge"
+  chmod +x "$hooks/post-merge"
+  run merge 7
+  expect_status 0
+  [[ $(git -C "$c/main" rev-parse HEAD) == "$squash" ]] || fail "main was not fast-forwarded to the merge"
+  expect_out "is now"
+  [[ ! -e $c/hook-ran ]] || fail "a hook ran"
+}
+
 # An answer cut off before its newline is no answer, as `read` has it.
 t_unfinished_answer() {
   commit a.txt
@@ -251,6 +270,7 @@ t_body_framed() {
 case_ publish t_publish
 case_ body-framed t_body_framed
 case_ merge t_merge
+case_ merge-ff t_merge_ff
 case_ unfinished-answer t_unfinished_answer
 case_ empty-title t_empty_title
 case_ handoff-link t_handoff_link

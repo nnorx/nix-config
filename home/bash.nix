@@ -14,6 +14,11 @@
       "erasedups"
       "ignorespace"
     ];
+    historyIgnore = [
+      "c"
+      "clear"
+      "ls"
+    ];
     historyFileSize = 10000;
     historySize = 10000;
 

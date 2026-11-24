@@ -19,6 +19,12 @@
       ignoreSpace = true;
       extended = true;
       share = true;
+      # Kept out so they do not bury the rest in a history search.
+      ignorePatterns = [
+        "c"
+        "clear"
+        "ls"
+      ];
     };
 
     # Zsh-specific features
