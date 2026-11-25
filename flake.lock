@@ -19,11 +19,11 @@
     "claude-plugins": {
       "flake": false,
       "locked": {
-        "lastModified": 1791656567,
-        "narHash": "sha256-G31/He6X31tUTaL+z/I63fkBqRe0kDpH0TxAGx+5qPI=",
+        "lastModified": 1795623867,
+        "narHash": "sha256-BxxcCiG1+pTO4qv7losqfHUttQGKcGToAsoolN/AlD4=",
         "owner": "nnorx",
         "repo": "claude-plugins",
-        "rev": "970130431cb77d061c2ca61e50204f3dc072c2a2",
+        "rev": "c16f6a3b918dfb47d15aa6ab19fd007e0b907795",
         "type": "github"
       },
       "original": {
