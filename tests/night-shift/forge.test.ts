@@ -151,6 +151,7 @@ kase("start", "start: worktree with no upstream, issue text, claude --bg, Runnin
   assert.equal(starts[0]!.cwd, wt, "in the worktree");
   assert.deepEqual(starts[0]!.args!.slice(1, 5), ["-n", NAME, "--permission-mode", "auto"], "named, in auto mode");
   assert.ok(starts[0]!.args![5]!.includes("# TST-1: Fix the widget"), "given the task");
+  assert.ok(starts[0]!.args![5]!.includes(`${c.demo}/.git/night-shift/TST-1.drafts/`), "and where drafts go");
   assert.equal(c.count((l) => l.tool === "systemd-run" && !!l.args?.includes("--bg")), 1, "through systemd-run, outside the unit");
   assert.equal(c.stateName(), "Running");
   assert.equal(c.st().phase, "running");
@@ -283,6 +284,78 @@ kase("finish_blocked", "finish: blocked: Needs you", async (c) => {
 // is read only as a regular file in a plain directory.
 const CANARY = "not for Linear";
 const planted = `handoff\n${CANARY}\n`;
+
+// A drafts result: what the agent left in TST-1.drafts/, each draft checked,
+// and the good ones moved where `night-shift file` looks.
+const draft = (title: string) => `---\ntitle: ${title}\npriority: low\n---\n\nGoal: ${title}.\n`;
+
+function draftsAgent(c: Case, result: string, drafts: Record<string, string> = {}): { result: string; dir: string } {
+  const path = runningAgent(c, ago(), result);
+  const dir = `${dirname(path)}/TST-1.drafts`;
+  for (const [name, text] of Object.entries(drafts)) {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(`${dir}/${name}`, text);
+  }
+  return { result: path, dir };
+}
+
+kase("finish_drafts", "finish: drafts: the good ones moved to linear-handoff, the bad one named, Handoff ready", async (c) => {
+  const { result, dir } = draftsAgent(c, "drafts\nTwo merges left gaps.", {
+    "alerts.md": draft("forge: alert on stale backups"),
+    "docs.md": draft("docs: say how to rotate the key"),
+    "bad.md": "title: no front matter\n",
+  });
+  assert.equal((await c.ns(["run"])).status, 0);
+  assert.equal(c.stateName(), "Handoff ready");
+  const said = c.comments();
+  assert.ok(said.includes(`Drafts ready (2), in \`${c.handoff}/\`.\n\nTwo merges left gaps.`), said);
+  assert.ok(said.includes("- forge: alert on stale backups (`TST-1-alerts.md`)"), said);
+  assert.ok(said.includes("- docs: say how to rotate the key (`TST-1-docs.md`)"), said);
+  assert.ok(said.includes(`left in \`${dir}/\`:\n- \`bad.md\`: front matter must open and close with ---`), said);
+  assert.ok(said.includes("run `night-shift file`"), said);
+  assert.deepEqual(readdirSync(c.handoff).sort(), ["TST-1-alerts.md", "TST-1-docs.md"]);
+  assert.equal(readFileSync(`${c.handoff}/TST-1-alerts.md`, "utf8"), draft("forge: alert on stale backups"), "moved as written");
+  assert.deepEqual(readdirSync(dir), ["bad.md"], "the bad one left where it was");
+  assert.equal(pushed(c, "TST-1: Drafts ready (2)"), 1);
+  assert.ok(archived(result), "the result archived");
+  assert.equal(c.st().phase, "waiting");
+});
+
+kase("finish_drafts_link", "finish: drafts: a link among them not followed, and named", async (c) => {
+  const target = `${c.dir}/elsewhere.md`;
+  writeFileSync(target, draft(CANARY));
+  const { dir } = draftsAgent(c, "drafts\nOne gap.", { "real.md": draft("forge: one gap") });
+  symlinkSync(target, `${dir}/link.md`);
+  assert.equal((await c.ns(["run"])).status, 0);
+  assert.ok(!c.comments().includes(CANARY), "the target not read");
+  assert.ok(c.comments().includes("- `link.md`: not a regular file"), c.comments());
+  assert.deepEqual(readdirSync(c.handoff), ["TST-1-real.md"]);
+  assert.ok(lstatSync(`${dir}/link.md`).isSymbolicLink(), "the link left");
+  assert.equal(readFileSync(target, "utf8"), draft(CANARY), "the target unchanged");
+});
+
+kase("finish_drafts_dir_link", "finish: drafts: a drafts directory that is a link: none taken", async (c) => {
+  const elsewhere = `${c.dir}/elsewhere`;
+  mkdirSync(elsewhere);
+  writeFileSync(`${elsewhere}/a.md`, draft(CANARY));
+  const { dir } = draftsAgent(c, "drafts\nOne gap.");
+  symlinkSync(elsewhere, dir);
+  assert.equal((await c.ns(["run"])).status, 0);
+  assert.ok(c.comments().includes(`Took no drafts: \`${dir}\` is not a plain directory.`), c.comments());
+  assert.ok(!c.comments().includes(CANARY), "the target not read");
+  assert.deepEqual(readdirSync(elsewhere), ["a.md"], "nothing moved from the target");
+  assert.ok(!existsSync(c.handoff), "nothing in linear-handoff");
+});
+
+kase("finish_drafts_none", "finish: drafts, none written: Handoff ready, nothing to file", async (c) => {
+  draftsAgent(c, "drafts\nNothing worth filing.");
+  assert.equal((await c.ns(["run"])).status, 0);
+  assert.equal(c.stateName(), "Handoff ready");
+  assert.ok(c.comments().includes("Drafts ready (0).\n\nNothing worth filing."), c.comments());
+  assert.ok(!c.comments().includes("night-shift file"), "nothing to file");
+  assert.ok(!existsSync(c.handoff), "no linear-handoff made");
+  assert.equal(pushed(c, "TST-1: Drafts ready (0)"), 1);
+});
 
 kase("finish_result_symlink", "finish: a result that is a link: not read, Needs you, the link archived", async (c) => {
   const result = runningAgent(c);

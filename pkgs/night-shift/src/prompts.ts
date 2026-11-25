@@ -10,14 +10,21 @@ const STOP = `- Stop and ask rather than guess when a decision is Nick's, when t
   ambiguous, or when a check fails for a reason outside the task. A stopped
   task costs him one look; one that improvised costs a review of all of it.`;
 
-const finish = (result: string) => `## When you finish or stop
+/** drafts: whether this mode takes a `drafts` result, which only forge files. */
+const finish = (result: string, drafts: boolean) => `## When you finish or stop
 
 Write ${result}, then end your turn:
 
-- The first line is exactly \`handoff\` or \`blocked\`.
+- The first line is exactly \`handoff\`${drafts ? ", `blocked` or `drafts`" : " or `blocked`"}.
 - After a handoff: what changed and what you verified, in a few lines.
 - When blocked: what you did so far, then numbered questions, each answerable
-  in a sentence.`;
+  in a sentence.${drafts ? `
+- \`drafts\` is for a task that asks for Linear issues rather than a change.
+  Write each as a \`.md\` file in ${result.replace(/\.md$/, ".drafts")}/, a front
+  matter of \`title:\` and optionally \`priority:\`, \`project:\` and \`labels:\`
+  between \`---\` lines, then the issue's text, as "Filing issues from drafts"
+  in nix-config's docs/night-shift.md has it. After the first line, say what
+  you found and why each draft matters. No drafts, and why, is a result too.` : ""}`;
 
 export interface Start {
   repo: string;
@@ -46,7 +53,7 @@ ${SCOPE}
   worktree.
 ${STOP}
 
-${finish(s.result)}
+${finish(s.result, true)}
 
 Nick answers in Linear, and you will be resumed in this session with his
 answer, so do not wait for one here.`;
@@ -93,7 +100,7 @@ ${SCOPE}
   worktree. Touch no other worktree.
 ${STOP}
 
-${finish(s.result)}
+${finish(s.result, false)}
 
 Nick answers on this machine, and you will be resumed in this session with
 his answer, so do not wait for one here.`;

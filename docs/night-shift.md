@@ -71,12 +71,11 @@ broke every sandboxed command, a reboot undoes it.
    you. Then `systemctl --user start night-shift` rather than waiting, and
    `journalctl --user -u night-shift` to watch the run.
 
-What only a live run shows, since none of it can be tried from the sandbox:
-`claude --bg` started from a systemd user service with no terminal, and later
-`--resume`; the session surviving the service's exit, in a scope of its own;
-auto mode holding up with nobody to ask; and the agent writing its result into
-the repo's `.git/night-shift/`. If one of them fails, the issue lands in
-`Needs you` with what failed, and the journal has the rest.
+Only a live run shows `claude --bg` and `--resume` working from a user
+service with no terminal, the session outliving the service in a scope of its
+own, auto mode holding with nobody to ask, and the agent writing its result
+into `.git/night-shift/`. A failure lands the issue in `Needs you`, and the
+journal has the rest.
 
 ## Using it
 
@@ -91,6 +90,10 @@ the repo's `.git/night-shift/`. If one of them fails, the issue lands in
   bubblewrap with what every Claude session's sandbox denies hidden, your
   credentials among it (`hidden` in `hosts/forge/night-shift.nix`). Publish
   with the command in the comment, `cd <worktree> && pr-handoff`.
+- **Drafts:** a task asking for issues, not a change, can end in drafts.
+  Those that parse move to the repo's `.git/linear-handoff/` for
+  `night-shift file`; the issue goes to `Handoff ready`, listing them and
+  any left behind. No PR merges, so mark it Done yourself. Forge only.
 - **Needs you:** the agent's questions are in the comment. Answer in a comment
   and move the issue back to `Queued`; the same session resumes with your
   answer. `claude attach <name>` is the other way in: what the agent reports
@@ -108,12 +111,10 @@ the repo's `.git/night-shift/`. If one of them fails, the issue lands in
   whose last move to `Queued` Linear records with no person, as for an
   automation's, even on an issue you created. Only an issue created straight
   into `Queued` counts as queued by its creator.
-- **Reviewing a branch:** each time an agent is started or resumed, the
-  issue as it was handed over, with its title, URL, state, description and
-  your comments, is written to `.git/night-shift/<ID>.issue.md` in the repo,
-  next to the agent's result. A Claude session reviewing the branch cannot
-  reach Linear, so point it there to check the work against the task rather
-  than against memory. It stays under `.git/` and nothing publishes it.
+- **Reviewing a branch:** each start or resume writes the issue as handed
+  over, with your comments, to `.git/night-shift/<ID>.issue.md`, next to the
+  agent's result. A session reviewing the branch cannot reach Linear, so point
+  it there to check the work against the task. Nothing publishes it.
 - **Merged:** after you merge a handoff's PR, the next run moves the issue to
   the team's completed state, with a comment naming the PR, and cleans up:
   the agent's worktree, its branch and the branch's section in

@@ -1,8 +1,9 @@
-import { lstatSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname } from "node:path";
 import { QUEUED, type Env } from "./env.ts";
 import { all, DOC_FIELDS, DOCS, type Doc, type Linear, LinearError, PROJECTS } from "./linear.ts";
+import { readAgentBytes } from "./repo.ts";
 import { bold, cyan, diffColor, dim, green, gutter, rule, yellow } from "./style.ts";
 import { askTty, commonDir, die, git, run, say, warn } from "./util.ts";
 
@@ -351,4 +352,60 @@ export async function fileDrafts(env: Env, linear: Linear): Promise<Doc[]> {
   say();
   say(bold(`filed ${filed} of ${found.length}`));
   return fresh;
+}
+
+export interface Taken {
+  /** Each draft moved, by its new name, and its title. */
+  moved: { name: string; title: string }[];
+  /** Each draft left where it was, and why. */
+  left: { name: string; why: string }[];
+  /** Why none was looked at. */
+  refused?: string;
+}
+
+/**
+ * The drafts an agent left in <ID>.drafts/ beside its result, moved into
+ * linear-handoff/ as <ID>-<name>.md. Each is read as the result is, and what
+ * lands is the bytes checked, written anew, so nothing the agent links to or
+ * swaps in reaches `night-shift file`.
+ */
+export function takeDrafts(dir: string, handoff: string, ident: string): Taken {
+  const taken: Taken = { moved: [], left: [] };
+  const d = lstatSync(dir, { throwIfNoEntry: false });
+  if (!d) return taken;
+  if (!d.isDirectory()) return { ...taken, refused: `\`${dir}\` is not a plain directory` };
+  const h = lstatSync(handoff, { throwIfNoEntry: false });
+  if (h && !h.isDirectory()) return { ...taken, refused: `\`${handoff}\` is not a plain directory` };
+  if (!h) mkdirSync(handoff);
+  for (const name of readdirSync(dir).sort()) {
+    const shown = name.replace(/[^A-Za-z0-9._-]/g, "?");
+    const left = (why: string) => taken.left.push({ name: shown, why });
+    if (shown !== name || !name.endsWith(".md")) {
+      left("a draft's name is letters, digits, `.`, `_` and `-`, ending in `.md`");
+      continue;
+    }
+    const got = readAgentBytes(`${dir}/${name}`);
+    if (!got) continue;
+    if ("refused" in got) {
+      left("not a regular file");
+      continue;
+    }
+    const draft = parseDraft(got.bytes);
+    const title = typeof draft === "string" ? undefined : draft.fields.get("title") || draft.fields.get("doc");
+    if (!title) {
+      left(typeof draft === "string" ? draft : "no title");
+      continue;
+    }
+    const to = `${ident}-${name}`;
+    try {
+      writeFileSync(`${handoff}/${to}`, got.bytes, { flag: "wx" });
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+      left(`\`${to}\` is in linear-handoff already`);
+      continue;
+    }
+    rmSync(`${dir}/${name}`);
+    taken.moved.push({ name: to, title });
+  }
+  return taken;
 }
