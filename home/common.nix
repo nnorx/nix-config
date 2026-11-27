@@ -17,7 +17,6 @@
     ./git.nix
     ./common-tools.nix # CLI essentials (ripgrep, fd, bat, eza, fzf, etc.)
     ./security.nix # vulnix + whitelist for CVE scanning
-    ./tmux.nix
   ];
 
   # Let Home Manager manage itself

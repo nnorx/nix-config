@@ -6,8 +6,8 @@
 let
   # Helper to prepend to PATH only if not already present
   #   Usage: path_prepend "/some/dir"
-  # Why the guard: init files re-run in nested shells (tmux panes, `exec zsh`,
-  # nix develop) and would otherwise prepend the same dirs onto PATH each time
+  # Why the guard: init files re-run in nested shells (`exec zsh`, nix develop)
+  # and would otherwise prepend the same dirs onto PATH each time
   pathGuard = ''
     path_prepend() {
       case ":$PATH:" in

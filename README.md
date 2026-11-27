@@ -393,7 +393,7 @@ Three Home Manager profiles:
 
 | Profile | Used by | Contents |
 |---|---|---|
-| `home/common.nix` | every host; on the Pis and gate the only one, embedded in NixOS | zsh/bash + starship, git, nano, tmux, CLI tools, vulnix |
+| `home/common.nix` | every host; on the Pis and gate the only one, embedded in NixOS | zsh/bash + starship, git, nano, CLI tools, vulnix |
 | `home/default.nix` | WSL (`nick`), macOS (`nicknorcross`), and forge through NixOS | common, plus Node, Rust, Docker CLI, direnv, keychain ssh-agent, Claude Code |
 | `home/darwin.nix` | macOS only | GNU coreutils, and the night shift's work mode with its sandbox (`home/night-shift.nix`) |
 | `home/wsl.nix` | WSL only | What Claude Code's sandbox hides on WSL: interop, Docker Desktop and WSLg sockets |
