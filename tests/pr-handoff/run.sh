@@ -246,6 +246,14 @@ t_unfinished_answer() {
   expect_unpublished
 }
 
+t_empty_handoff() {
+  commit a.txt
+  : >"$hand/topic.md"
+  run
+  expect_unpublished
+  expect_out "topic.md; ask Claude to write one"
+}
+
 t_empty_title() {
   commit a.txt
   printf '\nWhy it changes.\n' >"$hand/topic.md"
@@ -272,6 +280,7 @@ case_ body-framed t_body_framed
 case_ merge t_merge
 case_ merge-ff t_merge_ff
 case_ unfinished-answer t_unfinished_answer
+case_ empty-handoff t_empty_handoff
 case_ empty-title t_empty_title
 case_ handoff-link t_handoff_link
 case_ handoff-dir-link t_handoff_dir_link

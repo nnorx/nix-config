@@ -1,4 +1,4 @@
-import { lstatSync, readFileSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { bold, dim, green, gutter, yellow } from "../../night-shift/src/style.ts";
 import { die, maybe, must, say, tryRun } from "./proc.ts";
@@ -19,10 +19,27 @@ export interface Handoff {
  */
 export function readHandoff(dir: string, path: string): Handoff {
   if (lstatSync(dir, { throwIfNoEntry: false })?.isSymbolicLink()) die(`${dir} is a link; publish by hand`);
+  const notFile = `no handoff at ${path}, or not a plain file; ask Claude to write one`;
   const st = lstatSync(path, { throwIfNoEntry: false });
-  if (!st?.isFile()) die(`no handoff at ${path}, or not a plain file; ask Claude to write one`);
-  if (st.size === 0) die(`no handoff at ${path}; ask Claude to write one`);
-  const raw = readFileSync(path);
+  if (!st?.isFile()) die(notFile);
+  // Read only the file just checked, so a link swapped in after the lstat is
+  // refused rather than followed. O_NONBLOCK: a FIFO swapped in would
+  // otherwise hold the open.
+  let fd: number;
+  try {
+    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  } catch {
+    die(notFile);
+  }
+  let raw: Buffer;
+  try {
+    const f = fstatSync(fd);
+    if (!f.isFile() || f.dev !== st.dev || f.ino !== st.ino) die(notFile);
+    raw = readFileSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+  if (raw.length === 0) die(`no handoff at ${path}; ask Claude to write one`);
   plain(`the handoff ${path}`, raw);
   const nl = raw.indexOf(0x0a);
   const head = (nl === -1 ? raw : raw.subarray(0, nl)).toString("utf8");
