@@ -163,9 +163,6 @@
       "playwright-report/"
       "blob-report/"
       ".playwright/"
-
-      # tmux logs
-      "tmux-*.log"
     ];
   };
 
